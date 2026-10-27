@@ -57,6 +57,34 @@ A **self-hosted, WeChat-style instant messaging platform** with real-time group 
 
 ---
 
+## 界面展示 Screenshots
+
+<details>
+<summary>登录 / 主界面 / 群聊 / 私聊 / 朋友圈 / 通讯录 / 暗色模式（点击展开）</summary>
+
+| 登录 Login | 聊天列表 Chat list |
+|---|---|
+| <img src="docs/login.png" width="480" alt="登录页"> | <img src="docs/chat.png" width="480" alt="聊天列表（置顶会话 + 未读角标）"> |
+
+| 群聊 · 群设置 Group & settings | 私聊 Private chat |
+|---|---|
+| <img src="docs/group.png" width="480" alt="群设置：成员宫格、群公告、加群申请、入群方式"> | <img src="docs/private.png" width="480" alt="私聊会话"> |
+
+| 朋友圈 Moments | 通讯录 Contacts |
+|---|---|
+| <img src="docs/moments.png" width="480" alt="朋友圈信息流 + 点赞评论"> | <img src="docs/contacts.png" width="480" alt="通讯录 / 好友"> |
+
+| 暗色模式 Dark mode |
+|---|
+| <img src="docs/dark.png" width="480" alt="暗色模式朋友圈"> |
+
+</details>
+
+> 群设置页里的「加群申请」与「入群方式 · 需群主审批」对应后端的 QQ 式加群机制（开放群直接进 / 审批群等群主通过，群号可一键复制）；暗色模式下自己发送的消息气泡使用主题变量，亮/暗都清晰可读。
+> The group-settings page shows the "join request" + "join policy (owner approval)" QQ-style flow; in dark mode your own message bubbles follow the theme so they stay readable in both light and dark.
+
+---
+
 ## 技术栈 Stack
 
 | 层 Layer | 技术 Tech |
@@ -155,9 +183,21 @@ docker run -d --name damian-chat \
 
 ## 安全说明 Security notes
 
-- 仓库**不含任何密钥、用户数据、日志**；所有运行时产物（`data/`、`logs/`、`security.json`、`wwwroot/`、`bin/obj/`、`node_modules/`）均已通过 `.gitignore` 排除，且本仓库以"物理删除 + 排除"双重保证不提交。
-- JWT / 管理密钥在首次启动时**本地生成**，绝不写进源码。
-- 生产部署建议：置于 HTTPS 之后、限制管理接口仅环回访问、按需调整 `security.json` 限流阈值。
+本系统把「聊天数据留在你自己的机器上」作为前提，并在其上叠加了一整套面向攻击场景的加固。以下都是**产品内置、无需额外配置**的安全能力。
+The system treats "your chat data stays on your own machine" as a premise, then layers a hardening stack aimed at real attack scenarios. Everything below is **built-in and requires no extra configuration**.
+
+- **数据不出本机 / Data never leaves your machine** — 用户、聊天、文件全部落盘在你的 `data/` 目录，没有云账号、没有遥测、没有第三方回调。No cloud accounts, no telemetry, no third-party callbacks.
+- **密钥首次启动本地生成 / Keys generated locally on first run** — JWT 签名密钥与管理密钥在服务首次启动时随机生成并写在本地，**源码与仓库里不含任何可用密钥**。JWT and admin keys are randomly generated on first start; no usable secret is ever shipped in source or the repo.
+- **登录防爆破 / Login anti-brute-force** — 滑块 + 图形双验证码、失败锁定、图形/滑块背景图库可替换；密码走 PBKDF2 加盐哈希 + 强度策略。Dual slider + image captcha, lockout on repeated failure, PBKDF2 salted password hashing with strength policy.
+- **限流与 DDoS 防护 / Rate limiting & DDoS defense** — 按 IP 的并发/速率限制与自动封禁，叠加**身份维度**消息洪泛上限（防止"偷 token 后换 IP"绕过 IP 限流）。Per-IP concurrency/rate caps with auto-ban, plus a per-identity message-flood limit so a stolen token + IP rotation can't bypass IP limits.
+- **长效凭证走 httpOnly Cookie / Long-lived creds in httpOnly cookie** — refresh token 存在 httpOnly cookie，防 XSS 直接窃取；访问 token 仅 2 小时短时效。Refresh tokens live in httpOnly cookies (XSS-resistant); access tokens expire in 2 hours.
+- **群/消息/会话全入口鉴权 / Per-entrypoint authorization** — 群号是不可枚举 GUID，非成员读群/读消息/发消息一律 404/403；拉群成员只能拉自己的好友，改角色仅群主，审批仅群主/管理员。Group IDs are non-enumerable GUIDs; non-members get 404/403 on every read/write; you can only add your own contacts; role changes are owner-only; join approvals are owner/admin-only.
+- **敏感词过滤 + 管理接口环回双门 / Sensitive-word filter + loopback-gated admin API** — 消息入口做敏感词剥离；`/api/admin/*` 仅接受环回请求且需本地管理密钥。Inbound sensitive-word stripping; `/api/admin/*` only accepts loopback requests **and** requires the local admin key.
+- **隔离式 Web 蜜罐 / Isolated web honeypot** — 诱饵 `.env`/`.git`/管理台 + 金丝雀 + tarpit 拖延，只读、与真实系统完全隔离，对正常用户零误伤。A read-only, fully isolated honeypot with canaries and tarpit delay; zero impact on real users.
+- **封号/删号即时踢线 / Instant ban/delete disconnect** — 已认证请求按 sub 反查封禁状态，命中即 `Abort` 其在线连接，不等心跳。Authenticated requests re-check ban status by subject; a hit immediately aborts the live connection.
+
+> **生产部署建议 / Production tips**：置于 HTTPS 之后（设 `WX_HTTPS_CERT`）、把管理接口限制在环回、按网络环境调整 `security.json` 的限流阈值与封禁线。
+> Put it behind HTTPS (`WX_HTTPS_CERT`), keep the admin API loopback-only, and tune the rate/ban thresholds in `security.json` for your network.
 
 ---
 
@@ -169,10 +209,11 @@ docker run -d --name damian-chat \
 
 ## 目录 · Contents
 
-- [项目亮点](#项目亮点-highlights)
-- [功能总览](#功能总览-features)
-- [技术栈](#技术栈-stack)
-- [目录结构](#目录结构-repository-layout)
-- [快速开始](#快速开始-quick-start)
-- [安全说明](#安全说明-security-notes)
+- [项目亮点](#项目亮点-highlights) · [Highlights](#项目亮点-highlights)
+- [功能总览](#功能总览-features) · [Features](#功能总览-features)
+- [界面展示](#界面展示-screenshots) · [Screenshots](#界面展示-screenshots)
+- [技术栈](#技术栈-stack) · [Stack](#技术栈-stack)
+- [目录结构](#目录结构-repository-layout) · [Repository layout](#目录结构-repository-layout)
+- [快速开始](#快速开始-quick-start) · [Quick start](#快速开始-quick-start)
+- [安全说明](#安全说明-security-notes) · [Security notes](#安全说明-security-notes)
 - [License](#license)
