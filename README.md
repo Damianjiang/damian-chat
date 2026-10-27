@@ -17,27 +17,19 @@ A **self-hosted, WeChat-style instant messaging platform** with real-time group 
 
 ## 界面展示 · Screenshots
 
-<details open>
-<summary>UI 截图 / Screenshots（点击可折叠 / click to collapse）</summary>
-
 <p align="center">
-  <img src="docs/chat.png" width="430" alt="聊天列表 Chat list">
-  <img src="docs/group.png" width="430" alt="群聊设置 Group chat & settings">
-</p>
-<p align="center">
-  <img src="docs/private.png" width="430" alt="私聊 Private chat">
-  <img src="docs/moments.png" width="430" alt="朋友圈 Moments">
-</p>
-<p align="center">
-  <img src="docs/contacts.png" width="430" alt="通讯录 Contacts">
-  <img src="docs/dark.png" width="430" alt="暗色模式 Dark mode">
+  <img src="docs/chat.png" width="440" alt="聊天列表 Chat list">
+  <img src="docs/group.png" width="440" alt="群聊设置 Group chat & settings">
 </p>
 
-</details>
-
-<!-- 同时放一张直接可见的精选图，打开主页立即可见 -->
 <p align="center">
-  <img src="docs/chat.png" width="480" alt="Damian Chat — 聊天主界面 / main chat UI">
+  <img src="docs/private.png" width="440" alt="私聊 Private chat">
+  <img src="docs/moments.png" width="440" alt="朋友圈 Moments">
+</p>
+
+<p align="center">
+  <img src="docs/contacts.png" width="440" alt="通讯录 Contacts">
+  <img src="docs/dark.png" width="440" alt="暗色模式 Dark mode">
 </p>
 
 > 群设置页里的「加群申请 / 入群方式 · 需群主审批」对应后端 QQ 式加群机制（开放群直接进 / 审批群等群主通过，群号可一键复制）；暗色模式下自己发的消息气泡跟随主题，亮/暗都清晰。
