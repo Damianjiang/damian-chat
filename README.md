@@ -1,5 +1,12 @@
 # 大面聊天 · Damian Chat
 
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
+[![.NET](https://img.shields.io/badge/.NET-8.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com)
+[![Vue](https://img.shields.io/badge/Vue-3.5-42b883?logo=vue.js)](https://vuejs.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue)](https://www.typescriptlang.org)
+[![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker)](https://docs.docker.com)
+[![Issues](https://img.shields.io/badge/issues-welcome-green)](https://github.com/Damianjiang/damian-chat/issues)
+
 A **self-hosted, WeChat-style instant messaging platform** with real-time group chat, private chat, Moments (朋友圈), rich media, and a hardened security layer — built with **C# ASP.NET Core 8 + SignalR** on the backend and **Vue 3 + Vuetify 4 + TypeScript** on the frontend.
 
 一个 **可自托管的、类微信的即时通讯系统**：实时群聊 / 私聊、朋友圈、富媒体消息，并内置一层**安全加固**——后端 **C# ASP.NET Core 8 + SignalR**，前端 **Vue 3 + Vuetify 4 + TypeScript**，开箱即用，无需依赖任何第三方 SaaS。
@@ -125,6 +132,21 @@ npm run build-only     # 产物输出到 server\WeChatWeb\wwwroot
 ```bat
 停止.bat
 ```
+
+### 方式三 · Docker 容器（Linux / 服务器 / 跨平台）
+仓库根目录自带多阶段 `Dockerfile`（前端构建 + 后端发布 + 运行时三阶段，前端产物并入后端 `wwwroot` 自包含托管）：
+```bash
+docker build -t damian-chat .
+docker run -d --name damian-chat \
+  -p 8080:8080 \
+  -v damian-chat-data:/app/data \
+  -v damian-chat-logs:/app/logs \
+  damian-chat
+# → http://localhost:8080
+```
+- 用户数据 / 密钥 / 聊天文件都落在 `data` 卷（`/app/data`），日志在 `logs` 卷（`/app/logs`），**重启不丢数据**；
+- 端口可用 `ASPNETCORE_URLS` 覆盖；需要 HTTPS 时设 `WX_HTTPS_CERT`（PFX）+ `WX_HTTPS_CERT_PASSWORD` + `WX_HTTPS_PORT`；
+- 图形管理端（WPF）为 Windows 专属，容器内不含——管理接口本身可用 HTTP API（`/api/admin/*`）操作。
 
 > 端口统一以管理端配置为准；首次运行会在 `server/WeChatWeb/data/` 下生成密钥与数据目录（这些目录已被 `.gitignore` 排除，不在仓库中）。
 > The port is managed by the admin tool; on first run a `data/` folder with generated keys is created (excluded from the repo).
