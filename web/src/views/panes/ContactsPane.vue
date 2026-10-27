@@ -1,0 +1,462 @@
+﻿<template>
+  <v-sheet class="wx-panes" flat>
+    <div class="wx-pane-header pa-2 d-flex flex-column gap-2">
+      <div class="wx-pane-titlebar">
+        <span class="wx-pane-title">通讯录</span>
+
+        <v-btn
+          class="ml-auto"
+          icon="mdi-account-plus"
+          size="small"
+          variant="text"
+          @click="addSheet = true"
+        />
+      </div>
+
+      <v-text-field
+        v-model="kw"
+        clearable
+        density="compact"
+        hide-details
+        placeholder="搜索"
+        prepend-inner-icon="mdi-magnify"
+        variant="solo"
+      />
+    </div>
+
+    <div ref="listRef" class="flex-grow-1 overflow-y-auto position-relative wx-scroll">
+      <template v-if="keywordMode">
+        <search-result-list :items="filtered" @select="openById" />
+      </template>
+
+      <template v-else>
+        <v-list v-if="contacts.requests.length > 0" class="wx-entry-list wx-stagger">
+          <v-list-subheader>新朋友</v-list-subheader>
+
+          <v-list-item v-for="r in contacts.requests" :key="r.id">
+            <template #prepend>
+              <v-avatar :color="avatarColor(r.from?.id ?? r.id)"><span>{{ (r.from?.nickname ?? '?').slice(0, 1) }}</span></v-avatar>
+            </template>
+
+            <template #title>
+              {{ r.from?.nickname }}<span class="text-body-small ml-2 text-medium-emphasis">{{ r.message }}</span>
+            </template>
+
+            <template #append>
+              <v-btn color="primary" size="x-small" @click="answerRequest(r.id, true)">通过</v-btn>
+              <v-btn size="x-small" variant="text" @click="answerRequest(r.id, false)">拒绝</v-btn>
+            </template>
+          </v-list-item>
+        </v-list>
+
+        <v-list class="wx-entry-list wx-stagger">
+          <!-- 群聊：点击打开「我的群聊」列表（我参加的群 + 未读 + 成员数），点群直接进群 -->
+          <v-list-item @click="groupsSheet = true">
+            <template #prepend><v-icon color="primary" icon="mdi-account-multiple" /></template>
+            <v-list-item-title>群聊<span v-if="myGroups.length" class="text-body-small ml-2 text-medium-emphasis">{{ myGroups.length }}</span></v-list-item-title>
+            <template #append><v-badge v-if="groupUnread > 0" color="wechat-unread" :content="groupUnread" /><v-icon v-else icon="mdi-chevron-right" /></template>
+          </v-list-item>
+        </v-list>
+
+        <div v-for="(items, letter) in grouped" :id="`letter-${letter}`" :key="letter">
+          <v-list-subheader class="wx-letter-head">{{ letter }}</v-list-subheader>
+
+          <v-list class="wx-stagger">
+            <v-list-item
+              v-for="c in items"
+              :key="c.id"
+              class="wx-contact-row"
+              @click="openContact(c)"
+              @contextmenu.prevent="onContactMenu(c, $event)"
+            >
+              <template #prepend>
+                <v-avatar :color="avatarColor(c.id)" :size="36">
+                  <img v-if="c.user?.avatar" :alt="c.user?.nickname" :src="c.user.avatar">
+                  <span v-else>{{ (c.user?.nickname ?? '?').slice(0, 1) }}</span>
+                </v-avatar>
+              </template>
+
+              <template #title>
+                <div class="d-flex align-center">
+                  {{ c.remark || c.user?.nickname }}
+                  <v-chip v-if="c.blocked" class="ml-2" color="error" size="x-small" variant="flat">已拉黑</v-chip>
+                </div>
+                <div class="text-body-small text-medium-emphasis">{{ c.user?.phone }}</div>
+              </template>
+            </v-list-item>
+          </v-list>
+        </div>
+      </template>
+
+      <contact-alpha-index
+        v-if="!keywordMode && availableLetters.length > 1"
+        class="wx-alpha-float"
+        :container="listRef"
+        :letters="availableLetters"
+        @scroll-to="scrollToLetter"
+      />
+    </div>
+
+    <!-- 联系人右键 / 长按菜单：拉黑(取消)、删除好友 -->
+    <ContextMenu
+      v-model="contactMenu"
+      :x="menuPoint.x" :y="menuPoint.y" :width="180"
+    >
+
+    >
+      <v-card v-if="menuContact" width="180">
+        <v-list density="compact">
+          <v-list-item @click="toggleBlockContact">
+            <v-list-item-title>{{ menuContact.blocked ? '取消拉黑' : '拉黑' }}</v-list-item-title>
+            <template #append><v-icon :icon="menuContact.blocked ? 'mdi-account-remove' : 'mdi-account-off'" /></template>
+          </v-list-item>
+
+          <v-divider />
+
+          <v-list-item class="text-error" @click="removeContact">
+            <v-list-item-title>删除好友</v-list-item-title>
+            <template #append><v-icon icon="mdi-delete-outline" /></template>
+          </v-list-item>
+        </v-list>
+      </v-card>
+    </ContextMenu>
+
+    <v-bottom-sheet v-model="addSheet" max-width="440" scrollable>
+      <v-card class="pa-4">
+        <v-text-field v-model="newPhone" label="手机号 / 大面号" placeholder="输入对方的手机号或大面号" />
+        <v-text-field v-model="newMsg" label="输入几句话，对TA说些什么吧" />
+
+        <div class="d-flex justify-end gap-2 mt-2">
+          <v-btn variant="text" @click="addSheet = false">取消</v-btn>
+          <v-btn color="primary" :disabled="!newPhone" @click="submitAdd">发送申请</v-btn>
+        </div>
+      </v-card>
+    </v-bottom-sheet>
+
+    <!-- 我的群聊：从「通讯录 → 群聊」入口打开，列出我参加的所有群（未读 + 成员数），点群直接进群 -->
+    <v-bottom-sheet v-model="groupsSheet" max-width="440" scrollable>
+      <v-card class="pa-2">
+        <div class="text-body-large font-weight-medium pa-2">我的群聊</div>
+
+        <!-- 通过群号加群（QQ 式）：输群号 → 后端 lookup（不泄露成员名单）→ 开放群直接进 / 审批群交申请等群主点头 -->
+        <div class="pa-2">
+          <div class="text-body-small text-medium-emphasis mb-1">通过群号加群</div>
+          <div class="d-flex align-center ga-2">
+            <v-text-field
+              v-model="joinNo"
+              class="flex-grow-1"
+              density="compact"
+              hide-details
+              placeholder="输入群号"
+              variant="solo"
+              @keyup.enter="lookUpJoin"
+            />
+            <v-btn color="primary" :disabled="!joinNo.trim() || joinBusy" @click="lookUpJoin">加群</v-btn>
+          </div>
+          <div v-if="joinHint" class="text-caption text-medium-emphasis mt-1">{{ joinHint }}</div>
+        </div>
+
+        <v-divider class="my-1" />
+
+        <v-list class="pa-0" lines="two">
+          <v-list-item v-for="g in myGroups" :key="g.id" @click="openGroup(g)">
+            <template #prepend>
+              <v-avatar :color="avatarColor(g.id)" :size="40">
+                <img v-if="g.avatar" :alt="g.name" :src="g.avatar">
+                <span v-else>{{ g.name.slice(0, 1) }}</span>
+              </v-avatar>
+            </template>
+            <template #title>
+              <div class="d-flex align-center">
+                <span>{{ g.name }}</span>
+                <v-badge v-if="groupUnreadOf(g) > 0" class="ml-2" color="wechat-unread" :content="groupUnreadOf(g)" />
+              </div>
+              <div class="text-body-small text-medium-emphasis">{{ g.members?.length ?? 0 }} 人</div>
+            </template>
+            <template #append><v-icon icon="mdi-chevron-right" /></template>
+          </v-list-item>
+
+          <v-list-item v-if="myGroups.length === 0" class="justify-center" disabled>
+            <v-list-item-title class="text-medium-emphasis">还没有群聊</v-list-item-title>
+          </v-list-item>
+        </v-list>
+
+        <div class="d-flex justify-end ga-2 pa-2">
+          <v-btn variant="text" @click="groupsSheet = false">关闭</v-btn>
+        </div>
+      </v-card>
+    </v-bottom-sheet>
+
+    <v-snackbar v-model="snack" :timeout="1800">{{ snackMsg }}</v-snackbar>
+  </v-sheet>
+</template>
+
+<script setup lang="ts">
+  import type { Contact, Group } from '@/types'
+  import { computed, onMounted, ref } from 'vue'
+  import { useRouter } from 'vue-router'
+  import ContactAlphaIndex from '@/components/ContactAlphaIndex.vue'
+  import SearchResultList from '@/components/SearchResultList.vue'
+  import { avatarColor } from '@/lib/utils'
+  import { api } from '@/lib/api'
+  import { useContactsStore } from '@/stores/contacts'
+  import ContextMenu from '@/components/ContextMenu.vue'
+  import { confirm } from '@/lib/confirm'
+  import { useConversationsStore } from '@/stores/conversations'
+
+  const router = useRouter()
+  const contacts = useContactsStore()
+  const conversations = useConversationsStore()
+
+  const kw = ref('')
+  const listRef = ref<HTMLElement | null>(null)
+  const addSheet = ref(false)
+  const newPhone = ref('')
+  const newMsg = ref('')
+  const snack = ref(false)
+  const snackMsg = ref('')
+
+  /* 「群聊」入口 → 我的群聊列表弹窗（真实数据：我参加的所有群，点群直接进） */
+  const groupsSheet = ref(false)
+
+  /* 通过群号加群（QQ 式）：输群号 → lookup（后端只回公开聚合信息，不泄露成员名单）→
+     开放群直接 POST /join 入群；审批群交申请等群主点头。已成员幂等。 */
+  const joinNo = ref('')
+  const joinBusy = ref(false)
+  const joinHint = ref('')
+
+  async function lookUpJoin () {
+    const no = joinNo.value.trim()
+    if (!no) return
+    joinBusy.value = true
+    joinHint.value = ''
+    try {
+      const lu = await api.get('/groups/lookup', { params: { no } })
+      const g = lu.data
+      if (g.iAmMember) {
+        joinNo.value = ''
+        groupsSheet.value = false
+        snackMsg.value = '你已在这个群'
+        snack.value = true
+        router.push({ name: 'group', params: { id: g.id } })
+        return
+      }
+      // 交申请：开放群直接进，审批群进待审批列表（后端按 JoinPolicy 分流）
+      const res = await api.post(`/groups/${g.id}/join`, {})
+      joinNo.value = ''
+      groupsSheet.value = false
+      if (g.joinPolicy === 'open') {
+        snackMsg.value = `已加入「${g.name}」`
+        snack.value = true
+        await conversations.loadSessions()
+        router.push({ name: 'group', params: { id: g.id } })
+      } else {
+        snackMsg.value = `已向「${g.name}」提交申请，等群主/管理员审批`
+        snack.value = true
+      }
+    } catch (error: any) {
+      const code = error?.response?.status
+      if (code === 404) {
+        joinHint.value = '群不存在（确认群号没输错）'
+      } else {
+        joinHint.value = error?.response?.data?.error ?? '加群失败，请重试'
+      }
+    } finally {
+      joinBusy.value = false
+    }
+  }
+
+  /* 联系人右键 / 长按菜单（拉黑 / 删除好友） */
+  const contactMenu = ref(false)
+  const menuContact = ref<Contact | null>(null)
+  const menuPoint = ref({ x: 0, y: 0 })
+
+  function onContactMenu (c: Contact, e: MouseEvent) {
+    menuContact.value = c
+    menuPoint.value = { x: e.clientX, y: e.clientY }
+    contactMenu.value = true
+  }
+
+  async function toggleBlockContact () {
+    const c = menuContact.value
+    if (!c) return
+    const next = !c.blocked
+    if (next) {
+      const ok = await confirm({
+        title: '拉黑该联系人？',
+        text: `拉黑后，${c.user?.nickname ?? '对方'} 发给你的消息将被拒收，你将无法发送消息。\n可随时在「设置 → 被拉黑的用户」中恢复。`,
+        confirmText: '拉黑',
+      })
+      if (!ok) return
+    } else {
+      const ok = await confirm({
+        title: '取消拉黑？',
+        text: `恢复后，${c.user?.nickname ?? '对方'} 即可正常与你收发消息。`,
+        confirmText: '取消拉黑',
+        danger: false,
+      })
+      if (!ok) return
+    }
+    try {
+      await contacts.toggleBlock(c.id, next)
+      snackMsg.value = next ? `已拉黑 ${c.user?.nickname ?? '对方'}` : `已取消拉黑 ${c.user?.nickname ?? '对方'}`
+    } catch (error: any) {
+      snackMsg.value = error?.response?.data?.error ?? '操作失败'
+    }
+    contactMenu.value = false
+    snack.value = true
+  }
+
+  async function removeContact () {
+    const c = menuContact.value
+    if (!c) return
+    const ok = await confirm({
+      title: '删除好友？',
+      text: `确定删除与 ${c.user?.nickname ?? '对方'} 的好友关系？\n删除后双向解除好友关系（聊天记录保留）。`,
+      confirmText: '删除',
+    })
+    if (!ok) return
+    try {
+      await contacts.removeFriend(c.id)
+      snackMsg.value = `已删除好友 ${c.user?.nickname ?? ''}`
+    } catch (error: any) {
+      snackMsg.value = error?.response?.data?.error ?? '删除失败'
+    }
+    contactMenu.value = false
+    snack.value = true
+  }
+
+  const keywordMode = computed(() => kw.value.trim().length > 0)
+
+  /** 群聊未读消息总数：所有群会话(kind==='group')的 unread 求和。
+   *  红点语义 = 消息数（不是群数量）；实时消息进来会实时更新 sessions[].unread。 */
+  const groupUnread = computed(() =>
+    conversations.sessions.filter(s => s.kind === 'group').reduce((sum, s) => sum + (s.unread || 0), 0))
+
+  /** 我参加的所有群（数据源 contacts.groups，onMounted 已 loadGroups）。 */
+  const myGroups = computed(() => contacts.groups)
+
+  /** 某群的未读总数（按 group conversation 的 memberId=groupId 匹配会话 unread）。 */
+  function groupUnreadOf (g: Group) {
+    const s = conversations.sessions.find(x => x.kind === "group" && x.memberId === g.id)
+    return s?.unread || 0
+  }
+
+  /** 点群进入该群聊天详情（GroupPane 路由 name: group）。 */
+  function openGroup (g: Group) {
+    groupsSheet.value = false
+    router.push({ name: "group", params: { id: g.id } })
+  }
+
+  const filtered = computed(() => {
+    const k = kw.value.trim().toLowerCase()
+    return contacts.items
+      .filter(c =>
+        c.user?.nickname?.toLowerCase().includes(k)
+        || (c.user?.phone ?? '').includes(k)
+        || (c.remark ?? '').toLowerCase().includes(k))
+      .map(c => ({ id: c.id, title: c.remark || c.user?.nickname || '', subtitle: c.user?.phone }))
+  })
+
+  const grouped = computed<Record<string, Contact[]>>(() => {
+    const map: Record<string, Contact[]> = {}
+    for (const c of contacts.sorted) {
+      const key = c.firstLetter || '#'
+      if (!map[key]) map[key] = []
+      map[key].push(c)
+    }
+    return map
+  })
+
+  function openContact (c: Contact) {
+    if (c.user?.id) router.push({ name: 'contact-profile', params: { id: c.user.id } })
+  }
+
+  function openById (item: { id: string }) {
+    const c = contacts.items.find(x => x.id === item.id)
+    if (c) openContact(c)
+  }
+
+  /** 只显示实际存在的字母，避免右侧拖出一长条 A-Z */
+  const availableLetters = computed(() => Object.keys(grouped.value).toSorted())
+
+  function scrollToLetter (l: string) {
+    const el = listRef.value?.querySelector(`#letter-${l}`)
+    el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
+  // 搜索为纯本地过滤（filtered computed）：此前 onSearch 调 contacts.load(kw)
+  // 会把 store.items 替换成搜索结果，退出搜索态后通讯录不恢复，且每键一次请求
+
+  /** 通过/拒绝好友申请：失败必须给反馈，否则用户点了没反应会反复点。 */
+  async function answerRequest (id: string, accept: boolean) {
+    const target = contacts.requests.find(r => r.id === id)
+    try {
+      if (accept) await contacts.acceptRequest(id)
+      else await contacts.rejectRequest(id)
+      snackMsg.value = accept ? `已添加 ${target?.from?.nickname ?? '对方'} 为好友` : '已拒绝'
+    } catch (error: any) {
+      snackMsg.value = error?.response?.data?.error ?? '操作失败，请重试'
+    }
+    snack.value = true
+  }
+
+  async function submitAdd () {
+    try {
+      await contacts.addFriend(newPhone.value, newMsg.value)
+      snackMsg.value = '申请已发送'
+      addSheet.value = false
+      newPhone.value = ''
+      newMsg.value = ''
+      await contacts.loadRequests()
+    } catch (error: any) {
+      snackMsg.value = error?.response?.data?.error ?? '添加失败'
+    }
+    snack.value = true
+  }
+
+  onMounted(async () => {
+    // 通讯录页本身展示「新朋友 / 群聊 / 联系人」；群聊红点是"群未读消息总数"，
+    // 未读数在 conversations store 里 —— 挂载时拉一次会话列表让它可用，
+    // 之后实时消息进来 applyIncoming 会自动更新 sessions[].unread（红点随之实时变化）。
+    conversations.loadSessions().catch(() => {})
+    await Promise.allSettled([contacts.load(), contacts.loadIndex(), contacts.loadRequests(), contacts.loadGroups()])
+  })
+</script>
+
+<style scoped>
+/* 标题行：标题绝对居中，右侧按钮靠右 */
+.wx-pane-titlebar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+  width: 100%;
+}
+
+.wx-alpha-float {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 3;
+}
+
+.wx-letter-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: rgb(var(--v-theme-wechat-chat-bg));
+  /* 补内缩：之前紧贴左边框，字母和头像都对不齐 */
+  padding-left: 16px !important;
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  font-size: 12px;
+  color: rgb(var(--v-theme-wechat-text-secondary));
+}
+
+.wx-entry-list {
+  border-bottom: 1px solid rgb(var(--v-theme-wechat-divider));
+}
+</style>

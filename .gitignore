@@ -1,0 +1,38 @@
+# ---- 构建产物 / Build output ----
+**/bin/
+**/obj/
+node_modules/
+dist/
+# Vite 前端构建产物直接输出到后端 wwwroot（部署/运行时只需后端）
+server/WeChatWeb/wwwroot/
+
+# ---- 运行时数据（用户数据 / 密钥 / 日志 / 配置 / 数据库）----
+# 全部为本地生成、含用户隐私或密钥，不进入仓库
+server/WeChatWeb/data/
+server/WeChatWeb/logs/
+server/WeChatWeb/security.json
+server/WxAdmin/wxadmin.json
+server/WxAdminGui/wxadmin.json
+.server.pid
+*.pid
+# 运行期临时日志
+.s.log
+.s.err
+
+# ---- 密钥 / secrets（永不提交）----
+*.key
+*.pem
+*.p12
+*.pfx
+.env
+.env.*
+!.env.example
+
+# ---- 编辑器 / 系统 ----
+.vs/
+.vscode/*
+!.vscode/extensions.json
+*.user
+*.suo
+Thumbs.db
+.DS_Store

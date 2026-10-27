@@ -1,0 +1,800 @@
+/**
+ * wechat.scss
+ *
+ * WeChat-style design tokens and overrides on top of Vuetify 4.
+ * Light: chat bg #F5F5F5, me bubble #95EC69, other bubble #FFFFFF,
+ * divider #E5E5E5, unread #FA5151, text #181818 / #888888.
+ * Dark: bg #1F1F1F, block #2C2C2C, other bubble #3A3A3A, text #E5E5E5.
+ */
+
+:root {
+  --wx-bubble-radius: 10px;
+  --wx-bubble-padding-x: 12px;
+  --wx-bubble-padding-y: 10px;
+  --wx-avatar-phone: 40px;
+  --wx-avatar-desktop: 44px;
+  --wx-font-size: 15px;
+}
+
+html,
+body {
+  font-size: var(--wx-font-size);
+}
+
+/* 全高链：让 .v-main 拥有确定高度，内部页面 height:100% 才能生效。
+   .v-main 的 padding-top/bottom 由 Vuetify 布局变量（--v-layout-*）自动给出
+   （顶栏 48px、底部导航 56px、PC 左侧 rail 64px），页面随之自适应。 */
+html,
+body,
+#app,
+.v-application,
+.v-application__wrap {
+  height: 100%;
+}
+
+/* WeChat 字号（14–15px）覆盖 MD3 默认排版（官方升级指南：v4 排版已切到 MD3） */
+.text-body-medium {
+  font-size: 15px;
+}
+
+.text-body-small {
+  font-size: 12px;
+}
+
+.text-title-small {
+  font-size: 14px;
+}
+
+.text-title-large {
+  font-size: 16px;
+}
+
+/* Global typography tweaks */
+.v-application {
+  /* 末尾追加各平台表情字体：按「逐字符回退」，中文走雅黑/苹方，
+     表情码点没有字形时落到系统表情字体 —— 修掉「表情面板/大表情渲染成空白豆腐块」。
+     （此前只有 CJK+Roboto，Windows 上 Microsoft YaHei 无表情字形 → 全部空白） */
+  font-family: 'PingFang SC', 'Microsoft YaHei', Roboto,
+    'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji', sans-serif !important;
+}
+
+/* ============================================================
+   全站文字禁止选中：聊天消息 / 列表 / 顶栏文字等一律不允许鼠标拖选，
+   否则右键 / 长按会先拖出一段蓝色选区，体验很差。
+   例外：真正的输入控件（input / textarea / contenteditable）保持可选，
+   让用户仍能选中、复制输入框里的文字。
+   ============================================================ */
+.v-application,
+.wx-panes,
+.v-application *,
+.wx-panes * {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* 输入控件保持可选中 / 可复制（搜索框、聊天输入框、备注等） */
+.v-application input,
+.v-application textarea,
+.v-application [contenteditable='true'] {
+  -webkit-user-select: text;
+  user-select: text;
+  cursor: text;
+}
+
+/* 表情按钮 / 聊天里的大表情 / 「我→表情」格子：显式挂表情字体，确保即使不继承也能正确显示 */
+.wx-sticker-btn,
+.wx-sticker,
+.wx-emoji-cell {
+  font-family: 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji',
+    'PingFang SC', 'Microsoft YaHei', sans-serif;
+}
+
+/* Chat background */
+.wx-chat-surface {
+  background: rgb(var(--v-theme-wechat-chat-bg)) !important;
+}
+
+/* Message bubbles */
+.wx-bubble {
+  /* 内容自适应宽度 + 锚定列宽上限：任何情况下不会被压成一列一个字 */
+  width: fit-content;
+  max-width: 100%;
+  padding: var(--wx-bubble-padding-y) var(--wx-bubble-padding-x);
+  border-radius: var(--wx-bubble-radius);
+  font-size: var(--wx-font-size);
+  line-height: 1.5;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  position: relative;
+  /* ★ 之前漏掉背景色，气泡渲染成完全透明 —— 这里补齐 */
+  background: #fff;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.05);
+}
+
+/* 气泡背景/文字全走 Vuetify 主题 token（--v-theme-wechat-*），明暗自动翻转。
+   ★ 单一事实来源 = 这组 token；暗色**不依赖** .v-theme--dark 类（本项目暗色是 CSS 变量驱动，
+   该类未挂到气泡祖先链上，旧的一堆 `.v-theme--dark .wx-bubble--*` 写死 #2c2c2e/#E5E5E5 的覆盖
+   全是死代码，且和 token 值颜色分叉，已删）。亮：me #95EC69 底黑字 / other 白底黑字；
+   暗：me #2B5E3F 底浅字 / other #26282C 底浅字 —— 全靠 token 翻转。 */
+.wx-bubble--me {
+  background: rgb(var(--v-theme-wechat-bubble-me));
+  color: rgb(var(--v-theme-wechat-text-primary));
+}
+
+.wx-bubble--other {
+  background: rgb(var(--v-theme-wechat-bubble-other));
+  color: rgb(var(--v-theme-wechat-text-primary));
+  border: 0.5px solid rgb(var(--v-theme-wechat-divider));
+}
+
+.wx-recalled {
+  background: transparent !important;
+  border: none !important;
+  color: rgb(var(--v-theme-wechat-text-secondary));
+  font-size: 13px;
+  text-align: center;
+  max-width: 80%;
+}
+
+.wx-time-divider {
+  text-align: center;
+  margin: 14px 0;
+
+  span {
+    font-size: 12px;
+    color: rgb(var(--v-theme-wechat-text-secondary));
+  }
+}
+
+/* Session list item */
+.wx-session-item {
+  .v-list-item-subtitle {
+    font-size: 13px;
+    color: rgb(var(--v-theme-wechat-text-secondary));
+  }
+
+  /* 选中态用中性灰底（不是绿色块），文字用当前主题主色 */
+  &.v-list-item--active,
+  &.is-active {
+    background: rgb(var(--v-theme-on-surface), 0.06);
+
+    .v-list-item-title {
+      color: rgb(var(--v-theme-primary));
+      font-weight: 500;
+    }
+  }
+
+  /* 每一项之间一条细分隔线，视觉上更清爽 */
+  & + & {
+    border-top: 1px solid rgb(var(--v-theme-on-surface), 0.06);
+  }
+}
+
+/* Alpha index bar */
+.wx-alpha-bar {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+
+  .wx-alpha-item {
+    width: 18px;
+    height: 16px;
+    font-size: 10px;
+    color: rgb(var(--v-theme-wechat-text-secondary));
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    line-height: 1;
+
+    &:hover,
+    &.is-active {
+      background: rgba(7, 193, 96, 0.2);
+      color: rgb(var(--v-theme-primary));
+      font-weight: 700;
+    }
+  }
+}
+
+/* Moments */
+.wx-moment-images {
+  display: grid;
+  gap: 4px;
+
+  &--3 { grid-template-columns: repeat(3, 1fr); }
+  &--4 { grid-template-columns: repeat(4, 1fr); }
+  &--5 { grid-template-columns: repeat(5, 1fr); }
+
+  img {
+    width: 100%;
+    aspect-ratio: 1;
+    object-fit: cover;
+    border-radius: 6px;
+  }
+}
+
+/* Message file card：背景 + 文字全走 Vuetify 主题 token（与气泡同一机制——暗色靠 CSS 变量翻转，
+   不依赖 .v-theme--dark 类（该类未挂到卡片祖先链上，旧的 `.v-theme--dark & { color:#E5E5E5 }`
+   是死代码，已删；此前暗色下我的文件卡=深绿底+黑字，看不清，同气泡同病））。 */
+.wx-file-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: var(--wx-bubble-radius);
+  background: rgb(var(--v-theme-wechat-bubble-me));
+  color: rgb(var(--v-theme-wechat-text-primary));
+  /* 手机/窄列：固定 200px 会把文件卡撑爆气泡 → 用 min(200px,100%) 限到父级宽度内 */
+  min-width: min(200px, 100%);
+  max-width: 100%;
+  box-sizing: border-box;
+
+  &--other {
+    background: rgb(var(--v-theme-wechat-bubble-other));
+  }
+}
+
+/* Bottom navigation & rail */
+.v-bottom-navigation {
+  box-shadow: 0 0 12px rgba(0, 0, 0, 0.08);
+}
+
+.v-btn--wx-primary {
+  --v-btn-background-opacity: 1;
+}
+
+/* Scrollbars (desktop) */
+.wx-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(var(--v-theme-wechat-divider)) transparent;
+
+  &::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: rgb(var(--v-theme-wechat-divider));
+    border-radius: 3px;
+  }
+}
+
+/* Search result card */
+.wx-search-card {
+  border-bottom: 1px solid rgb(var(--v-theme-wechat-divider));
+  padding: 12px 4px;
+
+  .wx-search-title {
+    font-size: 15px;
+    color: rgb(var(--v-theme-primary));
+    font-weight: 500;
+  }
+
+  .wx-search-url {
+    font-size: 12px;
+    color: rgb(var(--v-theme-wechat-text-secondary));
+  }
+
+  .wx-search-snippet {
+    font-size: 13px;
+    color: rgb(var(--v-theme-wechat-text-primary));
+    margin-top: 4px;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+}
+
+/* Login card */
+.wx-login-card {
+  width: 100%;
+  max-width: 380px;
+  border-radius: 16px;
+}
+
+/* ============================================================
+   微信 iPad 风格（对照真机截图）：
+   灰顶栏 #EDEDED + 居中标题 / 方圆角头像 / 统一 4px 矩形按钮 /
+   紧凑搜索行 / 圆角弹层
+   ============================================================ */
+
+/* 详情页顶栏（wx-chat-bar）：灰底 + 标题绝对居中（左右各留 56px 给返回/操作） */
+.wx-chat-bar {
+  background: #ededed !important;
+  color: #181818;
+
+  .v-toolbar-title {
+    /* 相对顶栏水平居中，两侧对称内缩，避免压到返回/操作按钮 */
+    position: absolute;
+    left: 56px;
+    right: 56px;
+    top: 50%;
+    transform: translateY(-50%);
+    text-align: center;
+    font-size: 17px;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    pointer-events: none;
+  }
+}
+
+/* 列表页头（聊天 / 通讯录 / 发现 / 朋友圈 / 搜索） */
+.wx-pane-header {
+  position: relative;
+  background: #ededed !important;
+  color: #181818;
+  min-height: 48px;
+  flex: 0 0 auto;
+  padding-top: 4px !important;
+  padding-bottom: 4px !important;
+}
+
+/* 纵向堆叠的 header（通讯录：标题行 + 搜索框）：子项占满宽度 */
+.wx-pane-header.d-flex.flex-column {
+  align-items: stretch;
+}
+
+.wx-pane-title {
+  /* 绝对居中：左右对称内缩 + text-align，避免 fit-content 在绝对定位下算成 0 宽 */
+  position: absolute;
+  left: 56px;
+  right: 56px;
+  top: 50%;
+  transform: translateY(-50%);
+  text-align: center;
+  font-size: 17px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
+/* iPad 顶栏 tab（two 模式）：灰底 + 常规大小写，选中绿 */
+.wx-shell-bar {
+  background: #ededed !important;
+  border-bottom: none;
+
+  .v-tab {
+    text-transform: none;
+    font-size: 15px;
+    font-weight: 500;
+    color: #181818;
+  }
+
+  .v-tab--selected {
+    color: rgb(var(--v-theme-primary)) !important;
+  }
+}
+
+/* 按钮统一：默认 4px 矩形（微信风格）。
+   ★ 用 !important 压住 Vuetify 默认圆角的同时必须留一个"逃生口"，
+     否则有意做成大圆角的按钮会被一起压平 —— 此前 .wx-login-btn 的
+     border-radius: 10px 就是被这条静默吃掉、一直没生效。 */
+.v-btn {
+  border-radius: 4px !important;
+  text-transform: none;
+}
+
+/* 图标按钮：4px 太锐，8px 更贴微信工具行的观感 */
+.v-btn--icon {
+  border-radius: 8px !important;
+}
+
+/* 逃生口：需要大圆角的主按钮（登录 / 注册 CTA）加 .wx-btn-soft */
+.v-btn.wx-btn-soft {
+  border-radius: 10px !important;
+}
+
+/* 头像统一：方圆角方形（微信 iPad 头像为圆角方块，非圆形） */
+.v-avatar {
+  border-radius: 8px !important;
+}
+
+/* 弹层卡片圆角 */
+.v-card {
+  border-radius: 10px;
+}
+
+.v-bottom-sheet .v-card {
+  border-radius: 10px 10px 0 0;
+}
+
+/* 聊天页内搜索行（查找聊天记录）：紧凑灰色胶囊输入 */
+.wx-search-bar {
+  flex: 0 0 auto;
+
+  .v-field {
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.05);
+    border: none;
+  }
+
+  .v-field__input {
+    font-size: 14px;
+    min-height: 36px;
+  }
+
+  .v-theme--dark & .v-field {
+    background: rgba(255, 255, 255, 0.08);
+  }
+}
+
+/* 弹窗内的工具栏/搜索框固定高度：flex column 容器里不能被拉伸成整屏空白 */
+.v-dialog .v-toolbar,
+.v-bottom-sheet .v-toolbar {
+  flex: 0 0 auto;
+}
+
+.v-dialog .v-card > .v-input,
+.v-dialog .v-card > .v-text-field {
+  flex: 0 0 auto;
+}
+
+/* 底部导航：选中微信绿，文字常规大小写 */
+.v-bottom-navigation {
+  .v-btn {
+    text-transform: none;
+    font-size: 11px;
+  }
+
+  .v-btn[active] {
+    color: rgb(var(--v-theme-primary));
+  }
+}
+
+/* 深色模式顶栏 */
+.v-theme--dark {
+  .wx-chat-bar,
+  .wx-pane-header,
+  .wx-shell-bar {
+    background: #2b2b2b !important;
+    color: #e5e5e5;
+  }
+}
+
+/* ============================================================
+   动效系统（Motion）
+   四条硬规则：
+   1. 只动 transform / opacity —— 走 GPU 合成层，不触发 layout / paint。
+      （filter:blur 绝不用在页面过渡上：过渡期间对大块 DOM 每帧离屏重绘，
+        是掉帧主源且会让文字发糊。）
+   2. 全站共用同一套曲线与时长 token —— 一致才有"整体感"。
+   3. 进场动画一律 animation-fill-mode: backwards，绝不用 both。
+      both 的 forwards 会在动画结束后继续锁定 transform，
+      使 :active 的按压缩放永久失效（这是一个很隐蔽的老 bug）。
+   4. 尊重 prefers-reduced-motion。
+   ============================================================ */
+
+:root {
+  /* 曲线：iOS 推入（快起慢落）/ 回弹（先快后缓）/ 标准对称 */
+  --wx-ease: cubic-bezier(0.32, 0.72, 0, 1);
+  --wx-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --wx-ease-in-out: cubic-bezier(0.42, 0, 0.32, 1);
+
+  /* 时长：微交互 / 常规 / 常规偏慢 / 页面级 */
+  --wx-dur-xs: 0.12s;
+  --wx-dur-sm: 0.18s;
+  --wx-dur-md: 0.26s;
+  --wx-dur-lg: 0.34s;
+}
+
+/* ---------- 手机整页：iOS 式推入（前进）/ 推出（返回） ----------
+   新页从屏幕右缘整页推入，旧页向左退 26% 并压暗 —— 位移足够大，
+   才会被读成"换页"而不是"抖了一下"（此前 48px 太小，观感像抖动）。
+   两页绝对定位叠放（见 WeChatAppShell），退出页 z-index 低于进入页。 */
+.wx-push-enter-active {
+  transition: transform var(--wx-dur-lg) var(--wx-ease);
+  will-change: transform;
+  z-index: 2;
+}
+
+.wx-push-leave-active {
+  transition:
+    transform var(--wx-dur-md) var(--wx-ease),
+    opacity var(--wx-dur-md) linear;
+  will-change: transform, opacity;
+  z-index: 1;
+}
+
+.wx-push-enter-from {
+  transform: translateX(100%);
+}
+
+.wx-push-leave-to {
+  transform: translateX(-26%);
+  opacity: 0.55;
+}
+
+/* 返回（pop）：方向相反 —— 当前页整页推回右侧，上一页从左缘归位 */
+.wx-pop-enter-active {
+  transition:
+    transform var(--wx-dur-md) var(--wx-ease),
+    opacity var(--wx-dur-md) linear;
+  will-change: transform, opacity;
+  z-index: 1;
+}
+
+.wx-pop-leave-active {
+  transition: transform var(--wx-dur-lg) var(--wx-ease);
+  will-change: transform;
+  z-index: 2;
+}
+
+.wx-pop-enter-from {
+  transform: translateX(-26%);
+  opacity: 0.55;
+}
+
+.wx-pop-leave-to {
+  transform: translateX(100%);
+}
+
+/* ---------- 桌面中列（聊天/通讯录/朋友圈…切换）：轻快淡入 + 微上移 ---------- */
+.wx-fade-enter-active {
+  transition:
+    opacity var(--wx-dur-sm) ease,
+    transform var(--wx-dur-md) var(--wx-ease-out);
+  will-change: transform, opacity;
+}
+
+.wx-fade-leave-active {
+  transition: opacity var(--wx-dur-xs) ease;
+}
+
+.wx-fade-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.wx-fade-leave-to {
+  opacity: 0;
+}
+
+/* ---------- 桌面右列（详情页）：右侧滑入 ---------- */
+.wx-slide-enter-active {
+  transition:
+    transform var(--wx-dur-md) var(--wx-ease),
+    opacity var(--wx-dur-sm) ease;
+  will-change: transform, opacity;
+}
+
+.wx-slide-leave-active {
+  transition:
+    transform var(--wx-dur-sm) var(--wx-ease),
+    opacity var(--wx-dur-xs) ease;
+}
+
+.wx-slide-enter-from {
+  transform: translateX(40px);
+  opacity: 0;
+}
+
+.wx-slide-leave-to {
+  transform: translateX(-16px);
+  opacity: 0;
+}
+
+/* 用户偏好减少动态效果：关闭页面过渡，避免眩晕 */
+@media (prefers-reduced-motion: reduce) {
+  .wx-push-enter-active,
+  .wx-push-leave-active,
+  .wx-pop-enter-active,
+  .wx-pop-leave-active,
+  .wx-fade-enter-active,
+  .wx-fade-leave-active,
+  .wx-slide-enter-active,
+  .wx-slide-leave-active,
+  .wx-page-enter-active,
+  .wx-page-leave-active {
+    transition: none !important;
+  }
+}
+
+/* ===== 路由级切换（登录页 ↔ 主应用等顶级路由）：平滑淡入淡出 + 微上移，
+   登录成功跳首页不再"硬切"，像整屏柔和过渡 ===== */
+.wx-page-enter-active {
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.wx-page-leave-active {
+  transition: opacity 0.24s ease;
+  position: relative;
+}
+
+.wx-page-enter-from {
+  opacity: 0;
+  transform: translateY(10px);
+}
+
+.wx-page-leave-to {
+  opacity: 0;
+}
+
+/* ============================================================
+   个性化（fx / 半透明 / 磨砂玻璃 / 用户壁纸）—— 由 lib/personalize.ts 驱动
+   这些全部是「可开关」的增强层，关掉即回到默认观感。
+   ============================================================ */
+
+/* 1) 关「动效」：html.wx-no-motion 下停掉所有非必要动画与过渡（与 prefers-reduced-motion 同等效力，但由用户手动控制） */
+.wx-no-motion *,
+.wx-no-motion *::before,
+.wx-no-motion *::after {
+  animation: none !important;
+  transition: none !important;
+}
+
+/* 2) 组件半透明度：--wx-alpha 由 personalize.ts 写入（0..100）。
+   主要表面层（顶栏/列表分组/卡片/详情面板）按 alpha 透明化，让背景壁纸/波纹透出。
+   用 color-mix 与主题色混合（保留可读性），alpha=100 时完全不变。
+   Vuetify 变量是 R G B 空格分隔，这里在关键层直接叠一层半透明。 */
+:root {
+  --wx-alpha: 100;
+}
+
+/* 2a) 磨砂玻璃层（html.wx-glass，alpha<100 时挂）：给顶栏/底部导航加 backdrop-filter 模糊，
+      让透出的内容不糊文字 */
+.wx-glass .wx-chat-bar,
+.wx-glass .wx-pane-header,
+.wx-glass .wx-shell-bar,
+.wx-glass .v-bottom-navigation,
+.wx-glass .wx-profile-avatar-ring {
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+}
+
+/* ★ 低端设备（手机/平板/旧电脑，见 lib/perf.ts → html.wx-low-perf）：
+   backdrop-filter 逐像素模糊是 CPU/GPU 高开销，弱端必卡。这里统一关掉所有磨砂，
+   保留色底（alpha 透明化仍在），观感损失极小、流畅度大幅提升。 */
+html.wx-low-perf .wx-glass .wx-chat-bar,
+html.wx-low-perf .wx-glass .wx-pane-header,
+html.wx-low-perf .wx-glass .wx-shell-bar,
+html.wx-low-perf .wx-glass .v-bottom-navigation,
+html.wx-low-perf .wx-glass .wx-profile-avatar-ring,
+html.wx-low-perf body.wx-has-user-bg::after {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* 2b) 各表面层按 alpha 透明化（top bar / 列表分组 / 卡片 / 详情面板）。
+      用 rgba 叠色而非改 Vuetify 变量：不破坏暗色主题计算。 */
+.wx-pane-header,
+.wx-chat-bar {
+  background: color-mix(in srgb, #ededed calc(var(--wx-alpha) * 1%), transparent) !important;
+}
+.v-theme--dark .wx-pane-header,
+.v-theme--dark .wx-chat-bar {
+  background: color-mix(in srgb, #2b2b2b calc(var(--wx-alpha) * 1%), transparent) !important;
+}
+.wx-settings-group,
+.wx-profile-card {
+  background-color: color-mix(in srgb, #ffffff calc(var(--wx-alpha) * 1%), transparent);
+}
+.v-theme--dark .wx-settings-group,
+.v-theme--dark .wx-profile-card {
+  background-color: color-mix(in srgb, #1c1d20 calc(var(--wx-alpha) * 1%), transparent);
+}
+
+/* 3) 用户壁纸（存浏览器缓存 IndexedDB）：body.wx-has-user-bg 时铺底层壁纸 + 半透明遮罩，
+      让上面的卡片/面板（alpha 透明后）有内容可透出。z-index 垫底，不遮挡交互。 */
+body.wx-has-user-bg::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background: var(--wx-user-bg) center/cover no-repeat;
+}
+
+body.wx-has-user-bg::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background: rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(2px);
+}
+
+/* 暗色模式：遮罩改深色，避免壁纸被刷成惨白 */
+body.wx-has-user-bg[data-dm-mode='dark']::after,
+html[data-dm-mode='dark'] body.wx-has-user-bg::after {
+  background: rgba(17, 18, 20, 0.62);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wx-no-motion *,
+  .wx-no-motion *::before,
+  .wx-no-motion *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* ===== 收到新消息：直接上屏，不再播放 pop 进场动画（性能优先，列表翻动更稳） ===== */
+
+/* ===== 悬停回馈（仅真指针设备）=====
+   触屏上 :hover 会"粘住"（点完一行一直亮着），所以用 (hover: hover) 隔离。
+   选中行不参与 hover，避免把选中态的高亮压淡。 */
+@media (hover: hover) and (pointer: fine) {
+  .wx-session-item:not(.v-list-item--active):not(.is-active):hover,
+  .v-list-item--link:not(.v-list-item--active):hover,
+  .wx-pick-row:hover {
+    background: rgb(var(--v-theme-on-surface), 0.045);
+  }
+
+  .v-theme--dark .wx-session-item:not(.v-list-item--active):not(.is-active):hover,
+  .v-theme--dark .v-list-item--link:not(.v-list-item--active):hover,
+  .v-theme--dark .wx-pick-row:hover {
+    background: rgb(var(--v-theme-on-surface), 0.075);
+  }
+}
+
+/* ===== 按压回馈：可点行 / rail / 底部导航按下即缩 + 变色，抬起弹回 ===== */
+.wx-press,
+.wx-rail-item,
+.v-bottom-navigation .v-btn,
+.wx-session-item,
+.v-list-item--link,
+.wx-pick-row {
+  transition:
+    background-color var(--wx-dur-sm) ease,
+    color var(--wx-dur-sm) ease,
+    transform var(--wx-dur-sm) var(--wx-ease-out);
+}
+
+.wx-session-item:active,
+.v-list-item--link:active,
+.wx-pick-row:active {
+  transform: scale(0.985);
+  background: rgb(var(--v-theme-on-surface), 0.085);
+}
+
+.wx-rail-item:hover {
+  background: rgb(var(--v-theme-on-surface), 0.05);
+}
+
+.wx-rail-item:active {
+  transform: scale(0.94);
+  background: rgb(var(--v-theme-on-surface), 0.09);
+}
+
+/* ===== 导航微动效已精简：只保留按压变色/缩放过渡（transition），删除弹跳 keyframe ===== */
+
+/* 底部导航：按压回缩 */
+.wx-bottom-nav .v-btn {
+  transition:
+    transform var(--wx-dur-sm) var(--wx-ease-out),
+    color var(--wx-dur-sm) ease;
+}
+
+.wx-bottom-nav .v-btn:active {
+  transform: scale(0.9);
+}
+
+/* ===== 加载骨架：静态浅色底（不再做无限扫光动画，短暂出现不必动） ===== */
+.wx-skeleton {
+  border-radius: 6px;
+  background:
+    linear-gradient(
+      90deg,
+      rgb(var(--v-theme-on-surface), 0.05) 25%,
+      rgb(var(--v-theme-on-surface), 0.11) 37%,
+      rgb(var(--v-theme-on-surface), 0.05) 63%
+    );
+}
+
+/* ===== 用户偏好减少动态效果：关掉一切非必要动画 ===== */
+@media (prefers-reduced-motion: reduce) {
+  .wx-rail-item .v-icon,
+  .wx-bottom-nav .v-btn,
+  .wx-session-item,
+  .v-list-item--link,
+  .wx-pick-row {
+    animation: none !important;
+    transition: none !important;
+  }
+}

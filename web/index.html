@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" href="/favicon.ico" />
+    <link rel="icon" type="image/png" sizes="48x48" href="/icon-48.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="大面聊天" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex" />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="theme-color" content="#0fbf9f" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#111214" media="(prefers-color-scheme: dark)" />
+    <title>大面聊天</title>
+    <style>
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; height: 100%; }
+      body {
+        font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+        background: #ededed;
+        color: #181818;
+      }
+      .media-dark, html[data-dm-mode="dark"] body { background: #111214; color: #e9ecef; }
+
+      .sg { min-height: 100vh; min-height: 100dvh; display: flex; align-items: center; justify-content: center; padding: 16px; box-sizing: border-box; }
+      .sg-card {
+        width: 100%; max-width: 420px; background: #fff; border: 1px solid #e5e5e5;
+        border-radius: 12px; padding: 24px; text-align: center;
+      }
+      html[data-dm-mode="dark"] .sg-card { background: #1c1d20; border-color: #303238; }
+      .sg-demo {
+        min-height: 120px; border: 1px dashed #d0d0d0; border-radius: 8px;
+        display: flex; align-items: center; justify-content: center; background: #fafafa;
+      }
+      .sg-demo-fallback { color: #999; font-size: 13px; padding: 16px; }
+      .sg-q { font-size: 15px; margin: 20px 0 14px; }
+      .sg-btns { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+      .sg-btn {
+        min-width: 150px; padding: 10px 18px; font-size: 15px; border-radius: 8px;
+        border: 1px solid #e5e5e5; background: #fff; color: #181818; cursor: pointer;
+      }
+      .sg-btn-primary { background: #07c160; border-color: #07c160; color: #fff; }
+      .sg-blocked { margin-top: 24px; padding-top: 18px; border-top: 1px solid #eee; }
+      .sg-blocked h1 { font-size: 16px; margin: 0 0 8px; }
+      .sg-blocked p { font-size: 14px; color: #888; margin: 0 0 14px; }
+      .sg-blocked a {
+        display: block; width: 220px; margin: 8px auto; padding: 9px 0; font-size: 14px;
+        color: #07c160; background: #f5f5f5; border-radius: 8px; text-decoration: none;
+      }
+      html[data-dm-mode="dark"] .sg-blocked a { background: #303238; }
+
+      /* 资源加载（首进 / 下载必要资源时）：进度条 + 当前文件名；Vue 挂载成功后 main.ts 移除本层 */
+      .wx-loader { position: fixed; inset: 0; z-index: 9999; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; background: #ededed; }
+      html[data-dm-mode="dark"] .wx-loader { background: #111214; }
+      .wx-loader-ring { width: 46px; height: 46px; border: 3px solid rgba(0,0,0,0.12); border-top-color: #07c160; border-radius: 50%; animation: wx-spin .8s linear infinite; }
+      @keyframes wx-spin { to { transform: rotate(360deg); } }
+      .wx-loader-pct { font-size: 16px; font-weight: 600; color: #181818; }
+      html[data-dm-mode="dark"] .wx-loader-pct { color: #e9ecef; }
+      .wx-loader-bar { width: 240px; height: 4px; border-radius: 2px; background: rgba(0,0,0,0.1); overflow: hidden; }
+      html[data-dm-mode="dark"] .wx-loader-bar { background: rgba(255,255,255,0.12); }
+      .wx-loader-bar i { display: block; height: 100%; width: 0%; background: #07c160; border-radius: 2px; transition: width .25s ease; }
+      .wx-loader-file { font-size: 12px; color: #888; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      html[data-dm-mode="dark"] .wx-loader-file { color: #9ba1a6; }
+
+      /* 网络错误 / 离线态：有 UI 缓存时资源全走本地，仍无网 → 显示本页 */
+      .wx-neterr { position: fixed; inset: 0; z-index: 9998; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 24px; text-align: center; background: #ededed; }
+      html[data-dm-mode="dark"] .wx-neterr { background: #111214; }
+      .wx-neterr.on { display: flex; }
+      .wx-neterr h1 { font-size: 18px; margin: 0 0 6px; }
+      .wx-neterr p { font-size: 14px; color: #888; margin: 0; }
+      html[data-dm-mode="dark"] .wx-neterr p { color: #9ba1a6; }
+      .wx-neterr button {
+        margin-top: 10px; padding: 9px 22px; font-size: 14px; border-radius: 8px; border: none;
+        background: #07c160; color: #fff; cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <!-- Vue 挂不上时（旧浏览器），这里的纯 HTML 门保留并可操作 -->
+      <div class="sg">
+        <div class="sg-card">
+          <div class="sg-demo">
+            <div class="sg-demo-fallback">此处本应显示应用的彩色组件；<br />若你看到的是本占位框，请点下方「看不到」</div>
+          </div>
+          <p class="sg-q">你是否能正常看到上面的组件？</p>
+          <div class="sg-btns">
+            <button type="button" class="sg-btn sg-btn-primary" data-wx-confirm>能看到，进入应用</button>
+            <button type="button" class="sg-btn" data-wx-unsupported>看不到</button>
+          </div>
+          <div class="sg-blocked" id="sg-blocked" style="display: none">
+            <h1>您当前浏览器版本过低，不支持您继续使用此web app</h1>
+            <p>请升级浏览器后重试</p>
+            <a href="https://www.google.com/chrome/" rel="noopener noreferrer" target="_blank">下载 Google Chrome</a>
+            <a href="https://www.microsoft.com/edge" rel="noopener noreferrer" target="_blank">下载 Microsoft Edge</a>
+            <a href="https://www.mozilla.org/firefox/" rel="noopener noreferrer" target="_blank">下载 Mozilla Firefox</a>
+            <a href="https://www.apple.com/safari/" rel="noopener noreferrer" target="_blank">下载 Safari</a>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 资源加载：首进显示进度条 + 正在下载的文件名；Vue 成功挂载后由 main.ts 移除本层 -->
+    <div class="wx-loader" id="wx-loader">
+      <div class="wx-loader-ring"></div>
+      <div class="wx-loader-pct" id="wx-loader-pct">0%</div>
+      <div class="wx-loader-bar"><i id="wx-loader-bar"></i></div>
+      <div class="wx-loader-file" id="wx-loader-file">正在下载必要资源…</div>
+    </div>
+
+    <!-- 网络错误 / 离线兜底：有本地 UI 缓存、资源全部离线可用但仍无网时，由 main.ts 显示 -->
+    <div class="wx-neterr" id="wx-neterr">
+      <h1>网络连接不可用</h1>
+      <p>已使用本地缓存内容。请检查网络后重试，或服务端接口可能无法访问。</p>
+      <button type="button" id="wx-neterr-retry">重新加载</button>
+    </div>
+
+    <!-- 引导脚本（外部文件，CSP script-src 'self' 合规）：主题首帧 / 浏览器门 / 资源进度 / 控制函数 / 兜底 -->
+    <script src="/boot.js"></script>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

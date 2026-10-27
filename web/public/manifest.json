@@ -1,0 +1,17 @@
+{
+  "name": "大面聊天",
+  "short_name": "大面聊天",
+  "description": "安全、简洁的即时通讯",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#ededed",
+  "theme_color": "#0fbf9f",
+  "icons": [
+    { "src": "/icon-48.png", "sizes": "48x48", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
