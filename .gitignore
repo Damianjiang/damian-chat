@@ -6,9 +6,12 @@ dist/
 # Vite 前端构建产物直接输出到后端 wwwroot（部署/运行时只需后端）
 server/WeChatWeb/wwwroot/
 
-# ---- 运行时数据（用户数据 / 密钥 / 日志 / 配置 / 数据库）----
-# 全部为本地生成、含用户隐私或密钥，不进入仓库
-server/WeChatWeb/data/
+# ---- 运行时数据 / 用户数据 / 密钥（永不提交）----
+# 注意：后端源码 DataStore.cs 等 .cs 与运行时数据同处 server/WeChatWeb/Data/ 目录
+# （Windows 大小写不敏感，代码里写的 "data" 即物理上的 "Data"）。
+# 因此整目录忽略运行时杂项，但显式放行其中的 .cs 源码，保证仓库可编译。
+server/WeChatWeb/Data/*
+!server/WeChatWeb/Data/*.cs
 server/WeChatWeb/logs/
 server/WeChatWeb/security.json
 server/WxAdmin/wxadmin.json
@@ -36,3 +39,6 @@ server/WxAdminGui/wxadmin.json
 *.suo
 Thumbs.db
 .DS_Store
+
+# vite 构建期产物（unplugin-vue-components 自动生成）
+web/components.d.ts
