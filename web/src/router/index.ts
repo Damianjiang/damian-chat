@@ -59,6 +59,32 @@ const router = createRouter({
   routes,
 })
 
+/**
+ * 懒加载 chunk 失败自动整页刷新（发版自愈）。
+ *
+ * 场景：前端重新构建后服务器上的哈希产物已更换，还开着旧页面的用户点到一个
+ * 没去过的路由（如通讯录）时，按旧哈希去拉 chunk → 404 → 路由挂掉，
+ * 表现为「某个界面无法加载」。已访问过的页面在内存里所以看起来正常。
+ * 处理：这类错误强制整页刷新一次（拿新 index.html + 新产物）；sessionStorage
+ * 防死循环（刷新后仍失败就放行报错，多半是真断网）。
+ */
+router.onError((error, to) => {
+  const msg = String((error as Error)?.message ?? '')
+  if (!/Failed to fetch dynamically imported module|Importing a module script failed|error loading dynamically imported module/i.test(msg)) {
+    return
+  }
+  if (sessionStorage.getItem('wx_chunk_reload')) return
+  sessionStorage.setItem('wx_chunk_reload', '1')
+  location.href = to?.fullPath ?? location.pathname
+})
+
+// Vite 预加载（依赖预取）失败同样处理
+window.addEventListener('vite:preloadError', () => {
+  if (sessionStorage.getItem('wx_chunk_reload')) return
+  sessionStorage.setItem('wx_chunk_reload', '1')
+  location.reload()
+})
+
 let sessionChecked: Promise<boolean> | null = null
 
 /**

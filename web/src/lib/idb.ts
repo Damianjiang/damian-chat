@@ -245,13 +245,55 @@ export async function idbClearMedia (): Promise<void> {
   } catch { /* 忽略 */ }
 }
 
-/** 估算 IDB 总占用（浏览器支持 navigator.storage.estimate 时）。 */
+/** 估算 IDB 总占用。三级兜底，保证 iPhone/iPad（旧版 Safari 没有 storage.estimate）也能显示 MB：
+ *  1) navigator.storage.estimate（Chrome/Android、Safari 17+）
+ *  2) webkitTemporaryStorage.queryUsageAndQuota（旧版 Safari/iOS 一直有）
+ *  3) 遍历 messages/media 两个 store 手动求和（消息按 UTF-16 每字符 2 字节估，媒体按 blob.size） */
 export async function idbEstimateBytes (): Promise<number> {
+  // 1) 标准 API
   try {
     if (typeof navigator !== 'undefined' && navigator.storage?.estimate) {
       const e = await navigator.storage.estimate()
-      return e.usage ?? 0
+      if ((e.usage ?? 0) > 0) return e.usage ?? 0
     }
+  } catch { /* 继续走兜底 */ }
+  // 2) 旧版 Safari / iOS：webkit 前缀的配额 API（回调式，TS 无类型需断言）
+  const wts = (navigator as unknown as {
+    webkitTemporaryStorage?: { queryUsageAndQuota?: (ok: (u: number) => void, err: () => void) => void }
+  }).webkitTemporaryStorage
+  if (wts?.queryUsageAndQuota) {
+    try {
+      const usage = await new Promise<number>((resolve, reject) => {
+        wts.queryUsageAndQuota!(u => resolve(u ?? 0), () => reject(new Error('queryUsageAndQuota failed')))
+      })
+      if (usage > 0) return usage
+    } catch { /* 继续走兜底 */ }
+  }
+  // 3) 终极兜底：游标遍历求和（缓存条数在千级，设置页一次性可接受）
+  if (!supported()) return 0
+  try {
+    const db = await openDB()
+    let bytes = 0
+    await new Promise<void>((resolve, reject) => {
+      const t = db.transaction(['messages', 'media'], 'readonly')
+      const walk = (storeName: 'messages' | 'media', sizeOf: (v: unknown) => number) => {
+        const req = t.objectStore(storeName).openCursor()
+        req.onsuccess = () => {
+          const c = req.result
+          if (!c) return
+          bytes += sizeOf(c.value)
+          c.continue()
+        }
+      }
+      walk('messages', v => JSON.stringify(v ?? {}).length * 2)
+      const mediaSize = (v: any) => (v?.blob?.size ?? 0)
+        + ((v?.fileId?.length ?? 0) + (v?.ext?.length ?? 0) + (v?.contentType?.length ?? 0)) * 2
+      walk('media', mediaSize)
+      t.oncomplete = () => resolve()
+      t.onerror = () => reject(t.error)
+      t.onabort = () => reject(t.error ?? new Error('idb transaction aborted'))
+    })
+    return bytes
   } catch { /* 忽略 */ }
   return 0
 }
