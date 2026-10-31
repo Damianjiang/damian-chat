@@ -181,6 +181,19 @@ public class MessagesController : ControllerBase
                 patTarget = req.PatTarget;
             }
 
+            // 投票卡片（poll）：仅群聊；content 必须是本群真实存在的投票 id
+            //（防伪造 pollId 把别人的投票卡片刷进无关会话）。pollId 为服务端生成的 hex，原样入库。
+            if (type == "poll")
+            {
+                if (conv.Kind != "group")
+                    return BadRequest(new { error = "投票仅在群聊中可用" });
+                if (string.IsNullOrWhiteSpace(req.Content) || req.Content.Length > 40
+                    || !_store.Groups.TryGetValue(conv.MemberId, out var pollGroup)
+                    || !pollGroup.Polls.Any(p => p.Id == req.Content))
+                    return BadRequest(new { error = "投票不存在" });
+                content = req.Content!;
+            }
+
             // 引用（quoteJson）：归一化 + 业务强制（服务端纵深，防直接 POST 绕过前端限制）。
             // ① 不可引用自己发的消息；② 群聊里只能引用「文字」，被引用的是文件/图片/
             //    语音/表情/拍一拍（媒体类）→ 一律拒绝该引用。命中即「降级为不引用」
@@ -890,5 +903,106 @@ public class GroupsController : ControllerBase
 
         // 会话已移除，不再广播
         return Ok();
+    }
+
+    /* ---------------- 群投票（微信式） ---------------- */
+
+    public record CreatePollRequest(string Title, List<string> Options, bool Multi);
+    public record PollVote(int Option);
+
+    /// <summary>发起投票：标题 + ≥2 个选项，单选/多选。仅群成员。</summary>
+    [HttpPost("groups/{id}/polls")]
+    public IActionResult CreatePoll(string id, [FromBody] CreatePollRequest req)
+    {
+        var me = HttpContext.GetUserId();
+        var title = Validate.Clean(req.Title, 60) ?? "";
+        // 选项去重去空，最多 20 个（微信投票风格），每个上限 40 字
+        var optionTexts = (req.Options ?? new List<string>())
+            .Select(o => Validate.Clean(o, 40) ?? "")
+            .Where(o => o.Length > 0)
+            .Distinct()
+            .Take(20)
+            .ToList();
+        if (string.IsNullOrWhiteSpace(title) || optionTexts.Count < 2)
+            return BadRequest(new { error = "投票需要标题和至少 2 个选项" });
+
+        Poll poll;
+        lock (_store)
+        {
+            if (!_store.Groups.TryGetValue(id, out var g) || !g.Members.Any(m => m.UserId == me))
+                return NotFound(new { error = "群不存在或你不是群成员" });
+            poll = new Poll
+            {
+                Title = title,
+                Multi = req.Multi,
+                CreatedBy = me,
+                Options = optionTexts.Select(o => new PollOption { Text = o }).ToList(),
+            };
+            g.Polls.Add(poll);
+            _store.MarkDirty();
+        }
+        return Ok(poll);
+    }
+
+    /// <summary>群内投票列表（进聊天页拉一次 + PollUpdated 实时刷新）。</summary>
+    [HttpGet("groups/{id}/polls")]
+    public IActionResult Polls(string id)
+    {
+        var me = HttpContext.GetUserId();
+        lock (_store)
+        {
+            if (!_store.Groups.TryGetValue(id, out var g) || !g.Members.Any(m => m.UserId == me))
+                return NotFound(new { error = "群不存在或你不是群成员" });
+            return Ok(g.Polls);
+        }
+    }
+
+    /// <summary>投票：单选改投自动迁移；再点已投选项 = 取消该票。返回最新投票（全员实时推送）。</summary>
+    [HttpPost("groups/{id}/polls/{pollId}/vote")]
+    public async Task<IActionResult> Vote(string id, string pollId, [FromBody] PollVote req)
+    {
+        var me = HttpContext.GetUserId();
+        Poll poll;
+        lock (_store)
+        {
+            if (!_store.Groups.TryGetValue(id, out var g) || !g.Members.Any(m => m.UserId == me))
+                return NotFound(new { error = "群不存在或你不是群成员" });
+            poll = g.Polls.FirstOrDefault(p => p.Id == pollId);
+            if (poll == null) return NotFound(new { error = "投票不存在" });
+            if (poll.Closed) return BadRequest(new { error = "投票已截止" });
+            if (req.Option < 0 || req.Option >= poll.Options.Count)
+                return BadRequest(new { error = "选项不合法" });
+
+            // 先记「是否已投该选项」，再把我从所有选项里撤出：
+            //   单选 = 直接改投新选项；多选 = 已投再点 → 取消该票，未投 → 追加
+            bool alreadyVoted = poll.Options[req.Option].UserIds.Contains(me);
+            foreach (var o in poll.Options) o.UserIds.Remove(me);
+            if (!poll.Multi || !alreadyVoted)
+                poll.Options[req.Option].UserIds.Add(me);
+            _store.MarkDirty();
+        }
+        await ChatHub.BroadcastPoll(_hub, _store, id, poll);
+        return Ok(poll);
+    }
+
+    /// <summary>截止投票：发起人或群主。截止后只读。</summary>
+    [HttpPost("groups/{id}/polls/{pollId}/close")]
+    public async Task<IActionResult> Close(string id, string pollId)
+    {
+        var me = HttpContext.GetUserId();
+        Poll poll;
+        lock (_store)
+        {
+            if (!_store.Groups.TryGetValue(id, out var g) || !g.Members.Any(m => m.UserId == me))
+                return NotFound(new { error = "群不存在或你不是群成员" });
+            poll = g.Polls.FirstOrDefault(p => p.Id == pollId);
+            if (poll == null) return NotFound(new { error = "投票不存在" });
+            var isOwner = g.OwnerId == me;
+            if (poll.CreatedBy != me && !isOwner) return Forbid();
+            poll.Closed = true;
+            _store.MarkDirty();
+        }
+        await ChatHub.BroadcastPoll(_hub, _store, id, poll);
+        return Ok(poll);
     }
 }

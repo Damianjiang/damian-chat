@@ -44,8 +44,8 @@ public static class Validate
     private static readonly Regex AccountPattern = new(@"^(?:1[3-9]\d{9}|[A-Za-z0-9_]{3,32}|[\u4e00-\u9fa5]{2,16})$", RegexOptions.Compiled);
     private static readonly Regex SafeFileName = new(@"^[^\x00-\x1f<>:""|?*\\/]+$", RegexOptions.Compiled);
 
-    /// <summary>允许的消息类型白名单（防止伪造 type 触发未处理的分支）。</summary>
-    public static readonly string[] MessageTypes = { "text", "image", "voice", "file", "sticker", "system", "pat" };
+    /// <summary>允许的消息类型白名单（防止伪造 type 触发未处理的分支）。poll = 群投票卡片（content 为 pollId）。</summary>
+    public static readonly string[] MessageTypes = { "text", "image", "voice", "file", "sticker", "system", "pat", "poll" };
 
     public static bool IsAccount (string? s) => !string.IsNullOrWhiteSpace(s) && AccountPattern.IsMatch(s);
 

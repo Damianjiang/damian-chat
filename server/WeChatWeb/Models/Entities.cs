@@ -104,6 +104,29 @@ public class Group
     /// <summary>群公告最近一次「创建/修改」时刻。确认状态按此版本判定：
     /// 公告被改动/新增后，旧确认自动失效 → 各成员会重新看到并确认。</summary>
     public DateTime NoticeUpdatedAt { get; set; } = DateTime.UtcNow;
+    /// <summary>群投票（微信式：发起/投票/实时看票数，可多选，发起人或群主可截止）。</summary>
+    public List<Poll> Polls { get; set; } = new();
+}
+
+/// <summary>群投票。</summary>
+public class Poll
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public string Title { get; set; } = "";
+    public List<PollOption> Options { get; set; } = new();
+    /// <summary>是否多选；false = 单选（换票时自动改投）。</summary>
+    public bool Multi { get; set; }
+    /// <summary>是否已截止（截止后只读，发起人/群主可截止）。</summary>
+    public bool Closed { get; set; }
+    public string CreatedBy { get; set; } = "";
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
+public class PollOption
+{
+    public string Text { get; set; } = "";
+    /// <summary>投给该选项的用户 id 列表（实时统计票数与占比）。</summary>
+    public List<string> UserIds { get; set; } = new();
 }
 
 public class GroupMember
