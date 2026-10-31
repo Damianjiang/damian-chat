@@ -192,7 +192,7 @@ export function getFontLevel (): number {
 /** 按级别写根字号（内联 style 覆盖 wechat.scss 的 --wx-font-size 基础值）。 */
 export function applyFontLevel (level: number, root: HTMLElement = document.documentElement): void {
   const lv = Number.isInteger(level) && level >= 0 && level < FONT_SCALES.length ? level : 1
-  root.style.fontSize = (16 * FONT_SCALES[lv]).toFixed(1) + 'px'
+  root.style.fontSize = (16 * FONT_SCALES[lv]!).toFixed(1) + 'px'
 }
 
 export function saveFontLevel (level: number): void {

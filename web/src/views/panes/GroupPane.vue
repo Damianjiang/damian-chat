@@ -495,6 +495,7 @@
   import { useRoute, useRouter } from 'vue-router'
   import { api } from '@/lib/api'
   import { fileUrl } from '@/lib/files'
+  import { t } from '@/lib/i18n'
   import { avatarColor } from '@/lib/utils'
   import { isPageMode } from '@/lib/device'
   import { useAuthStore } from '@/stores/auth'
