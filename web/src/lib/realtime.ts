@@ -6,6 +6,7 @@
 import { createChatConnection, stopChatConnection } from '@/lib/signalr'
 import { useAuthStore } from '@/stores/auth'
 import { useConversationsStore } from '@/stores/conversations'
+import { usePollsStore } from '@/stores/polls'
 let started = false
 
 /** 群公告「已确认」进度（groupId → { 确认者名/时间, 已确认数, 总数 }），挂到 store 让群聊页即时更新。 */
@@ -50,6 +51,10 @@ export function initRealtime () {
     onTyping: (conversationId, userId) => {
       // 「对方正在输入」：只认会话成员的信号，挂到 store 供聊天页显示提示气泡
       store.applyTyping(conversationId, userId, useAuthStore().user?.id ?? '')
+    },
+    onPollUpdated: (conversationId, poll) => {
+      // 群投票有变化（他人投票/截止）：打开的投票卡片实时刷新
+      usePollsStore().applyUpdated(conversationId, poll)
     },
     onCatchup: async () => {
       // 离线消息补偿：重连后拉取会话列表与当前打开会话的历史

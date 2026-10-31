@@ -17,40 +17,40 @@
         <v-divider />
 
         <div class="pa-4 d-flex flex-wrap gap-2">
-          <v-chip color="primary" variant="flat">消息</v-chip>
-          <v-chip color="success" variant="flat">通讯录</v-chip>
-          <v-chip color="info" variant="flat">朋友圈</v-chip>
-          <v-chip color="warning" variant="flat">发现</v-chip>
+          <v-chip color="primary" variant="flat">{{ t('nav.chat') }}</v-chip>
+          <v-chip color="success" variant="flat">{{ t('nav.contacts') }}</v-chip>
+          <v-chip color="info" variant="flat">{{ t('nav.moments') }}</v-chip>
+          <v-chip color="warning" variant="flat">{{ t('nav.discovery') }}</v-chip>
         </div>
 
         <v-divider />
 
         <div class="pa-4">
-          <v-btn block color="primary" variant="flat">这是一个 Vuetify 按钮</v-btn>
+          <v-btn block color="primary" variant="flat">{{ t('gate.demo.btn') }}</v-btn>
         </div>
       </v-card>
 
       <!-- 下半部分：两个纯 HTML 按钮，旧版浏览器也能显示 -->
-      <div class="wx-gate-question">你是否能正常看到上面的组件？</div>
+      <div class="wx-gate-question">{{ t('gate.question') }}</div>
 
       <div class="wx-gate-actions">
         <button class="wx-gate-btn wx-gate-btn--primary" type="button" @click="onSeen">
-          能看到，进入应用
+          {{ t('gate.seen') }}
         </button>
 
         <button class="wx-gate-btn" type="button" @click="onNotSeen">
-          看不到
+          {{ t('gate.not') }}
         </button>
       </div>
 
       <!-- 看不到：版本过低（固定文案 + 四个浏览器下载） -->
       <div v-if="blocked" class="wx-gate-blocked">
-        <h1>您当前浏览器版本过低，不支持您继续使用此web app</h1>
-        <p>请升级浏览器后重试</p>
-        <a href="https://www.google.com/chrome/" rel="noopener noreferrer" target="_blank">下载 Google Chrome</a>
-        <a href="https://www.microsoft.com/edge" rel="noopener noreferrer" target="_blank">下载 Microsoft Edge</a>
-        <a href="https://www.mozilla.org/firefox/" rel="noopener noreferrer" target="_blank">下载 Mozilla Firefox</a>
-        <a href="https://www.apple.com/safari/" rel="noopener noreferrer" target="_blank">下载 Safari</a>
+        <h1>{{ t('gate.blocked') }}</h1>
+        <p>{{ t('gate.upgrade') }}</p>
+        <a href="https://www.google.com/chrome/" rel="noopener noreferrer" target="_blank">{{ t('gate.dl.chrome') }}</a>
+        <a href="https://www.microsoft.com/edge" rel="noopener noreferrer" target="_blank">{{ t('gate.dl.edge') }}</a>
+        <a href="https://www.mozilla.org/firefox/" rel="noopener noreferrer" target="_blank">{{ t('gate.dl.firefox') }}</a>
+        <a href="https://www.apple.com/safari/" rel="noopener noreferrer" target="_blank">{{ t('gate.dl.safari') }}</a>
       </div>
     </div>
   </div>

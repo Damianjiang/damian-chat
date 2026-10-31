@@ -1,7 +1,7 @@
 <template>
   <v-sheet class="wx-chat-surface wx-panes" flat>
     <div class="wx-pane-header d-flex align-center justify-space-between pa-2">
-      <span class="wx-pane-title">大面聊天</span>
+      <span class="wx-pane-title">{{ t('login.brand') }}</span>
 
       <div class="d-flex align-center gap-1 ml-auto">
         <v-btn icon="mdi-magnify" size="small" variant="text" @click="search = true" />
@@ -14,17 +14,17 @@
           <v-list density="compact" width="180">
             <v-list-item @click="createGroup">
               <template #prepend><v-icon icon="mdi-message-badge-outline" size="20" /></template>
-              <v-list-item-title>发起群聊</v-list-item-title>
+              <v-list-item-title>{{ t('group.create') }}</v-list-item-title>
             </v-list-item>
 
             <v-list-item @click="router.push({ name: 'contacts' })">
               <template #prepend><v-icon icon="mdi-account-plus-outline" size="20" /></template>
-              <v-list-item-title>添加朋友</v-list-item-title>
+              <v-list-item-title>{{ t('discovery.add') }}</v-list-item-title>
             </v-list-item>
 
             <v-list-item @click="router.push({ name: 'discovery' })">
               <template #prepend><v-icon icon="mdi-qrcode-scan" size="20" /></template>
-              <v-list-item-title>扫一扫</v-list-item-title>
+              <v-list-item-title>{{ t('discovery.scan') }}</v-list-item-title>
             </v-list-item>
           </v-list>
         </v-menu>
@@ -38,7 +38,7 @@
           autofocus
           clearable
           hide-details
-          placeholder="搜索会话 / 联系人"
+          :placeholder="t('sess.search.ph')"
           prepend-inner-icon="mdi-magnify"
           variant="solo"
           @keydown.esc="closeSearch"
@@ -61,12 +61,12 @@
           </template>
 
           <template #title>
-            <span>折叠群聊</span>
+            <span>{{ t('sess.folded') }}</span>
             <v-badge v-if="foldedGroups.length > 0" class="ml-2" color="wechat-unread" :content="foldedGroups.length" />
           </template>
 
           <template #append>
-            <span class="text-body-small text-medium-emphasis">{{ foldedGroups.length }} 个</span>
+            <span class="text-body-small text-medium-emphasis">{{ t('sess.folded.count', { n: foldedGroups.length }) }}</span>
             <v-icon icon="mdi-chevron-right" />
           </template>
         </v-list-item>
@@ -80,7 +80,7 @@
       <v-card>
         <v-card-title class="text-body-large d-flex align-center gap-2">
           <v-icon color="secondary" icon="mdi-folder-lock-open" />
-          折叠群聊
+          {{ t('sess.folded') }}
         </v-card-title>
 
         <v-list class="pa-0">
@@ -101,24 +101,24 @@
 
             <template #subtitle>
               <span class="text-body-small text-medium-emphasis">
-                {{ s.unread > 0 ? `${s.unread} 条未读 · ` : '' }}已折叠
+                {{ s.unread > 0 ? t('sess.unread.count', { n: s.unread }) + ' · ' : '' }}{{ t('sess.folded.tag') }}
               </span>
             </template>
 
             <template #append>
-              <v-btn class="mr-1" size="x-small" variant="text" @click="restoreFolded(s)">恢复</v-btn>
-              <v-btn color="primary" size="x-small" variant="text" @click="openFolded(s)">打开</v-btn>
+              <v-btn class="mr-1" size="x-small" variant="text" @click="restoreFolded(s)">{{ t('sess.restore') }}</v-btn>
+              <v-btn color="primary" size="x-small" variant="text" @click="openFolded(s)">{{ t('sess.open') }}</v-btn>
             </template>
           </v-list-item>
 
           <v-list-item v-if="foldedGroups.length === 0" class="justify-center" disabled>
-            <v-list-item-title class="text-medium-emphasis">暂无被折叠的群聊</v-list-item-title>
+            <v-list-item-title class="text-medium-emphasis">{{ t('sess.folded.none') }}</v-list-item-title>
           </v-list-item>
         </v-list>
 
         <v-card-actions>
           <v-spacer />
-          <v-btn color="primary" variant="text" @click="foldedDialog = false">关闭</v-btn>
+          <v-btn color="primary" variant="text" @click="foldedDialog = false">{{ t('common.close') }}</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -128,11 +128,11 @@
       <v-card class="wx-group-create">
         <v-toolbar class="wx-group-toolbar" density="compact" flat>
           <v-btn icon="mdi-close" variant="text" @click="groupSheet = false" />
-          <v-toolbar-title class="text-body-large font-weight-medium">发起群聊</v-toolbar-title>
+          <v-toolbar-title class="text-body-large font-weight-medium">{{ t('group.create') }}</v-toolbar-title>
           <v-spacer />
 
           <v-btn color="primary" :disabled="gMembers.length === 0" variant="text" @click="openNameDialog">
-            下一步
+            {{ t('common.next') }}
           </v-btn>
         </v-toolbar>
 
@@ -142,7 +142,7 @@
           clearable
           density="compact"
           hide-details
-          placeholder="搜索"
+          :placeholder="t('common.search')"
           prepend-inner-icon="mdi-magnify"
           variant="solo"
         />
@@ -175,7 +175,7 @@
               </v-list-item>
 
               <div v-if="filteredFriends.length === 0" class="pa-6 text-center text-medium-emphasis">
-                通讯录里还没有好友
+                {{ t('group.pick.noFriends') }}
               </div>
             </v-list>
           </div>
@@ -197,7 +197,7 @@
               </v-list-item>
 
               <div v-if="gMembers.length === 0" class="pa-6 text-center text-medium-emphasis">
-                从左侧勾选要拉进群的人
+                {{ t('group.pick.hint') }}
               </div>
             </v-list>
           </div>
@@ -206,13 +206,13 @@
         <!-- 底部：全选 + 完成 -->
         <div class="d-flex align-center justify-space-between px-4 py-2">
           <v-btn variant="text" @click="toggleSelectAll">
-            {{ allSelected ? '取消全选' : '全选' }}
+            {{ allSelected ? t('group.pick.unselectAll') : t('group.pick.selectAll') }}
           </v-btn>
 
-          <span class="text-body-medium text-medium-emphasis">已选 {{ gMembers.length }} 人</span>
+          <span class="text-body-medium text-medium-emphasis">{{ t('group.pick.selected', { n: gMembers.length }) }}</span>
 
           <v-btn color="primary" :disabled="gMembers.length === 0" variant="text" @click="submitGroup">
-            完成
+            {{ t('common.done') }}
           </v-btn>
         </div>
       </v-card>
@@ -221,16 +221,16 @@
     <!-- 群名称 -->
     <v-dialog v-model="nameDialog" max-width="340">
       <v-card>
-        <v-card-title class="text-body-large">群名称</v-card-title>
+        <v-card-title class="text-body-large">{{ t('group.name') }}</v-card-title>
 
         <v-card-text>
-          <v-text-field v-model="gName" autofocus placeholder="群名称" variant="plain" />
+          <v-text-field v-model="gName" autofocus :placeholder="t('group.name')" variant="plain" />
         </v-card-text>
 
         <v-card-actions>
           <v-spacer />
-          <v-btn variant="text" @click="nameDialog = false">取消</v-btn>
-          <v-btn color="primary" @click="submitGroup">确定</v-btn>
+          <v-btn variant="text" @click="nameDialog = false">{{ t('common.cancel') }}</v-btn>
+          <v-btn color="primary" @click="submitGroup">{{ t('common.confirm') }}</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -245,6 +245,7 @@
   import { useRouter } from 'vue-router'
   import SearchResultList from '@/components/SearchResultList.vue'
   import SessionList from '@/components/SessionList.vue'
+  import { t } from '@/lib/i18n'
   import { avatarColor } from '@/lib/utils'
   import { useContactsStore } from '@/stores/contacts'
   import { useConversationsStore } from '@/stores/conversations'
@@ -288,7 +289,7 @@
     if (!k) return []
     const convs = store.sessions
       .filter(s => s.title.toLowerCase().includes(k))
-      .map(s => ({ id: s.id, title: s.title, subtitle: '会话', unread: s.unread > 0 }))
+      .map(s => ({ id: s.id, title: s.title, subtitle: t('sess.kind'), unread: s.unread > 0 }))
     const ctts = contacts.items
       .filter(c =>
         (c.user?.nickname ?? '').toLowerCase().includes(k)
@@ -297,7 +298,7 @@
       .map(c => ({
         id: c.user?.id ?? c.id,
         title: c.remark || c.user?.nickname || '',
-        subtitle: c.user?.phone ? `联系人 · ${c.user.phone}` : '联系人',
+        subtitle: c.user?.phone ? t('contacts.tag.phone', { phone: c.user.phone }) : t('contacts.tag'),
       }))
     return [...convs, ...ctts]
   })
@@ -331,7 +332,7 @@
   function nickOf (id: string) {
     return contacts.items.find(c => (c.user?.id ?? c.id) === id)?.remark
       || contacts.items.find(c => (c.user?.id ?? c.id) === id)?.user?.nickname
-      || '好友'
+      || t('group.pick.friend')
   }
   function avatarOf (id: string) {
     return contacts.items.find(c => (c.user?.id ?? c.id) === id)?.user?.avatar || ''
@@ -372,7 +373,7 @@
   async function submitGroup () {
     if (gMembers.value.length === 0) return
     try {
-      const g = await contacts.createGroup(gName.value || '群聊', gMembers.value)
+      const g = await contacts.createGroup(gName.value || t('group.defaultName'), gMembers.value)
       groupSheet.value = false
       nameDialog.value = false
       await store.loadSessions()

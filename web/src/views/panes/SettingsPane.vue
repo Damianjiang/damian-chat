@@ -291,7 +291,7 @@
             </div>
             <div v-if="hasUpdate" class="text-body-small text-primary mt-1 d-flex align-center gap-1">
               <v-icon icon="mdi-update" size="16" />
-              <span>{{ t('settings.update.found') }}</span>
+              <span>{{ t('settings.update.found', { n: latestVersion }) }}</span>
             </div>
           </v-sheet>
 
@@ -812,7 +812,9 @@
   function onTitleClick () {
     devClicks++
     if (devClickTimer) clearTimeout(devClickTimer)
-    devClickTimer = setTimeout(() => { devClicks = 0 }, 1200)
+    // 2.5s 窗口：桌面鼠标连点没问题，手机/iPad 手指点按节奏慢（还有双击缩放干扰），
+    // 旧的 1.2s 基本点不出来
+    devClickTimer = setTimeout(() => { devClicks = 0 }, 2500)
     if (devClicks >= 5) {
       devClicks = 0
       devUnlocked.value = true

@@ -584,7 +584,7 @@
 
   async function doRegister () {
     if (regPassword.value !== regPassword2.value) {
-      snackMsg.value = '两次输入的密码不一致'
+      snackMsg.value = t('login.reg.mismatch')
       snack.value = true
       return
     }
@@ -592,10 +592,10 @@
     try {
       await auth.register(regAccount.value.trim(), regPassword.value, regKey.value.trim(), captchaId.value, captchaInput.value.trim(), passToken.value)
       await enterApp()
-      snackOkMsg.value = '注册成功，已自动登录'
+      snackOkMsg.value = t('login.reg.ok')
       snackOk.value = true
     } catch (error: any) {
-      snackMsg.value = error?.response?.data?.error ?? '注册失败'
+      snackMsg.value = error?.response?.data?.error ?? t('login.reg.fail')
       snack.value = true
       if (captchaRequired.value) await refreshCaptcha()
       passToken.value = ''

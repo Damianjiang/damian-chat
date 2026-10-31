@@ -2,12 +2,12 @@
   <v-sheet class="wx-panes" flat>
     <v-app-bar class="wx-chat-bar" color="surface" density="compact" flat>
       <v-btn v-if="isMobile" icon="mdi-arrow-left" variant="text" @click="goBack" />
-      <v-toolbar-title class="text-body-large font-weight-medium">被拉黑的用户</v-toolbar-title>
+      <v-toolbar-title class="text-body-large font-weight-medium">{{ t('settings.blocked') }}</v-toolbar-title>
     </v-app-bar>
 
     <div class="wx-blocked-bg flex-grow-1 overflow-y-auto wx-scroll pa-2">
       <div class="text-body-small text-medium-emphasis px-1 pb-1">
-        恢复后对方不再被拒收，可正常与你收发消息；删除好友将解除双向好友关系（聊天记录保留）。
+        {{ t('settings.blocked.hint') }}
       </div>
 
       <v-list bg-color="surface" class="wx-settings-group">
@@ -26,13 +26,13 @@
               </div>
             </template>
             <template #subtitle>
-              <span class="text-body-small text-medium-emphasis">{{ b.isFriend ? '是好友' : '非好友' }} · 已拉黑</span>
+              <span class="text-body-small text-medium-emphasis">{{ b.isFriend ? t('settings.blocked.isFriend') : t('settings.blocked.notFriend') }} · {{ t('settings.blocked.badge') }}</span>
             </template>
 
             <template #append>
               <div class="d-flex align-center flex-wrap gap-1">
-                <v-btn size="x-small" variant="flat" :loading="busy[b.id] === 'unblock'" @click="unblockUser(b)">恢复</v-btn>
-                <v-btn v-if="b.isFriend" color="error" size="x-small" variant="text" :loading="busy[b.id] === 'delete'" @click="deleteFriend(b)">删除好友</v-btn>
+                <v-btn size="x-small" variant="flat" :loading="busy[b.id] === 'unblock'" @click="unblockUser(b)">{{ t('settings.blocked.unblock') }}</v-btn>
+                <v-btn v-if="b.isFriend" color="error" size="x-small" variant="text" :loading="busy[b.id] === 'delete'" @click="deleteFriend(b)">{{ t('settings.blocked.deleteFriend') }}</v-btn>
               </div>
             </template>
           </v-list-item>
@@ -41,12 +41,12 @@
         <v-list-item v-else-if="loaded" class="justify-center" disabled>
           <v-list-item-title class="text-medium-emphasis text-body-medium d-flex flex-column align-center py-4">
             <v-icon color="medium-emphasis" icon="mdi-shield-check-outline" size="44" class="mb-2" />
-            <span>没有已拉黑的用户</span>
+            <span>{{ t('settings.blocked.empty') }}</span>
           </v-list-item-title>
         </v-list-item>
 
         <v-list-item v-else class="justify-center" disabled>
-          <v-list-item-title class="text-medium-emphasis">加载中…</v-list-item-title>
+          <v-list-item-title class="text-medium-emphasis">{{ t('common.loading') }}</v-list-item-title>
         </v-list-item>
       </v-list>
     </div>
@@ -60,6 +60,7 @@
   import { onMounted, ref } from 'vue'
   import { useRouter } from 'vue-router'
   import { isPageMode } from '@/lib/device'
+  import { t } from '@/lib/i18n'
   import { useContactsStore } from '@/stores/contacts'
   import { confirm } from '@/lib/confirm'
   import type { User } from '@/types'
@@ -96,22 +97,22 @@
   }
 
   async function unblockUser (b: BlockedUser) {
-    const name = b.user?.nickname ?? '该用户'
+    const name = b.user?.nickname ?? t('settings.blocked.thisUser')
     const ok = await confirm({
-      title: '恢复该用户？',
-      text: `恢复后，${name} 将不再被拒收，可正常与你收发消息。`,
-      confirmText: '恢复',
+      title: t('settings.blocked.unblock.title'),
+      text: t('settings.blocked.unblock.text', { name }),
+      confirmText: t('settings.blocked.unblock'),
       danger: false,
     })
     if (!ok) return
     busy.value = { ...busy.value, [b.id]: 'unblock' }
     try {
       await contacts.unblock(b.id)
-      snackOkMsg.value = `已恢复 ${name}`
+      snackOkMsg.value = t('settings.blocked.unblock.ok', { name })
       snackOk.value = true
       await loadBlocked()
     } catch (error: any) {
-      snackMsg.value = error?.response?.data?.error ?? '恢复失败'
+      snackMsg.value = error?.response?.data?.error ?? t('settings.blocked.unblock.fail')
       snack.value = true
     } finally {
       busy.value = { ...busy.value }
@@ -120,21 +121,21 @@
   }
 
   async function deleteFriend (b: BlockedUser) {
-    const name = b.user?.nickname ?? '该用户'
+    const name = b.user?.nickname ?? t('settings.blocked.thisUser')
     const ok = await confirm({
-      title: '删除好友？',
-      text: `确定删除与 ${name} 的好友关系？\n删除后双向解除好友关系（聊天记录保留）。`,
-      confirmText: '删除',
+      title: t('settings.blocked.delete.title'),
+      text: t('settings.blocked.delete.text', { name }),
+      confirmText: t('common.delete'),
     })
     if (!ok) return
     busy.value = { ...busy.value, [b.id]: 'delete' }
     try {
       await contacts.removeFriend(b.id)
-      snackOkMsg.value = `已删除好友 ${name}`
+      snackOkMsg.value = t('settings.blocked.delete.ok', { name })
       snackOk.value = true
       await loadBlocked()
     } catch (error: any) {
-      snackMsg.value = error?.response?.data?.error ?? '删除失败'
+      snackMsg.value = error?.response?.data?.error ?? t('settings.blocked.delete.fail')
       snack.value = true
     } finally {
       delete busy.value[b.id]

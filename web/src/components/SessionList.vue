@@ -61,7 +61,7 @@
       </v-list-item>
 
       <v-list-item v-if="sessions.length === 0" class="justify-center" disabled>
-        <v-list-item-title class="text-medium-emphasis">暂无聊天记录</v-list-item-title>
+        <v-list-item-title class="text-medium-emphasis">{{ t('sess.empty') }}</v-list-item-title>
       </v-list-item>
     </v-list>
 
@@ -74,19 +74,19 @@
       <v-card v-if="menuSession" width="190">
         <v-list density="compact">
           <v-list-item @click="pin(!menuSession.pinned)">
-            <v-list-item-title>{{ menuSession.pinned ? '取消置顶' : '置顶会话' }}</v-list-item-title>
+            <v-list-item-title>{{ menuSession.pinned ? t('sess.unpin') : t('sess.pin') }}</v-list-item-title>
             <template #append><v-icon :icon="menuSession.pinned ? 'mdi-pin-off' : 'mdi-pin'" /></template>
           </v-list-item>
 
           <v-list-item @click="mute(!menuSession.muted)">
-            <v-list-item-title>{{ menuSession.muted ? '取消免打扰' : '消息免打扰' }}</v-list-item-title>
+            <v-list-item-title>{{ menuSession.muted ? t('sess.unmute') : t('sess.mute') }}</v-list-item-title>
             <template #append><v-icon :icon="menuSession.muted ? 'mdi-volume-off' : 'mdi-volume-high'" /></template>
           </v-list-item>
 
           <v-divider />
 
           <v-list-item @click="clearChat">
-            <v-list-item-title>清空聊天记录</v-list-item-title>
+            <v-list-item-title>{{ t('sess.clear') }}</v-list-item-title>
             <template #append><v-icon icon="mdi-broom" /></template>
           </v-list-item>
 
@@ -94,7 +94,7 @@
             <v-divider />
 
             <v-list-item @click="fold(!menuSession.folded)">
-              <v-list-item-title>{{ menuSession.folded ? '恢复会话' : '折叠群聊' }}</v-list-item-title>
+              <v-list-item-title>{{ menuSession.folded ? t('sess.unfold') : t('sess.fold') }}</v-list-item-title>
               <template #append><v-icon :icon="menuSession.folded ? 'mdi-folder-move' : 'mdi-folder-lock-open'" /></template>
             </v-list-item>
           </template>
@@ -110,6 +110,7 @@
   import { useDisplay } from 'vuetify'
   import { api } from '@/lib/api'
   import { confirm } from '@/lib/confirm'
+  import { t } from '@/lib/i18n'
   import { messageSummary, sessionTimeLabel } from '@/lib/utils'
   import UserAvatar from '@/components/UserAvatar.vue'
   import ContextMenu from '@/components/ContextMenu.vue'
@@ -166,9 +167,9 @@
   async function clearChat () {
     if (!menuSession.value) return
     const ok = await confirm({
-      title: '清空聊天记录？',
-      text: `确定清空与「${menuSession.value.title}」的全部聊天记录？\n该会话的全部消息将被删除，且不可恢复。`,
-      confirmText: '清空',
+      title: t('sess.clear.title'),
+      text: t('sess.clear.text', { name: menuSession.value.title }),
+      confirmText: t('sess.clear.btn'),
     })
     if (!ok) { menuOpen.value = false; return }
     try {

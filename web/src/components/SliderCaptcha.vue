@@ -10,10 +10,10 @@
     换取「一次性、绑定 IP、HMAC 签名、90 秒过期」的 passToken（服务端仍负责防伪造/重放/限流）。
   -->
   <div v-if="visible" class="sc-mask" @click.self="onClose">
-    <div aria-label="滑块验证" class="sc-panel" role="dialog">
+    <div :aria-label="t('slider.title')" class="sc-panel" role="dialog">
       <div class="sc-head">
-        <span class="sc-title">拖动滑块完成验证</span>
-        <button aria-label="关闭" class="sc-x" type="button" @click="onClose">×</button>
+        <span class="sc-title">{{ t('slider.title') }}</span>
+        <button :aria-label="t('common.close')" class="sc-x" type="button" @click="onClose">×</button>
       </div>
 
       <!-- user-select:none 是 vue-drag-verify 的硬性要求（README） -->
@@ -32,15 +32,15 @@
           :show-refresh="true"
           :show-tips="true"
           success-icon="mdi mdi-check"
-          success-text="验证通过"
-          text="请按住滑块，拖动压块对齐缺口"
+          :success-text="t('slider.ok')"
+          :text="t('slider.text')"
           width="300"
           @passcallback="onPass"
           @passfail="onPassFail"
           @refresh="onRefresh"
         />
 
-        <div v-else class="sc-loading">加载中…</div>
+        <div v-else class="sc-loading">{{ t('slider.loading') }}</div>
       </div>
 
       <div v-if="err" class="sc-err">{{ err }}</div>
@@ -52,6 +52,7 @@
   import { onBeforeUnmount, ref } from 'vue'
   import dragVerifyImgChip from '@/components/vendor/dragVerifyImgChip.vue'
   import { api } from '@/lib/api'
+  import { t } from '@/lib/i18n'
 
   const emit = defineEmits<{
     (e: 'success', passToken: string): void
@@ -109,7 +110,7 @@
         err.value = ''
       }
     } catch (error: any) {
-      err.value = serverMsg(error) || '网络异常，请稍后再试'
+      err.value = serverMsg(error) || t('slider.net')
     }
   }
 
@@ -218,11 +219,11 @@
         return
       }
       // 行为门槛拒绝 / key 失效 / 过期 / 重放：换一张再试
-      err.value = body?.ret?.msg || '验证未通过，已换一张，请重试'
+      err.value = body?.ret?.msg || t('slider.reshuffle')
       chipPassing.value = false
       await issue()
     } catch (error: any) {
-      err.value = serverMsg(error) || '验证失败，请重试'
+      err.value = serverMsg(error) || t('slider.fail')
       chipPassing.value = false
       await issue()
     } finally {
@@ -232,7 +233,7 @@
 
   /** 拖错位置（组件本地判定失败）：提示并换图 */
   function onPassFail () {
-    err.value = '未对齐缺口，请重试'
+    err.value = t('slider.bad')
     chipPassing.value = false
     void issue()
   }

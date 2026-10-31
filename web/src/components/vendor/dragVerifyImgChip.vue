@@ -84,6 +84,8 @@
   </div>
 </template>
 <script>
+  import { t } from '@/lib/i18n'
+
   export default {
     name: 'DragVerifyImgChip',
     props: {
@@ -169,11 +171,11 @@
       },
       successTip: {
         type: String,
-        default: '验证通过，超过80%用户',
+        default: () => t('slider.tip.success'),
       },
       failTip: {
         type: String,
-        default: '验证未通过，拖动滑块将悬浮图像正确合并',
+        default: () => t('slider.tip.fail'),
       },
       diffWidth: {
         type: Number,

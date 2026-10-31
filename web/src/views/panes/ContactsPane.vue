@@ -2,7 +2,7 @@
   <v-sheet class="wx-panes" flat>
     <div class="wx-pane-header pa-2 d-flex flex-column gap-2">
       <div class="wx-pane-titlebar">
-        <span class="wx-pane-title">通讯录</span>
+        <span class="wx-pane-title">{{ t('nav.contacts') }}</span>
 
         <v-btn
           class="ml-auto"
@@ -18,7 +18,7 @@
         clearable
         density="compact"
         hide-details
-        placeholder="搜索"
+        :placeholder="t('contacts.search')"
         prepend-inner-icon="mdi-magnify"
         variant="solo"
       />
@@ -31,7 +31,7 @@
 
       <template v-else>
         <v-list v-if="contacts.requests.length > 0" class="wx-entry-list wx-stagger">
-          <v-list-subheader>新朋友</v-list-subheader>
+          <v-list-subheader>{{ t('contacts.new') }}</v-list-subheader>
 
           <v-list-item v-for="r in contacts.requests" :key="r.id">
             <template #prepend>
@@ -43,8 +43,8 @@
             </template>
 
             <template #append>
-              <v-btn color="primary" size="x-small" @click="answerRequest(r.id, true)">通过</v-btn>
-              <v-btn size="x-small" variant="text" @click="answerRequest(r.id, false)">拒绝</v-btn>
+              <v-btn color="primary" size="x-small" @click="answerRequest(r.id, true)">{{ t('contacts.accept') }}</v-btn>
+              <v-btn size="x-small" variant="text" @click="answerRequest(r.id, false)">{{ t('contacts.reject') }}</v-btn>
             </template>
           </v-list-item>
         </v-list>
@@ -53,7 +53,7 @@
           <!-- 群聊：点击打开「我的群聊」列表（我参加的群 + 未读 + 成员数），点群直接进群 -->
           <v-list-item @click="groupsSheet = true">
             <template #prepend><v-icon color="primary" icon="mdi-account-multiple" /></template>
-            <v-list-item-title>群聊<span v-if="myGroups.length" class="text-body-small ml-2 text-medium-emphasis">{{ myGroups.length }}</span></v-list-item-title>
+            <v-list-item-title>{{ t('contacts.groups') }}<span v-if="myGroups.length" class="text-body-small ml-2 text-medium-emphasis">{{ myGroups.length }}</span></v-list-item-title>
             <template #append><v-badge v-if="groupUnread > 0" color="wechat-unread" :content="groupUnread" /><v-icon v-else icon="mdi-chevron-right" /></template>
           </v-list-item>
         </v-list>
@@ -79,7 +79,7 @@
               <template #title>
                 <div class="d-flex align-center">
                   {{ c.remark || c.user?.nickname }}
-                  <v-chip v-if="c.blocked" class="ml-2" color="error" size="x-small" variant="flat">已拉黑</v-chip>
+                  <v-chip v-if="c.blocked" class="ml-2" color="error" size="x-small" variant="flat">{{ t('contacts.blocked.tag') }}</v-chip>
                 </div>
                 <div class="text-body-small text-medium-emphasis">{{ c.user?.phone }}</div>
               </template>
@@ -107,14 +107,14 @@
       <v-card v-if="menuContact" width="180">
         <v-list density="compact">
           <v-list-item @click="toggleBlockContact">
-            <v-list-item-title>{{ menuContact.blocked ? '取消拉黑' : '拉黑' }}</v-list-item-title>
+            <v-list-item-title>{{ menuContact.blocked ? t('contacts.unblock') : t('contacts.block') }}</v-list-item-title>
             <template #append><v-icon :icon="menuContact.blocked ? 'mdi-account-remove' : 'mdi-account-off'" /></template>
           </v-list-item>
 
           <v-divider />
 
           <v-list-item class="text-error" @click="removeContact">
-            <v-list-item-title>删除好友</v-list-item-title>
+            <v-list-item-title>{{ t('contacts.deleteFriend') }}</v-list-item-title>
             <template #append><v-icon icon="mdi-delete-outline" /></template>
           </v-list-item>
         </v-list>
@@ -123,12 +123,12 @@
 
     <v-bottom-sheet v-model="addSheet" max-width="440" scrollable>
       <v-card class="pa-4">
-        <v-text-field v-model="newPhone" label="手机号 / 大面号" placeholder="输入对方的手机号或大面号" />
-        <v-text-field v-model="newMsg" label="输入几句话，对TA说些什么吧" />
+        <v-text-field v-model="newPhone" :label="t('contacts.add.account')" :placeholder="t('contacts.add.account.ph')" />
+        <v-text-field v-model="newMsg" :label="t('contacts.add.msg')" />
 
         <div class="d-flex justify-end gap-2 mt-2">
-          <v-btn variant="text" @click="addSheet = false">取消</v-btn>
-          <v-btn color="primary" :disabled="!newPhone" @click="submitAdd">发送申请</v-btn>
+          <v-btn variant="text" @click="addSheet = false">{{ t('common.cancel') }}</v-btn>
+          <v-btn color="primary" :disabled="!newPhone" @click="submitAdd">{{ t('contacts.add.send') }}</v-btn>
         </div>
       </v-card>
     </v-bottom-sheet>
@@ -136,22 +136,22 @@
     <!-- 我的群聊：从「通讯录 → 群聊」入口打开，列出我参加的所有群（未读 + 成员数），点群直接进群 -->
     <v-bottom-sheet v-model="groupsSheet" max-width="440" scrollable>
       <v-card class="pa-2">
-        <div class="text-body-large font-weight-medium pa-2">我的群聊</div>
+        <div class="text-body-large font-weight-medium pa-2">{{ t('contacts.my.groups') }}</div>
 
         <!-- 通过群号加群（QQ 式）：输群号 → 后端 lookup（不泄露成员名单）→ 开放群直接进 / 审批群交申请等群主点头 -->
         <div class="pa-2">
-          <div class="text-body-small text-medium-emphasis mb-1">通过群号加群</div>
+          <div class="text-body-small text-medium-emphasis mb-1">{{ t('contacts.join.by.no') }}</div>
           <div class="d-flex align-center ga-2">
             <v-text-field
               v-model="joinNo"
               class="flex-grow-1"
               density="compact"
               hide-details
-              placeholder="输入群号"
+              :placeholder="t('contacts.join.no.ph')"
               variant="solo"
               @keyup.enter="lookUpJoin"
             />
-            <v-btn color="primary" :disabled="!joinNo.trim() || joinBusy" @click="lookUpJoin">加群</v-btn>
+            <v-btn color="primary" :disabled="!joinNo.trim() || joinBusy" @click="lookUpJoin">{{ t('contacts.join.btn') }}</v-btn>
           </div>
           <div v-if="joinHint" class="text-caption text-medium-emphasis mt-1">{{ joinHint }}</div>
         </div>
@@ -171,18 +171,18 @@
                 <span>{{ g.name }}</span>
                 <v-badge v-if="groupUnreadOf(g) > 0" class="ml-2" color="wechat-unread" :content="groupUnreadOf(g)" />
               </div>
-              <div class="text-body-small text-medium-emphasis">{{ g.members?.length ?? 0 }} 人</div>
+              <div class="text-body-small text-medium-emphasis">{{ t('contacts.members.count', { n: g.members?.length ?? 0 }) }}</div>
             </template>
             <template #append><v-icon icon="mdi-chevron-right" /></template>
           </v-list-item>
 
           <v-list-item v-if="myGroups.length === 0" class="justify-center" disabled>
-            <v-list-item-title class="text-medium-emphasis">还没有群聊</v-list-item-title>
+            <v-list-item-title class="text-medium-emphasis">{{ t('contacts.groups.none') }}</v-list-item-title>
           </v-list-item>
         </v-list>
 
         <div class="d-flex justify-end ga-2 pa-2">
-          <v-btn variant="text" @click="groupsSheet = false">关闭</v-btn>
+          <v-btn variant="text" @click="groupsSheet = false">{{ t('common.close') }}</v-btn>
         </div>
       </v-card>
     </v-bottom-sheet>
@@ -199,6 +199,7 @@
   import SearchResultList from '@/components/SearchResultList.vue'
   import { avatarColor } from '@/lib/utils'
   import { api } from '@/lib/api'
+  import { t } from '@/lib/i18n'
   import { useContactsStore } from '@/stores/contacts'
   import ContextMenu from '@/components/ContextMenu.vue'
   import { confirm } from '@/lib/confirm'
@@ -236,7 +237,7 @@
       if (g.iAmMember) {
         joinNo.value = ''
         groupsSheet.value = false
-        snackMsg.value = '你已在这个群'
+        snackMsg.value = t('contacts.join.iamember')
         snack.value = true
         router.push({ name: 'group', params: { id: g.id } })
         return
@@ -246,20 +247,20 @@
       joinNo.value = ''
       groupsSheet.value = false
       if (g.joinPolicy === 'open') {
-        snackMsg.value = `已加入「${g.name}」`
+        snackMsg.value = t('contacts.joined.name', { name: g.name })
         snack.value = true
         await conversations.loadSessions()
         router.push({ name: 'group', params: { id: g.id } })
       } else {
-        snackMsg.value = `已向「${g.name}」提交申请，等群主/管理员审批`
+        snackMsg.value = t('contacts.join.applied', { name: g.name })
         snack.value = true
       }
     } catch (error: any) {
       const code = error?.response?.status
       if (code === 404) {
-        joinHint.value = '群不存在（确认群号没输错）'
+        joinHint.value = t('contacts.join.notfound')
       } else {
-        joinHint.value = error?.response?.data?.error ?? '加群失败，请重试'
+        joinHint.value = error?.response?.data?.error ?? t('contacts.join.err')
       }
     } finally {
       joinBusy.value = false
@@ -283,25 +284,25 @@
     const next = !c.blocked
     if (next) {
       const ok = await confirm({
-        title: '拉黑该联系人？',
-        text: `拉黑后，${c.user?.nickname ?? '对方'} 发给你的消息将被拒收，你将无法发送消息。\n可随时在「设置 → 被拉黑的用户」中恢复。`,
-        confirmText: '拉黑',
+        title: t('contacts.block.confirm'),
+        text: t('contacts.block.confirm.text', { name: c.user?.nickname ?? t('contacts.peer') }),
+        confirmText: t('contacts.block'),
       })
       if (!ok) return
     } else {
       const ok = await confirm({
-        title: '取消拉黑？',
-        text: `恢复后，${c.user?.nickname ?? '对方'} 即可正常与你收发消息。`,
-        confirmText: '取消拉黑',
+        title: t('contacts.unblock.confirm'),
+        text: t('contacts.unblock.confirm.text', { name: c.user?.nickname ?? t('contacts.peer') }),
+        confirmText: t('contacts.unblock'),
         danger: false,
       })
       if (!ok) return
     }
     try {
       await contacts.toggleBlock(c.id, next)
-      snackMsg.value = next ? `已拉黑 ${c.user?.nickname ?? '对方'}` : `已取消拉黑 ${c.user?.nickname ?? '对方'}`
+      snackMsg.value = t(next ? 'contacts.blocked.ok' : 'contacts.unblocked.ok', { name: c.user?.nickname ?? t('contacts.peer') })
     } catch (error: any) {
-      snackMsg.value = error?.response?.data?.error ?? '操作失败'
+      snackMsg.value = error?.response?.data?.error ?? t('contacts.op.fail')
     }
     contactMenu.value = false
     snack.value = true
@@ -311,16 +312,16 @@
     const c = menuContact.value
     if (!c) return
     const ok = await confirm({
-      title: '删除好友？',
-      text: `确定删除与 ${c.user?.nickname ?? '对方'} 的好友关系？\n删除后双向解除好友关系（聊天记录保留）。`,
-      confirmText: '删除',
+      title: t('contacts.deleteFriend.confirm'),
+      text: t('contacts.deleteFriend.confirm.text', { name: c.user?.nickname ?? t('contacts.peer') }),
+      confirmText: t('common.delete'),
     })
     if (!ok) return
     try {
       await contacts.removeFriend(c.id)
-      snackMsg.value = `已删除好友 ${c.user?.nickname ?? ''}`
+      snackMsg.value = t('contacts.deleteFriend.ok', { name: c.user?.nickname ?? '' })
     } catch (error: any) {
-      snackMsg.value = error?.response?.data?.error ?? '删除失败'
+      snackMsg.value = error?.response?.data?.error ?? t('contacts.deleteFriend.fail')
     }
     contactMenu.value = false
     snack.value = true
@@ -394,9 +395,9 @@
     try {
       if (accept) await contacts.acceptRequest(id)
       else await contacts.rejectRequest(id)
-      snackMsg.value = accept ? `已添加 ${target?.from?.nickname ?? '对方'} 为好友` : '已拒绝'
+      snackMsg.value = accept ? t('contacts.request.accepted', { name: target?.from?.nickname ?? t('contacts.peer') }) : t('contacts.request.rejected')
     } catch (error: any) {
-      snackMsg.value = error?.response?.data?.error ?? '操作失败，请重试'
+      snackMsg.value = error?.response?.data?.error ?? t('contacts.op.retry')
     }
     snack.value = true
   }
@@ -404,13 +405,13 @@
   async function submitAdd () {
     try {
       await contacts.addFriend(newPhone.value, newMsg.value)
-      snackMsg.value = '申请已发送'
+      snackMsg.value = t('contacts.request.sent')
       addSheet.value = false
       newPhone.value = ''
       newMsg.value = ''
       await contacts.loadRequests()
     } catch (error: any) {
-      snackMsg.value = error?.response?.data?.error ?? '添加失败'
+      snackMsg.value = error?.response?.data?.error ?? t('scan.fail')
     }
     snack.value = true
   }

@@ -7,6 +7,7 @@
  * 返回 false 时中止操作。
  */
 import { reactive } from 'vue'
+import { t } from '@/lib/i18n'
 
 /**
  * 全局确认框宿主状态（单例）。
@@ -18,10 +19,11 @@ import { reactive } from 'vue'
  */
 export const confirmState = reactive({
   show: false,
-  title: '确认操作',
+  // 默认文案在 confirm() 调用时再取（t 依赖 Pinia，模块加载期 store 未就绪）
+  title: '',
   text: '',
-  confirmText: '确定',
-  cancelText: '取消',
+  confirmText: '',
+  cancelText: '',
   danger: true,
 })
 
@@ -41,10 +43,10 @@ export function confirm (opts: {
 }): Promise<boolean> {
   // 已有确认框时直接拒绝，防止连续点击把多个解析器堆叠
   if (confirmState.show && resolver) return Promise.resolve(false)
-  confirmState.title = opts.title ?? '确认操作'
+  confirmState.title = opts.title ?? t('common.confirm.title')
   confirmState.text = opts.text
-  confirmState.confirmText = opts.confirmText ?? '确定'
-  confirmState.cancelText = opts.cancelText ?? '取消'
+  confirmState.confirmText = opts.confirmText ?? t('common.confirm')
+  confirmState.cancelText = opts.cancelText ?? t('common.cancel')
   confirmState.danger = opts.danger ?? true
   confirmState.show = true
   return new Promise<boolean>(res => { resolver = res })

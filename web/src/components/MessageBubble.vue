@@ -118,6 +118,11 @@
         <span class="wx-sticker">{{ message.stickerEmoji }}</span>
       </div>
 
+      <!-- 群投票卡片：content 为 pollId，数据在 polls store（PollUpdated 实时事件驱动全员刷新） -->
+      <div v-else-if="message.type === 'poll'" class="wx-media">
+        <poll-card :conversation-id="message.conversationId" :poll-id="message.content" />
+      </div>
+
       <!-- 其它 -->
       <div v-else :class="bubbleClass">{{ message.content }}</div>
 
@@ -126,12 +131,12 @@
 
     <!-- 乐观发送状态：贴在气泡外侧（自己的消息在左侧，因为行是 row-reverse） -->
     <div v-if="message.pending || message.failed" class="wx-send-state">
-      <span v-if="message.pending" class="wx-send-spin" title="发送中" />
+      <span v-if="message.pending" class="wx-send-spin" :title="t('msg.send.pending')" />
 
       <span
         v-else
         class="wx-send-fail"
-        title="发送失败，点击重试"
+        :title="t('msg.send.failed')"
         @click.stop="$emit('retry', message)"
       >
         <v-icon color="error" icon="mdi-alert-circle" size="18" />
@@ -143,44 +148,44 @@
       <v-card width="180">
         <v-list density="compact">
           <v-list-item v-if="!isMe && message.type === 'text'" @click="$emit('quote', message)">
-            <v-list-item-title>回复</v-list-item-title>
+            <v-list-item-title>{{ t('msg.menu.reply') }}</v-list-item-title>
             <template #append><v-icon icon="mdi-reply" /></template>
           </v-list-item>
 
           <!-- 还在发送中的乐观气泡没有服务端 id，撤回/删除都会 404 —— 先不给入口 -->
           <v-list-item v-if="isMe && canRecall && !message.pending" @click="$emit('recall', message)">
-            <v-list-item-title>撤回</v-list-item-title>
+            <v-list-item-title>{{ t('msg.menu.recall') }}</v-list-item-title>
             <template #append><v-icon icon="mdi-undo" /></template>
           </v-list-item>
 
           <v-list-item v-if="message.type === 'text'" @click="copy">
-            <v-list-item-title>复制</v-list-item-title>
+            <v-list-item-title>{{ t('msg.menu.copy') }}</v-list-item-title>
             <template #append><v-icon icon="mdi-content-copy" /></template>
           </v-list-item>
 
           <v-list-item v-if="message.type === 'text'" @click="favorite">
-            <v-list-item-title>收藏</v-list-item-title>
+            <v-list-item-title>{{ t('msg.menu.fav') }}</v-list-item-title>
             <template #append><v-icon icon="mdi-star-outline" /></template>
           </v-list-item>
 
           <v-list-item @click="$emit('forward', message)">
-            <v-list-item-title>转发</v-list-item-title>
+            <v-list-item-title>{{ t('msg.menu.forward') }}</v-list-item-title>
             <template #append><v-icon icon="mdi-forward" /></template>
           </v-list-item>
 
           <v-list-item @click="toggleSelect">
-            <v-list-item-title>{{ props.selected ? '取消多选' : '多选' }}</v-list-item-title>
+            <v-list-item-title>{{ props.selected ? t('msg.menu.multi.off') : t('msg.menu.multi') }}</v-list-item-title>
             <template #append><v-icon icon="mdi-checkbox-marked-circle-outline" /></template>
           </v-list-item>
 
           <v-divider class="my-1" />
 
           <!-- 仅「有附件/媒体」的消息才提供下载（纯文本没有 imageId，不给下载项 —— 避免文字消息右键出现"下载"） -->
-          <v-list-item v-if="message.imageId" title="下载" @click="downloadFile" />
+          <v-list-item v-if="message.imageId" :title="t('msg.menu.download')" @click="downloadFile" />
 
           <!-- 发送失败的消息要能删掉（否则永远卡在界面上），发送中的不给入口 -->
           <v-list-item v-if="isMe && (!message.pending || message.failed)" class="text-error" @click="$emit('delete', message)">
-            <v-list-item-title>删除</v-list-item-title>
+            <v-list-item-title>{{ t('msg.menu.delete') }}</v-list-item-title>
             <template #append><v-icon icon="mdi-delete-outline" /></template>
           </v-list-item>
         </v-list>
@@ -195,8 +200,10 @@
   import { useDisplay } from 'vuetify'
   import { api } from '@/lib/api'
   import { downloadFile as downloadFileById, fileUrl } from '@/lib/files'
+  import { t } from '@/lib/i18n'
   import { avatarColor, formatFileSize, timeLabel } from '@/lib/utils'
   import ContextMenu from '@/components/ContextMenu.vue'
+  import PollCard from '@/components/PollCard.vue'
 
   const props = defineProps<{
     message: Message
@@ -344,15 +351,15 @@
 
   /** 撤回文案：单聊「你/对方」，群聊「昵称」 */
   const recallText = computed(() => {
-    const who = isMe.value ? '你' : (props.isGroup ? props.senderName : '对方')
-    return `${who} 撤回了一条消息`
+    if (isMe.value) return t('msg.recall.self')
+    return props.isGroup ? t('msg.recall.group', { who: props.senderName }) : t('msg.recall.other')
   })
 
   /** 拍一拍文案（自己发的显示「我」，否则显示昵称；群聊/单聊都是「A 拍了拍 B」） */
   const patText = computed(() => {
-    const who = isMe.value ? '我' : props.senderName
-    const target = props.patTargetName || (props.isGroup ? '群成员' : '对方')
-    return `${who} 拍了拍 ${target}`
+    const who = isMe.value ? t('msg.pat.me') : props.senderName
+    const target = props.patTargetName || (props.isGroup ? t('msg.pat.group') : t('msg.pat.other'))
+    return t('msg.pat', { who, target })
   })
 
   /* ---- 头像单/双击判定（触屏与鼠标统一走 click 事件；300ms 内两次点击 = 双击） ----
@@ -462,7 +469,7 @@
       })
       emit('favorite', props.message, res.data?.toggled ? 'added' : 'removed')
     } catch (error: any) {
-      emit('favorite', props.message, 'failed', error?.response?.data?.error ?? '收藏失败')
+      emit('favorite', props.message, 'failed', error?.response?.data?.error ?? t('msg.fav.fail'))
     }
   }
 

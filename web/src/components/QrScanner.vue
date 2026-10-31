@@ -2,7 +2,7 @@
   <v-dialog max-width="420" :model-value="modelValue" persistent @update:model-value="emit('update:modelValue', $event)">
     <v-card>
       <v-card-title class="d-flex align-center">
-        扫一扫
+        {{ t('scan.title') }}
         <v-spacer />
         <v-btn icon="mdi-close" size="small" variant="text" @click="close" />
       </v-card-title>
@@ -25,7 +25,7 @@
 
             <div class="flex-grow-1">
               <div class="font-weight-medium">{{ scannedUser.nickname }}</div>
-              <div class="text-body-small text-medium-emphasis">账号：{{ scannedUser.phone }}</div>
+              <div class="text-body-small text-medium-emphasis">{{ t('scan.account', { s: scannedUser.phone }) }}</div>
             </div>
 
             <v-btn
@@ -35,18 +35,18 @@
               size="small"
               @click="addScannedFriend"
             >
-              添加好友
+              {{ t('scan.add') }}
             </v-btn>
 
-            <span v-else-if="scannedUser.id === auth.user?.id" class="text-body-small text-medium-emphasis">这是你的名片</span>
-            <span v-else class="text-body-small text-medium-emphasis">已是好友</span>
+            <span v-else-if="scannedUser.id === auth.user?.id" class="text-body-small text-medium-emphasis">{{ t('scan.you') }}</span>
+            <span v-else class="text-body-small text-medium-emphasis">{{ t('scan.friend') }}</span>
           </div>
         </v-sheet>
       </v-card-text>
 
       <v-card-actions>
         <v-spacer />
-        <v-btn variant="text" @click="close">关闭</v-btn>
+        <v-btn variant="text" @click="close">{{ t('scan.close') }}</v-btn>
       </v-card-actions>
     </v-card>
 
@@ -59,6 +59,7 @@
   import { computed, onBeforeUnmount, ref, watch } from 'vue'
 
   import { api } from '@/lib/api'
+  import { t } from '@/lib/i18n'
   import { useAuthStore } from '@/stores/auth'
   import { useContactsStore } from '@/stores/contacts'
 
@@ -77,7 +78,7 @@
   const contacts = useContactsStore()
 
   const videoEl = ref<HTMLVideoElement | null>(null)
-  const hint = ref('将二维码放入框内，即可自动识别')
+  const hint = ref(t('scan.hint'))
   const snack = ref(false)
   const snackMsg = ref('')
   const scannedUser = ref<ScannedUser | null>(null)
@@ -110,7 +111,7 @@
       canvas = document.createElement('canvas')
       loop()
     } catch {
-      hint.value = '无法访问摄像头，请检查浏览器权限（需 HTTPS 或 localhost）'
+      hint.value = t('scan.cam.fail')
     }
   }
 
@@ -146,15 +147,15 @@
       try {
         const res = await api.get(`/users/${userMatch[1]}`)
         scannedUser.value = res.data
-        hint.value = '识别到名片，可添加好友'
+        hint.value = t('scan.card')
         // 保持停止状态展示资料卡；关闭/添加后由 close 收尾
       } catch {
-        toast('该用户不存在')
+        toast(t('scan.unknown'))
         close()
       }
       return
     }
-    toast(`无法识别的内容：${text.slice(0, 60)}`)
+    toast(t('scan.bad', { s: text.slice(0, 60) }))
     close()
   }
 
@@ -164,13 +165,13 @@
     try {
       const res = await api.post('/contacts', {
         userId: scannedUser.value.id,
-        message: '我是通过扫一扫添加的朋友',
+        message: t('scan.add.msg'),
       })
-      toast(res.data.status === 'accepted' ? '已添加为好友' : '申请已发送，等待对方通过')
+      toast(res.data.status === 'accepted' ? t('scan.added') : t('scan.pending'))
       await contacts.load()
       close()
     } catch (error: any) {
-      toast(error?.response?.data?.error ?? '添加失败')
+      toast(error?.response?.data?.error ?? t('scan.fail'))
     } finally {
       adding.value = false
     }
@@ -190,7 +191,7 @@
   function close () {
     stop()
     scannedUser.value = null
-    hint.value = '将二维码放入框内，即可自动识别'
+    hint.value = t('scan.hint')
     emit('update:modelValue', false)
   }
 

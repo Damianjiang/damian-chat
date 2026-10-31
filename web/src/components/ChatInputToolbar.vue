@@ -30,7 +30,7 @@
     <!-- 上传进度（图片/文件/语音） -->
     <div v-if="uploading || uploadError" class="wx-upload-bar">
       <template v-if="uploading">
-        <span class="text-body-small">正在上传 {{ uploadPercent }}%</span>
+        <span class="text-body-small">{{ t('input.uploading') }} {{ uploadPercent }}%</span>
 
         <v-progress-linear
           class="mt-1"
@@ -47,12 +47,12 @@
     <div v-if="recording" class="d-flex align-center justify-space-between wx-rec-bar">
       <div class="d-flex align-center">
         <span class="wx-rec-dot" />
-        <span class="text-body-medium ml-2">正在录音 {{ recLabel }}</span>
+        <span class="text-body-medium ml-2">{{ t('input.recording') }} {{ recLabel }}</span>
       </div>
 
       <div class="d-flex ga-1">
-        <v-btn size="small" variant="text" @click="cancelRec">取消</v-btn>
-        <v-btn color="primary" :loading="recUploading" size="small" @click="finishRec">发送</v-btn>
+        <v-btn size="small" variant="text" @click="cancelRec">{{ t('input.cancel') }}</v-btn>
+        <v-btn color="primary" :loading="recUploading" size="small" @click="finishRec">{{ t('input.send') }}</v-btn>
       </div>
     </div>
 
@@ -101,13 +101,13 @@
     <!-- @ 成员选择 -->
     <v-bottom-sheet v-model="mentionOpen" max-width="360" scrollable>
       <v-card class="pa-2">
-        <div class="text-title-small pa-2">@ 成员</div>
+        <div class="text-title-small pa-2">{{ t('input.members') }}</div>
 
         <v-list density="compact">
           <!-- @全体成员：正文渲染端 MessageBubble 的 @ 高亮正则 /@([^\s@]+)/ 天然匹配「@全体成员」，
                服务端按普通文本存，无需改后端。群内始终可用（手动输入也等价）。 -->
           <v-list-item
-            @click="append('@全体成员 '); mentionOpen = false"
+            @click="append(t('input.all') + ' '); mentionOpen = false"
           >
             <template #prepend>
               <v-avatar color="primary" :size="32">
@@ -115,8 +115,8 @@
               </v-avatar>
             </template>
 
-            <v-list-item-title>全体成员</v-list-item-title>
-            <v-chip color="primary" class="ml-auto" size="x-small">通知所有人</v-chip>
+            <v-list-item-title>{{ t('input.all') }}</v-list-item-title>
+            <v-chip color="primary" class="ml-auto" size="x-small">{{ t('input.all.chip') }}</v-chip>
           </v-list-item>
 
           <v-list-item
@@ -131,8 +131,8 @@
             </template>
 
             <v-list-item-title>{{ m.nickname }}</v-list-item-title>
-            <v-chip v-if="m.role === 'owner'" class="ml-auto" size="x-small">群主</v-chip>
-            <v-chip v-else-if="m.role === 'admin'" class="ml-auto" size="x-small">管理员</v-chip>
+            <v-chip v-if="m.role === 'owner'" class="ml-auto" size="x-small">{{ t('input.role.owner') }}</v-chip>
+            <v-chip v-else-if="m.role === 'admin'" class="ml-auto" size="x-small">{{ t('input.role.admin') }}</v-chip>
           </v-list-item>
         </v-list>
       </v-card>
@@ -145,9 +145,10 @@
   import EmojiPanel from '@/components/EmojiPanel.vue'
   import { api } from '@/lib/api'
   import { markEmojiUsed } from '@/lib/emoji'
+  import { t } from '@/lib/i18n'
   import { avatarColor } from '@/lib/utils'
 
-  defineProps<{
+  const props = defineProps<{
     placeholder?: string
     showToolbarAbove?: boolean
     isGroup?: boolean
@@ -168,6 +169,8 @@
     }]
     /** 「对方正在输入」输入事件（组件内部按 3s 节流） */
     typing: []
+    /** 打开发起投票对话框（仅群聊显示入口） */
+    poll: []
   }>()
 
   const draft = ref('')
@@ -207,9 +210,11 @@
   // 图片与文件各自独立选择器：此前共用一个按文档扩展名过滤的 input，
   // 导致「图片」按钮弹出的选择器里选不了 png/jpg 等常见图片。
   const tools = computed(() => [
-    { icon: 'mdi-image-plus', label: '图片', event: () => imageRef.value?.click() },
-    { icon: 'mdi-folder-multiple-plus', label: '文件', event: () => fileRef.value?.click() },
-    { icon: 'mdi-microphone', label: '语音', event: startRecording },
+    { icon: 'mdi-image-plus', label: t('input.img'), event: () => imageRef.value?.click() },
+    { icon: 'mdi-folder-multiple-plus', label: t('input.file'), event: () => fileRef.value?.click() },
+    { icon: 'mdi-microphone', label: t('input.voice'), event: startRecording },
+    // 群投票（微信式）：仅群聊显示入口
+    ...(props.isGroup ? [{ icon: 'mdi-poll', label: t('poll.create'), event: () => emit('poll') }] : []),
   ])
 
   /* ---------- 真实语音录音（MediaRecorder） ---------- */
@@ -241,7 +246,7 @@
     if (recording.value) return
     // 浏览器不支持录音 / 拒绝麦克风授权：如实提示，不再伪造一条假语音消息
     if (typeof MediaRecorder === 'undefined') {
-      showError('当前浏览器不支持语音录制')
+      showError(t('input.no.rec'))
       return
     }
     try {
@@ -263,7 +268,7 @@
         if (recSeconds.value >= 60) finishRec()
       }, 1000)
     } catch {
-      showError('无法访问麦克风，请检查浏览器权限')
+      showError(t('input.mic.deny'))
     }
   }
 
@@ -413,7 +418,7 @@
       const capLabel = MAX_UPLOAD >= 1024 * 1024 * 1024
         ? `${Math.floor(MAX_UPLOAD / 1024 / 1024 / 1024)}GB`
         : `${Math.floor(MAX_UPLOAD / 1024 / 1024)}MB`
-      showError(`文件超过大小限制（${capLabel}）`)
+      showError(t('input.file.tooBig', { n: capLabel }))
       input.value = ''
       return
     }
@@ -438,7 +443,7 @@
         emit('send', { type: 'file', content: '', fileName: file.name, fileSize: file.size, imageId: meta.id })
       }
     } catch (error: any) {
-      uploadError.value = error?.response?.data?.error ?? '上传失败'
+      uploadError.value = error?.response?.data?.error ?? t('input.upload.fail')
       setTimeout(() => {
         uploadError.value = ''
       }, 2500)

@@ -17,7 +17,7 @@
       <!-- 对方正在输入…（微信式：顶栏下方小字；5s 无新信号自动消失） -->
       <span v-if="typingName" class="wx-typing-tip">
         <span class="wx-typing-dot" />
-        正在输入…
+        {{ t('chat.typing') }}
       </span>
 
       <div class="d-flex align-center ml-auto">
@@ -25,7 +25,7 @@
           v-if="isGroup"
           icon="mdi-cog-outline"
           size="small"
-          title="群管理"
+          :title="t('chat.group.manage')"
           variant="text"
           @click="router.push({ name: 'group', params: { id: session?.memberId }, query: { convId } })"
         />
@@ -36,26 +36,26 @@
               v-bind="props"
               icon="mdi-dots-vertical"
               size="small"
-              title="更多"
+              :title="t('chat.more')"
               variant="text"
             />
           </template>
 
           <v-list density="compact">
-            <v-list-item v-if="isGroup" prepend-icon="mdi-account-multiple" title="群成员" @click="openGroupMembers" />
-            <v-list-item prepend-icon="mdi-magnify" title="查找聊天记录" @click="searchOn = !searchOn" />
-            <v-list-item prepend-icon="mdi-sync" title="刷新聊天记录" @click="refreshMessages" />
+            <v-list-item v-if="isGroup" prepend-icon="mdi-account-multiple" :title="t('chat.menu.members')" @click="openGroupMembers" />
+            <v-list-item prepend-icon="mdi-magnify" :title="t('group.search.msg')" @click="searchOn = !searchOn" />
+            <v-list-item prepend-icon="mdi-sync" :title="t('chat.menu.refresh')" @click="refreshMessages" />
             <!-- 清空：群聊仅群主/管理员可操作（普通成员隐藏，服务端也会 403）；私聊成员可清 -->
-            <v-list-item v-if="!isGroup || canManageGroup" prepend-icon="mdi-broom" title="清空聊天记录" @click="clearDialog = true" />
+            <v-list-item v-if="!isGroup || canManageGroup" prepend-icon="mdi-broom" :title="t('sess.clear')" @click="clearDialog = true" />
 
             <v-divider />
 
-            <v-list-item :prepend-icon="session?.muted ? 'mdi-volume-off' : 'mdi-volume-high'" :title="session?.muted ? '取消免打扰' : '消息免打扰'" @click="toggleMute" />
-            <v-list-item :prepend-icon="session?.pinned ? 'mdi-pin-off' : 'mdi-pin'" :title="session?.pinned ? '取消置顶' : '置顶会话'" @click="togglePin" />
+            <v-list-item :prepend-icon="session?.muted ? 'mdi-volume-off' : 'mdi-volume-high'" :title="session?.muted ? t('sess.unmute') : t('sess.mute')" @click="toggleMute" />
+            <v-list-item :prepend-icon="session?.pinned ? 'mdi-pin-off' : 'mdi-pin'" :title="session?.pinned ? t('sess.unpin') : t('sess.pin')" @click="togglePin" />
 
             <template v-if="isGroup">
               <v-divider />
-              <v-list-item :prepend-icon="session?.folded ? 'mdi-folder-move' : 'mdi-folder-lock-open'" :title="session?.folded ? '恢复群聊' : '折叠群聊'" @click="toggleFold" />
+              <v-list-item :prepend-icon="session?.folded ? 'mdi-folder-move' : 'mdi-folder-lock-open'" :title="session?.folded ? t('chat.fold.restore') : t('sess.fold')" @click="toggleFold" />
             </template>
           </v-list>
         </v-menu>
@@ -65,9 +65,9 @@
     <!-- 多选模式操作条 -->
     <div v-if="multiMode" class="wx-multi-bar">
       <v-btn icon="mdi-close" size="small" variant="text" @click="exitMulti" />
-      <span class="text-body-medium">已选 {{ selectedIds.size }} 条</span>
+      <span class="text-body-medium">{{ t('chat.multi.selected', { n: selectedIds.size }) }}</span>
       <v-spacer />
-      <v-btn :disabled="selectedIds.size === 0" size="small" variant="text" @click="batchDelete">删除</v-btn>
+      <v-btn :disabled="selectedIds.size === 0" size="small" variant="text" @click="batchDelete">{{ t('common.delete') }}</v-btn>
     </div>
 
     <!-- 查找聊天记录（紧凑搜索行） -->
@@ -79,7 +79,7 @@
       clearable
       density="compact"
       hide-details
-      placeholder="搜索聊天记录，Esc 关闭"
+      :placeholder="t('chat.search.ph')"
       prepend-inner-icon="mdi-magnify"
       variant="solo"
       @keydown.esc="closeSearch"
@@ -101,8 +101,8 @@
 
           <v-list-item-title>
             {{ m.nickname }}
-            <v-chip v-if="m.role === 'owner'" class="ml-2" size="x-small">群主</v-chip>
-            <v-chip v-else-if="m.role === 'admin'" class="ml-2" size="x-small">管理员</v-chip>
+            <v-chip v-if="m.role === 'owner'" class="ml-2" size="x-small">{{ t('group.role.owner') }}</v-chip>
+            <v-chip v-else-if="m.role === 'admin'" class="ml-2" size="x-small">{{ t('group.role.admin') }}</v-chip>
             <v-chip v-if="m.title" class="ml-2" size="x-small" color="secondary" variant="tonal">{{ m.title }}</v-chip>
           </v-list-item-title>
         </v-list-item>
@@ -117,13 +117,13 @@
       <div class="d-flex align-center justify-space-between text-body-medium gap-2">
         <div class="d-flex align-center gap-2 text-body-medium" @click="noticeDialog = true">
           <v-icon color="primary" icon="mdi-bullhorn" size="20" />
-          <span class="text-medium-emphasis">群公告：</span>
+          <span class="text-medium-emphasis">{{ t('group.notice') }}：</span>
           <span class="text-truncate text-body-medium" style="max-width: 55%; cursor: pointer">{{ group.notice }}</span>
-          <v-icon class="ml-1" color="primary" icon="mdi-information-outline" size="18" title="点击看完整公告" />
+          <v-icon class="ml-1" color="primary" icon="mdi-information-outline" size="18" :title="t('chat.notice.viewFull')" />
         </div>
         <div class="d-flex align-center gap-2 flex-shrink-0">
           <span v-if="noticeProgress.total > 0" class="text-body-small text-medium-emphasis">
-            已确认 {{ noticeProgress.confirmed }}/{{ noticeProgress.total }}
+            {{ t('group.notice.confirmed') }} {{ noticeProgress.confirmed }}/{{ noticeProgress.total }}
           </span>
           <v-btn
             color="primary"
@@ -131,7 +131,7 @@
             size="x-small"
             variant="flat"
             @click="confirmNotice"
-          >确认</v-btn>
+          >{{ t('group.notice.confirm') }}</v-btn>
         </div>
       </div>
     </div>
@@ -140,7 +140,7 @@
     <div v-if="isGroup && group?.notice && noticeConfirmedMe" class="wx-notice-collapsed pa-1 px-2" @click="noticeDialog = true">
       <div class="d-flex align-center gap-1 text-body-small text-medium-emphasis">
         <v-icon color="primary" icon="mdi-bullhorn" size="16" />
-        <span>查看群公告</span>
+        <span>{{ t('chat.notice.view') }}</span>
         <v-icon color="primary" icon="mdi-chevron-right" size="16" />
       </div>
     </div>
@@ -150,15 +150,15 @@
       <v-card>
         <v-card-title class="text-body-large d-flex align-center gap-2">
           <v-icon color="primary" icon="mdi-bullhorn" size="22" />
-          群公告
+          {{ t('group.notice') }}
         </v-card-title>
         <v-card-text class="wx-notice-full text-body-medium" style="white-space: pre-wrap; word-break: break-word; max-height: 40vh; overflow-y: auto">
           {{ group?.notice }}
         </v-card-text>
         <v-card-actions>
           <v-spacer />
-          <v-btn v-if="!noticeConfirmedMe" color="primary" variant="text" @click="noticeDialog = false; confirmNotice()">确认</v-btn>
-          <v-btn variant="text" @click="noticeDialog = false">关闭</v-btn>
+          <v-btn v-if="!noticeConfirmedMe" color="primary" variant="text" @click="noticeDialog = false; confirmNotice()">{{ t('group.notice.confirm') }}</v-btn>
+          <v-btn variant="text" @click="noticeDialog = false">{{ t('common.close') }}</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -167,7 +167,7 @@
     <div ref="listRef" class="flex-grow-1 overflow-y-auto wx-scroll wx-msg-area" @scroll.passive="onMsgScroll">
       <!-- 正在看历史时不抢滚动，只在这里提示（通用做法） -->
       <button v-if="newCount > 0" class="wx-new-tip" type="button" @click="jumpToNew">
-        {{ newCount }} 条新消息
+        {{ t('chat.newMsgs', { n: newCount }) }}
       </button>
 
       <v-btn
@@ -178,7 +178,7 @@
         size="x-small"
         variant="text"
         @click="loadEarlier"
-      >显示更早的消息</v-btn>
+      >{{ t('chat.load.earlier') }}</v-btn>
 
       <!-- 打开会话时的加载骨架：此前首帧直接显示「暂无聊天记录」，等历史回来才换成消息，
            中间那一下空态闪现看着像"数据丢了" -->
@@ -219,30 +219,77 @@
       </template>
 
       <div v-else-if="!hasMoreHistory && !firstLoading" class="d-flex flex-column align-center justify-center pa-8 text-medium-emphasis">
-        <div class="text-body-medium">暂无聊天记录</div>
-        <div class="text-body-small mt-1">快和朋友聊天吧！</div>
+        <div class="text-body-medium">{{ t('sess.empty') }}</div>
+        <div class="text-body-small mt-1">{{ t('chat.empty.hint') }}</div>
       </div>
 
       <div v-if="quoteDraft" class="wx-quote-preview pa-2 d-flex align-center justify-space-between text-body-small text-medium-emphasis">
-        <span>正在回复 {{ quoteDraft.senderName }}：{{ quoteDraft.text }}</span>
+        <span>{{ t('chat.replying', { who: quoteDraft.senderName, text: quoteDraft.text }) }}</span>
         <v-btn icon="mdi-close" size="x-small" @click="quoteDraft = null" />
       </div>
 
       <div v-if="searchOn && searchKw && groupedByDate.every(g => g.messages.length === 0)" class="text-center text-body-small text-medium-emphasis pa-6">
-        没有找到相关聊天记录
+        {{ t('chat.search.none') }}
       </div>
     </div>
 
-    <!-- 输入区（工具行常驻：图片/文件/语音/截图） -->
+    <!-- 输入区（工具行常驻：图片/文件/语音/投票） -->
     <chat-input-toolbar
       :is-group="isGroup"
       :members="groupMembers"
-      placeholder="输入消息…"
+      :placeholder="t('input.message.ph')"
       show-toolbar-above
       ref="toolbarRef"
       @send="onSend"
       @typing="onSelfTyping"
+      @poll="openPollDialog"
     />
+
+    <!-- 发起群投票（微信式：标题 + 选项，单选/多选） -->
+    <v-dialog v-model="pollDialog" max-width="380">
+      <v-card>
+        <v-card-title class="text-body-large">{{ t('poll.create') }}</v-card-title>
+        <v-card-text>
+          <v-text-field v-model="pollTitle" autofocus density="compact" :label="t('poll.title.ph')" :placeholder="t('poll.title.ph')" variant="outlined" />
+          <div class="d-flex flex-column ga-2">
+            <v-text-field
+              v-for="(_, i) in pollOptions"
+              :key="i"
+              v-model="pollOptions[i]"
+              density="compact"
+              hide-details
+              :label="t('poll.option.ph', { n: i + 1 })"
+              :placeholder="t('poll.option.ph', { n: i + 1 })"
+              variant="outlined"
+            >
+              <template #append-inner>
+                <v-icon
+                  v-if="pollOptions.length > 2"
+                  icon="mdi-close-circle"
+                  size="18"
+                  @click="pollOptions.splice(i, 1)"
+                />
+              </template>
+            </v-text-field>
+          </div>
+          <v-btn
+            class="mt-2"
+            color="primary"
+            density="compact"
+            :disabled="pollOptions.length >= 20"
+            prepend-icon="mdi-plus"
+            variant="text"
+            @click="pollOptions.push('')"
+          >{{ t('poll.addOption') }}</v-btn>
+          <v-checkbox v-model="pollMulti" class="mt-0" color="primary" density="compact" hide-details :label="t('poll.multi')" />
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="pollDialog = false">{{ t('common.cancel') }}</v-btn>
+          <v-btn color="primary" :disabled="!pollValid" :loading="pollCreating" @click="createPoll">{{ t('common.confirm') }}</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
 
     <!-- 图片 / 视频 / 音频预览 -->
     <media-previewer v-model="previewOpen" :alt="previewAlt" :kind="previewKind" :url="previewUrl" />
@@ -250,7 +297,7 @@
     <!-- 转发选择 -->
     <v-bottom-sheet v-model="forwardOpen" max-width="400" scrollable>
       <v-card class="pa-2">
-        <div class="text-title-small pa-2">转发给</div>
+        <div class="text-title-small pa-2">{{ t('chat.forward.to') }}</div>
 
         <v-list density="compact">
           <v-list-item
@@ -272,13 +319,13 @@
     <!-- 清空聊天记录确认 -->
     <v-dialog v-model="clearDialog" max-width="300">
       <v-card>
-        <v-card-title class="text-body-large">清空聊天记录？</v-card-title>
-        <v-card-text class="text-body-small text-medium-emphasis">该会话的全部消息将被删除，且不可恢复。</v-card-text>
+        <v-card-title class="text-body-large">{{ t('sess.clear.title') }}</v-card-title>
+        <v-card-text class="text-body-small text-medium-emphasis">{{ t('chat.clear.text') }}</v-card-text>
 
         <v-card-actions>
           <v-spacer />
-          <v-btn variant="text" @click="clearDialog = false">取消</v-btn>
-          <v-btn color="red" :loading="clearing" @click="clearMessages">清空</v-btn>
+          <v-btn variant="text" @click="clearDialog = false">{{ t('common.cancel') }}</v-btn>
+          <v-btn color="red" :loading="clearing" @click="clearMessages">{{ t('sess.clear.btn') }}</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -299,10 +346,12 @@
   import { confirm } from '@/lib/confirm'
   import { isPageMode } from '@/lib/device'
   import { fileUrl } from '@/lib/files'
+  import { t } from '@/lib/i18n'
   import { sendTyping } from '@/lib/signalr'
   import { avatarColor, messageSummary, timeLabel } from '@/lib/utils'
   import { useAuthStore } from '@/stores/auth'
   import { useConversationsStore } from '@/stores/conversations'
+  import { usePollsStore } from '@/stores/polls'
 
   const route = useRoute()
   const router = useRouter()
@@ -315,7 +364,7 @@
   const convId = computed(() => String(route.params.id ?? ''))
   const session = computed(() => store.sessions.find(s => s.id === convId.value))
   const isGroup = computed(() => session.value?.kind === 'group')
-  const title = computed(() => session.value?.title ?? '会话')
+  const title = computed(() => session.value?.title ?? t('chat.fallback.title'))
 
   /** 顶栏对方头像（PC 双栏时展示） */
   const peerAvatar = computed(() => session.value?.avatar ?? '')
@@ -478,9 +527,9 @@
       store.clearConversationLocal(convId.value)
       displayLimit.value = 60
       clearDialog.value = false
-      snackMsg.value = '已清空聊天记录'
+      snackMsg.value = t('chat.clear.ok')
     } catch {
-      snackMsg.value = '清空失败'
+      snackMsg.value = t('chat.clear.fail')
     } finally {
       clearing.value = false
       snack.value = true
@@ -488,8 +537,8 @@
   }
 
   function displayName (id: string) {
-    if (id === meId.value) return isGroup.value ? '我' : '我'
-    return nameMap.value[id] ?? groupMembers.value.find(x => x.userId === id)?.nickname ?? (isGroup.value ? '群成员' : '对方')
+    if (id === meId.value) return t('msg.pat.me')
+    return nameMap.value[id] ?? groupMembers.value.find(x => x.userId === id)?.nickname ?? (isGroup.value ? t('msg.pat.group') : t('msg.pat.other'))
   }
 
   function avatarOf (id: string) {
@@ -503,7 +552,7 @@
   function patTargetName (m: Message): string {
     const targetId = m.patTarget
     if (!targetId) return ''
-    if (targetId === meId.value) return '我'
+    if (targetId === meId.value) return t('msg.pat.me')
     return displayName(targetId)
   }
 
@@ -528,7 +577,7 @@
     if (!targetId || targetId === meId.value || !isGroup.value || !session.value) return
     const payload: Partial<Message> = { type: 'pat', patTarget: targetId }
     store.send(session.value, payload).catch(() => {
-      snackMsg.value = '拍一拍失败，请重试'
+      snackMsg.value = t('chat.pat.fail')
       snack.value = true
     })
     scrollBottom()
@@ -545,12 +594,65 @@
     typingClearTimer = setTimeout(() => { typingUser.value = null }, 5000)
   })
   const typingName = computed(() => typingUser.value
-    ? (nameMap.value[typingUser.value.userId] || '对方')
+    ? (nameMap.value[typingUser.value.userId] || t('msg.pat.other'))
     : '')
 
   /** 自己敲字 → 通过实时通道广播「我正在输入」（组件内部已按 3s 节流） */
   function onSelfTyping () {
     if (convId.value) void sendTyping(convId.value)
+  }
+
+  /* ---------- 群投票（微信式）：打开群聊拉全量；创建后以 poll 消息卡片进聊天流 ---------- */
+  const pollDialog = ref(false)
+  const pollTitle = ref('')
+  const pollOptions = ref<string[]>(['', ''])
+  const pollMulti = ref(false)
+  const pollCreating = ref(false)
+  const pollValid = computed(() =>
+    pollTitle.value.trim().length > 0
+    && pollOptions.value.filter(o => o.trim()).length >= 2)
+
+  function openPollDialog () {
+    pollTitle.value = ''
+    pollOptions.value = ['', '']
+    pollMulti.value = false
+    pollDialog.value = true
+  }
+
+  async function createPoll () {
+    if (!pollValid.value || !isGroup.value || pollCreating.value) return
+    pollCreating.value = true
+    try {
+      const res = await api.post(`/groups/${convId.value}/polls`, {
+        title: pollTitle.value.trim(),
+        options: pollOptions.value.map(o => o.trim()).filter(o => o),
+        multi: pollMulti.value,
+      })
+      pollDialog.value = false
+      // 投票卡片消息进聊天流（content = pollId），全员实时可见、可投
+      let s = session.value
+      if (!s) {
+        s = {
+          id: convId.value,
+          kind: 'group',
+          title: title.value,
+          avatar: '',
+          memberId: convId.value,
+          unread: 0,
+          pinned: false,
+          muted: false,
+        } as Conversation
+      }
+      store.send(s, { type: 'poll', content: res.data.id } as Partial<Message>).catch(() => {})
+      usePollsStore().load(convId.value)
+      snackMsg.value = t('poll.create.ok')
+      snack.value = true
+    } catch (error: any) {
+      snackMsg.value = error?.response?.data?.error ?? t('poll.create.fail')
+      snack.value = true
+    } finally {
+      pollCreating.value = false
+    }
   }
 
   function onSend (payload: Record<string, any>) {
@@ -594,7 +696,7 @@
   }
 
   function onCopied (_text: string) {
-    snackMsg.value = '已复制'
+    snackMsg.value = t('common.copied')
     snack.value = true
   }
 
@@ -619,9 +721,9 @@
     const ids = [...selectedIds.value]
     if (ids.length === 0) return
     const ok = await confirm({
-      title: '删除消息？',
-      text: `确定删除选中的 ${ids.length} 条消息？删除后不可恢复。`,
-      confirmText: '删除',
+      title: t('chat.multi.delete.title'),
+      text: t('chat.multi.delete.text', { n: ids.length }),
+      confirmText: t('common.delete'),
     })
     if (!ok) return
     let okn = 0
@@ -634,36 +736,36 @@
         store.removeMessage(convId.value, id)
       } catch { /* 单条失败继续 */ }
     }
-    snackMsg.value = `已删除 ${okn} 条消息`
+    snackMsg.value = t('chat.multi.delete.ok', { n: okn })
     snack.value = true
     exitMulti()
   }
 
   async function onDelete (m: Message) {
     const ok = await confirm({
-      title: '删除这条消息？',
-      text: `确定删除这条「${(m.content ?? m.fileName ?? '').slice(0, 40) || '[消息]'}」？删除后不可恢复。`,
-      confirmText: '删除',
+      title: t('chat.delete.title'),
+      text: t('chat.delete.text', { s: (m.content ?? m.fileName ?? '').slice(0, 40) || t('chat.msg.placeholder') }),
+      confirmText: t('common.delete'),
     })
     if (!ok) return
     try {
       await api.delete(`/messages/${m.id}`)
       // 统一走 store.removeMessage：清内存 + 会话预览 + IDB 单条缓存
       store.removeMessage(convId.value, m.id)
-      snackMsg.value = '已删除'
+      snackMsg.value = t('chat.delete.ok')
       snack.value = true
     } catch (error: any) {
-      snackMsg.value = error?.response?.data?.error ?? '删除失败'
+      snackMsg.value = error?.response?.data?.error ?? t('chat.delete.fail')
       snack.value = true
     }
   }
 
   function onFavorite (_m: Message, result: 'added' | 'removed' | 'failed', errorText?: string) {
     snackMsg.value = result === 'added'
-      ? '已收藏，可在「我 → 收藏」查看'
+      ? t('chat.fav.ok')
       : (result === 'removed'
-        ? '已取消收藏'
-        : (errorText ?? '收藏失败'))
+        ? t('chat.fav.removed')
+        : (errorText ?? t('msg.fav.fail')))
     snack.value = true
   }
 
@@ -673,17 +775,17 @@
     // ② 群聊里只允许引用「文字」消息，文件/图片/语音/表情/拍一拍一律不可引用。
     // 菜单项已限制（MessageBubble 仅 !isMe && type==='text' 才显示"回复"），这里是双保险。
     if (m.senderId === meId.value) {
-      snackMsg.value = '不能引用自己发的消息'
+      snackMsg.value = t('chat.quote.self')
       snack.value = true
       return
     }
     if (isGroup.value && m.type !== 'text') {
-      snackMsg.value = '群聊中只能引用文字消息'
+      snackMsg.value = t('chat.quote.textOnly')
       snack.value = true
       return
     }
     // 引用摘要：图片/文件/语音/表情用类型化摘要（避免图片被引成"消息"），文本用内容
-    const text = m.type === 'text' ? (m.content || '[消息]') : messageSummary(m)
+    const text = m.type === 'text' ? (m.content || t('chat.msg.placeholder')) : messageSummary(m)
     quoteDraft.value = {
       senderName: displayName(m.senderId),
       text,
@@ -734,11 +836,11 @@
     // 拍一拍不能跨会话转发（patTarget 是原群成员 id，丢到别的群会被服务端拒收）；
     // 转成一条普通文本「我拍了拍 xx」再发，保留语义又不带非法目标。
     if (m.type === 'pat') {
-      const who = m.senderId === meId.value ? '我' : displayName(m.senderId)
-      const payload: Partial<Message> = { type: 'text', content: `${who} 拍了拍 ${displayName(m.patTarget ?? '')}` }
+      const who = m.senderId === meId.value ? t('msg.pat.me') : displayName(m.senderId)
+      const payload: Partial<Message> = { type: 'text', content: t('msg.pat', { who, target: displayName(m.patTarget ?? '') }) }
       await store.send(target, payload)
       forwardOpen.value = false
-      snackMsg.value = `已转发给「${target.title}」`
+      snackMsg.value = t('chat.forward.ok', { name: target.title })
       return
     }
     const payload: Partial<Message> = { type: m.type }
@@ -751,7 +853,7 @@
     if (m.type === 'sticker') payload.stickerEmoji = m.stickerEmoji
     await store.send(target, payload)
     forwardOpen.value = false
-    snackMsg.value = `已转发给「${target.title}」`
+    snackMsg.value = t('chat.forward.ok', { name: target.title })
     snack.value = true
   }
 
@@ -762,9 +864,9 @@
     try {
       await store.toggleMute(convId.value, next)
       session.value.muted = next
-      snackMsg.value = next ? '已开启消息免打扰' : '已取消消息免打扰'
+      snackMsg.value = next ? t('chat.mute.on') : t('chat.mute.off')
       snack.value = true
-    } catch { snackMsg.value = '操作失败' }
+    } catch { snackMsg.value = t('chat.op.fail') }
   }
 
   async function togglePin () {
@@ -773,9 +875,9 @@
     try {
       await store.togglePin(convId.value, next)
       session.value.pinned = next
-      snackMsg.value = next ? '已置顶会话' : '已取消置顶'
+      snackMsg.value = next ? t('chat.pin.on') : t('chat.pin.off')
       snack.value = true
-    } catch { snackMsg.value = '操作失败' }
+    } catch { snackMsg.value = t('chat.op.fail') }
   }
 
   async function toggleFold () {
@@ -784,10 +886,10 @@
     try {
       await store.toggleFold(convId.value, next)
       // 折叠后跳回主列表（让被折叠的群从主列表消失）
-      snackMsg.value = next ? '已折叠群聊' : '已恢复群聊'
+      snackMsg.value = next ? t('chat.fold.on') : t('chat.fold.off')
       snack.value = true
       router.push({ name: 'chat' })
-    } catch { snackMsg.value = '操作失败' }
+    } catch { snackMsg.value = t('chat.op.fail') }
   }
 
   async function loadGroup () {
@@ -995,6 +1097,8 @@
     // ★ 先同步会话列表（从通讯录进来的新会话可能本地还没有）再加载历史/群信息
     await store.loadSessions().catch(() => {})
     await Promise.all([loadGroup(), loadNames()])
+    // 群聊：拉取投票列表（投票卡片数据源；后续靠 PollUpdated 实时刷新）
+    if (isGroup.value) usePollsStore().load(convId.value)
     try {
       await store.openConversation(convId.value)
     } finally {

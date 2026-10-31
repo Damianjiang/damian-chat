@@ -20,7 +20,7 @@
           <img
             v-for="(img, i) in resolvedImages"
             :key="i"
-            :alt="`图${i + 1}`"
+            :alt="t('moments.img', { n: i + 1 })"
             loading="lazy"
             :src="img"
             @click="emit('preview', img)"
@@ -51,7 +51,7 @@
             variant="text"
             @click="toggleLike"
           >
-            赞
+            {{ t('moments.like') }}
           </v-btn>
 
           <v-btn
@@ -61,7 +61,7 @@
             variant="text"
             @click="emit('comment', m)"
           >
-            评论
+            {{ t('moments.comment') }}
           </v-btn>
 
           <v-btn
@@ -73,7 +73,7 @@
             variant="text"
             @click="emit('delete', m)"
           >
-            删除
+            {{ t('moments.delete') }}
           </v-btn>
         </div>
       </div>
@@ -87,6 +87,7 @@
   import { useDisplay } from 'vuetify'
   import UserAvatar from '@/components/UserAvatar.vue'
   import { fileUrl } from '@/lib/files'
+  import { t } from '@/lib/i18n'
   import { timeLabel } from '@/lib/utils'
 
   const props = defineProps<{

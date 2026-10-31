@@ -10,6 +10,7 @@
  * 与 theme store（主色/明暗）互不干扰：theme 管「配色 + 明暗」，这里管「组件质感 + 动效 + 壁纸」。
  */
 
+import { t } from '@/lib/i18n'
 import { idbGetUserBg, idbClearUserBg, idbPutUserBg } from '@/lib/idb'
 
 /** 用户可开关的特效集合。3D 倾斜默认关闭：卡片上的 3D 场（perspective/rotateX/rotateY）
@@ -148,14 +149,14 @@ export async function applyUserBg (): Promise<boolean> {
 /** 校验并压缩图片为 WebP（≤1600px 宽，质量 0.82）后存 IDB。非法类型/超量拒绝。 */
 export async function setUserBg (file: File): Promise<{ ok: boolean, error?: string }> {
   const okType = file.type.startsWith('image/')
-  if (!okType) return { ok: false, error: '只能上传图片（PNG/JPG/WEBP/GIF）' }
-  if (file.size > 10 * 1024 * 1024) return { ok: false, error: '图片不能超过 10MB' }
+  if (!okType) return { ok: false, error: t('personalize.bg.notImage') }
+  if (file.size > 10 * 1024 * 1024) return { ok: false, error: t('personalize.bg.tooLarge') }
   try {
     const dataUrl = await readAsDataURL(file)
     const img = await loadImage(dataUrl)
     const out = downscale(img, 1600)
     const blob = await toBlob(out) ?? file
-    if (!blob) return { ok: false, error: '图片处理失败，请换一张' }
+    if (!blob) return { ok: false, error: t('personalize.bg.processFail') }
     const ext = blob.type.includes('webp') ? 'webp' : 'png'
     await idbPutUserBg(blob, ext, blob.type || 'image/webp')
     // 之前有旧 objectURL 就释放，再挂新的
@@ -163,7 +164,7 @@ export async function setUserBg (file: File): Promise<{ ok: boolean, error?: str
     await applyUserBg()
     return { ok: true }
   } catch {
-    return { ok: false, error: '图片处理失败，请换一张' }
+    return { ok: false, error: t('personalize.bg.processFail') }
   }
 }
 
@@ -178,7 +179,8 @@ export async function removeUserBg (): Promise<void> {
 
 export const FONT_KEY = 'wx_font_level'
 export const FONT_SCALES = [0.9, 1, 1.15, 1.3]
-export const FONT_LABELS = ['小', '标准', '大', '特大']
+/** 字号文案（i18n key，展示时需经 t() 翻译） */
+export const FONT_LABELS = ['font.s', 'font.m', 'font.l', 'font.xl']
 
 /** 读持久化字号级别（非法值回落到 1=标准）。 */
 export function getFontLevel (): number {

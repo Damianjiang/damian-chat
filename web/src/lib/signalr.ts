@@ -1,4 +1,4 @@
-import type { Message } from '@/types'
+import type { Message, Poll } from '@/types'
 /**
  * lib/signalr.ts
  *
@@ -28,6 +28,8 @@ export interface ChatHubEvents {
   onNoticeUpdated: (groupId: string, payload: { version: string, editor: string }) => void
   /** 对方正在输入（本人不在发送成员内；at 为服务端时间戳） */
   onTyping?: (conversationId: string, userId: string, at: string) => void
+  /** 群投票有变化（有人投票/被截止）：打开的投票卡片实时刷新。 */
+  onPollUpdated?: (conversationId: string, poll: Poll) => void
 }
 
 let connection: HubConnection | null = null
@@ -53,6 +55,7 @@ function build (events: ChatHubEvents): HubConnection {
   conn.on('MessagesCleared', conversationId => events.onMessagesCleared(conversationId))
   conn.on('NoticeUpdated', (groupId, payload) => events.onNoticeUpdated(groupId, payload))
   conn.on('Typing', (conversationId, userId, at) => events.onTyping?.(conversationId, userId, at))
+  conn.on('PollUpdated', (conversationId, poll) => events.onPollUpdated?.(conversationId, poll as Poll))
 
   // 自动重连（普通闪断）成功恢复后，同样要补偿离线窗口内错过的消息：
   // 此前只有「手动 start 重试」路径会回调 onCatchup，自动重连路径从不补偿，

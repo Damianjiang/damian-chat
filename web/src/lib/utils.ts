@@ -1,6 +1,7 @@
 /**
  * lib/utils.ts
  */
+import { t } from '@/lib/i18n'
 
 export function formatFileSize (bytes?: number | null): string {
   if (!bytes) {
@@ -100,21 +101,27 @@ function shade (hex: string, percent: number): string {
 
 export function messageSummary (m: { type: string, content: string, fileName?: string, stickerEmoji?: string, voiceSeconds?: number, recalled?: boolean } | undefined): string {
   if (!m) {
-    return '暂无消息'
+    return t('chat.preview.none')
   }
   if (m.recalled) {
-    return '撤回了一条消息'
+    return t('chat.preview.recalled')
   }
   switch (m.type) {
-    case 'image': { return '[图片]'
+    case 'image': { return t('chat.preview.image')
     }
-    case 'voice': { return `[语音] ${m.voiceSeconds ?? 0}"`
+    case 'voice': { return t('chat.preview.voice', { n: m.voiceSeconds ?? 0 })
     }
-    case 'file': { return `[文件] ${m.fileName ?? ''}`
+    case 'file': { return t('chat.preview.file', { name: m.fileName ?? '' })
     }
-    case 'sticker': { return m.stickerEmoji ?? '[表情]'
+    case 'sticker': { return m.stickerEmoji ?? t('chat.preview.sticker')
     }
-    case 'pat': { return '[拍一拍]'
+    case 'pat': { return t('chat.preview.pat')
+    }
+    case 'poll': { return t('chat.preview.poll')
+    }
+    case 'system': { return m.content
+    }
+    case 'text': { return m.content
     }
     case 'quote': { return m.content
     }

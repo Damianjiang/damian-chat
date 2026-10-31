@@ -2,7 +2,7 @@
   <v-sheet class="wx-panes" flat>
     <v-app-bar class="wx-chat-bar" color="surface" density="compact" flat>
       <v-btn v-if="isMobile" icon="mdi-arrow-left" variant="text" @click="goBack" />
-      <v-toolbar-title class="text-body-large font-weight-medium">个人资料</v-toolbar-title>
+      <v-toolbar-title class="text-body-large font-weight-medium">{{ t('settings.profile') }}</v-toolbar-title>
     </v-app-bar>
 
     <div class="flex-grow-1 overflow-y-auto wx-scroll wx-profile-scroll pa-4">
@@ -17,24 +17,24 @@
             :src="user?.avatar"
           />
         </div>
-        <div class="text-h5 font-weight-medium mt-3">{{ user?.nickname ?? '加载中…' }}</div>
+        <div class="text-h5 font-weight-medium mt-3">{{ user?.nickname ?? t('common.loading') }}</div>
         <div v-if="user?.phone" class="text-body-medium text-medium-emphasis mt-1">{{ user.phone }}</div>
       </div>
 
       <!-- 详细资料卡（微信风格：白底圆角、细线分隔、图标+字段） -->
       <v-card class="wx-profile-card" flat>
-        <v-card-title class="text-body-small text-medium-emphasis wx-profile-card-title">详细资料</v-card-title>
+        <v-card-title class="text-body-small text-medium-emphasis wx-profile-card-title">{{ t('profile.details') }}</v-card-title>
 
         <!-- 备注（仅好友/自己） -->
         <div class="wx-profile-row">
-          <span class="wx-profile-field-label">备注</span>
+          <span class="wx-profile-field-label">{{ t('profile.remark') }}</span>
           <div class="wx-profile-field-value">
             <v-text-field
               v-if="!isOwn"
               v-model="remarkDraft"
               density="compact"
               hide-details
-              placeholder="设置备注"
+              :placeholder="t('profile.remark.ph')"
               style="max-width: 140px"
               variant="plain"
             />
@@ -44,7 +44,7 @@
 
         <!-- 大面号 + 复制 -->
         <div class="wx-profile-row">
-          <span class="wx-profile-field-label">大面号</span>
+          <span class="wx-profile-field-label">{{ t('me.wxid') }}</span>
           <div class="wx-profile-field-value">
             <template v-if="user?.wxId">
               <span class="wx-wxid">{{ user.wxId }}</span>
@@ -62,25 +62,25 @@
 
         <!-- 地区 -->
         <div class="wx-profile-row">
-          <span class="wx-profile-field-label">地区</span>
+          <span class="wx-profile-field-label">{{ t('me.region') }}</span>
           <span class="wx-profile-field-value text-body-medium text-medium-emphasis">{{ user?.region || '—' }}</span>
         </div>
 
         <!-- 签名 -->
         <div class="wx-profile-row">
-          <span class="wx-profile-field-label">签名</span>
+          <span class="wx-profile-field-label">{{ t('profile.signature') }}</span>
           <span class="wx-profile-field-value text-body-medium text-medium-emphasis wx-sig">{{ user?.signature || '—' }}</span>
         </div>
 
         <!-- 保存备注：非自己时始终有「保存备注」确认按钮，改动后额外给「取消」还原 -->
         <div v-if="!isOwn" class="wx-profile-save">
-          <v-btn v-if="dirty" color="medium-emphasis" size="small" variant="text" @click="remarkDraft = remarkOrigin">取消</v-btn>
+          <v-btn v-if="dirty" color="medium-emphasis" size="small" variant="text" @click="remarkDraft = remarkOrigin">{{ t('common.cancel') }}</v-btn>
           <v-btn
             color="primary"
             size="small"
             :disabled="!dirty"
             @click="saveRemark"
-          >保存备注</v-btn>
+          >{{ t('profile.remark.save') }}</v-btn>
         </div>
       </v-card>
 
@@ -93,7 +93,7 @@
           icon="mdi-chat-outline"
           variant="tonal"
           @click="message"
-        >发消息</v-btn>
+        >{{ t('profile.message') }}</v-btn>
 
         <v-btn
           v-if="!isOwn && !isFriend"
@@ -103,7 +103,7 @@
           :loading="adding"
           variant="tonal"
           @click="addFriend"
-        >加好友</v-btn>
+        >{{ t('profile.addFriend') }}</v-btn>
 
         <template v-if="!isOwn && isFriend">
           <v-btn
@@ -112,7 +112,7 @@
             :icon="blocked ? 'mdi-account-check-outline' : 'mdi-account-off-outline'"
             :variant="blocked ? 'flat' : 'tonal'"
             @click="toggleBlock"
-          >{{ blocked ? '取消拉黑' : '拉黑' }}</v-btn>
+          >{{ blocked ? t('contacts.unblock') : t('contacts.block') }}</v-btn>
 
           <v-btn
             class="wx-act-btn wx-act-danger"
@@ -120,7 +120,7 @@
             icon="mdi-delete-outline"
             variant="tonal"
             @click="removeFriend"
-          >删除</v-btn>
+          >{{ t('common.delete') }}</v-btn>
         </template>
       </div>
     </div>
@@ -135,6 +135,7 @@
   import { useRoute, useRouter } from 'vue-router'
   import { api } from '@/lib/api'
   import { isPageMode } from '@/lib/device'
+  import { t } from '@/lib/i18n'
   import { confirm } from '@/lib/confirm'
   import UserAvatar from '@/components/UserAvatar.vue'
   import { useAuthStore } from '@/stores/auth'
@@ -170,12 +171,12 @@
     if (!user.value) return
     adding.value = true
     try {
-      const res = await api.post('/contacts', { userId: user.value.id, message: '我是通过资料页添加的朋友' })
-      snackMsg.value = res.data.status === 'accepted' ? '已添加为好友' : '申请已发送，等待对方通过'
+      const res = await api.post('/contacts', { userId: user.value.id, message: t('profile.add.msg') })
+      snackMsg.value = res.data.status === 'accepted' ? t('scan.added') : t('scan.pending')
       snack.value = true
       await contacts.load()
     } catch (error: any) {
-      snackMsg.value = error?.response?.data?.error ?? '添加失败'
+      snackMsg.value = error?.response?.data?.error ?? t('scan.fail')
       snack.value = true
     } finally {
       adding.value = false
@@ -216,7 +217,7 @@
       if (copyTimer) clearTimeout(copyTimer)
       copyTimer = setTimeout(() => { copiedWxId.value = false }, 1500)
     } else {
-      snackMsg.value = '复制失败，请手动长按选择'
+      snackMsg.value = t('profile.copy.fail')
       snack.value = true
     }
   }
@@ -278,29 +279,29 @@
     const c = contacts.items.find(x => x.user?.id === contactId.value)
     if (!c) return
     const next = !c.blocked
-    const nick = c.user?.nickname ?? '对方'
+    const nick = c.user?.nickname ?? t('contacts.peer')
     if (next) {
       const ok = await confirm({
-        title: '拉黑该联系人？',
-        text: `拉黑后，${nick} 发给你的消息将被拒收，你也将无法向其发送消息。\n可随时在「设置 → 被拉黑的用户」中恢复。`,
-        confirmText: '拉黑',
+        title: t('contacts.block.confirm'),
+        text: t('contacts.block.confirm.text', { name: nick }),
+        confirmText: t('contacts.block'),
       })
       if (!ok) return
     } else {
       const ok = await confirm({
-        title: '取消拉黑？',
-        text: `恢复后，${nick} 即可正常与你收发消息。`,
-        confirmText: '取消拉黑',
+        title: t('contacts.unblock.confirm'),
+        text: t('contacts.unblock.confirm.text', { name: nick }),
+        confirmText: t('contacts.unblock'),
         danger: false,
       })
       if (!ok) return
     }
     try {
       await contacts.toggleBlock(c.id, next)
-      snackMsg.value = next ? `已拉黑 ${nick}` : '已取消拉黑'
+      snackMsg.value = next ? t('contacts.blocked.ok', { name: nick }) : t('contacts.unblocked.ok', { name: nick })
       snack.value = true
     } catch (error: any) {
-      snackMsg.value = error?.response?.data?.error ?? '操作失败'
+      snackMsg.value = error?.response?.data?.error ?? t('contacts.op.fail')
       snack.value = true
     }
   }
@@ -310,18 +311,18 @@
     const c = contacts.items.find(x => x.user?.id === contactId.value)
     if (!c) return
     const ok = await confirm({
-      title: '删除好友？',
-      text: `确定删除与 ${c.user?.nickname ?? '对方'} 的好友关系？\n删除后双向解除好友关系（聊天记录保留）。`,
-      confirmText: '删除',
+      title: t('contacts.deleteFriend.confirm'),
+      text: t('contacts.deleteFriend.confirm.text', { name: c.user?.nickname ?? t('contacts.peer') }),
+      confirmText: t('common.delete'),
     })
     if (!ok) return
     try {
       await contacts.removeFriend(c.id)
-      snackMsg.value = '已删除好友'
+      snackMsg.value = t('profile.friendRemoved')
       snack.value = true
       router.push({ name: 'contacts' })
     } catch (error: any) {
-      snackMsg.value = error?.response?.data?.error ?? '删除失败'
+      snackMsg.value = error?.response?.data?.error ?? t('contacts.deleteFriend.fail')
       snack.value = true
     }
   }

@@ -1,4 +1,15 @@
-export type MessageType = 'text' | 'image' | 'voice' | 'file' | 'sticker' | 'quote' | 'system' | 'pat'
+export type MessageType = 'text' | 'image' | 'voice' | 'file' | 'sticker' | 'quote' | 'system' | 'pat' | 'poll'
+
+/** 群投票（服务端 Poll 模型镜像；options[].userIds 为投票人 id 列表）。 */
+export interface Poll {
+  id: string
+  title: string
+  options: { text: string, userIds: string[] }[]
+  multi: boolean
+  closed: boolean
+  createdBy: string
+  createdAt: string
+}
 
 export interface User {
   id: string

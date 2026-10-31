@@ -2,16 +2,16 @@
   <v-sheet class="wx-panes" flat>
     <v-app-bar class="wx-chat-bar" color="surface" density="compact" flat>
       <v-btn v-if="isMobile" icon="mdi-arrow-left" variant="text" @click="goBack" />
-      <v-toolbar-title class="text-body-large font-weight-medium">个性化设置</v-toolbar-title>
+      <v-toolbar-title class="text-body-large font-weight-medium">{{ t('settings.personalize') }}</v-toolbar-title>
     </v-app-bar>
 
     <div class="wx-personalize-bg flex-grow-1 overflow-y-auto wx-scroll pa-2">
       <!-- 外观：主题配色 / 深色模式 / 字体大小（从设置根目录移入） -->
       <v-list bg-color="surface" class="wx-settings-group">
-        <v-subheader>外观</v-subheader>
+        <v-subheader>{{ t('personalize.appearance') }}</v-subheader>
 
         <v-list-item>
-          <v-list-item-title>主题配色</v-list-item-title>
+          <v-list-item-title>{{ t('login.personalize.theme') }}</v-list-item-title>
           <template #append>
             <div class="dm-theme-swatches">
               <button
@@ -29,7 +29,7 @@
         </v-list-item>
 
         <v-list-item>
-          <v-list-item-title>深色模式</v-list-item-title>
+          <v-list-item-title>{{ t('login.personalize.dark') }}</v-list-item-title>
           <template #append>
             <v-btn-toggle
               :model-value="theme.mode"
@@ -38,19 +38,19 @@
               mandatory
               @update:model-value="(v: any) => theme.setMode(v)"
             >
-              <v-btn value="light">亮</v-btn>
-              <v-btn value="dark">暗</v-btn>
-              <v-btn value="system">跟随</v-btn>
+              <v-btn value="light">{{ t('login.mode.light') }}</v-btn>
+              <v-btn value="dark">{{ t('login.mode.dark') }}</v-btn>
+              <v-btn value="system">{{ t('login.mode.system') }}</v-btn>
             </v-btn-toggle>
           </template>
         </v-list-item>
 
         <v-list-item @click="openFontDialog">
-          <v-list-item-title>字体大小</v-list-item-title>
+          <v-list-item-title>{{ t('login.personalize.font') }}</v-list-item-title>
           <template #append>
             <div class="d-flex align-center gap-1" @click.stop>
               <span class="text-body-small text-medium-emphasis wx-font-cur">{{ fontLabels[fontLevel] }}</span>
-              <v-btn icon="mdi-eye-outline" size="x-small" variant="text" title="字体预览" @click="openFontDialog" />
+              <v-btn icon="mdi-eye-outline" size="x-small" :title="t('personalize.fontPreview')" variant="text" @click="openFontDialog" />
             </div>
           </template>
         </v-list-item>
@@ -58,44 +58,44 @@
 
       <!-- 组件与特效 -->
       <v-list bg-color="surface" class="wx-settings-group mt-2">
-        <v-subheader>组件与特效</v-subheader>
+        <v-subheader>{{ t('personalize.fx') }}</v-subheader>
 
         <v-list-item @click="openAlphaDialog">
           <template #prepend><v-icon icon="mdi-opacity" /></template>
-          <v-list-item-title>组件半透明度</v-list-item-title>
-          <v-list-item-subtitle>调低让顶栏 / 卡片 / 面板变半透明，透出背景（默认 100 = 不透明）</v-list-item-subtitle>
+          <v-list-item-title>{{ t('personalize.alpha') }}</v-list-item-title>
+          <v-list-item-subtitle>{{ t('personalize.alpha.desc') }}</v-list-item-subtitle>
           <template #append>
             <div class="d-flex align-center gap-1" @click.stop>
               <span class="text-body-small text-medium-emphasis wx-font-cur">{{ alpha }}%</span>
-              <v-btn icon="mdi-tune-variant" size="x-small" variant="text" title="设置半透明度" @click="openAlphaDialog" />
+              <v-btn icon="mdi-tune-variant" size="x-small" :title="t('personalize.alpha.edit')" variant="text" @click="openAlphaDialog" />
             </div>
           </template>
         </v-list-item>
 
         <v-list-item>
           <template #prepend><v-icon icon="mdi-weather-windy" /></template>
-          <v-list-item-title>动态效果</v-list-item-title>
-          <v-list-item-subtitle>进场动画 / 消息浮现 / 呼吸 logo 等（关闭后全站停非必要动画）</v-list-item-subtitle>
+          <v-list-item-title>{{ t('personalize.motion') }}</v-list-item-title>
+          <v-list-item-subtitle>{{ t('personalize.motion.desc') }}</v-list-item-subtitle>
           <template #append><v-switch v-model="motion" color="primary" density="compact" hide-details @update:model-value="toggleFx" /></template>
         </v-list-item>
 
         <v-list-item>
           <template #prepend><v-icon icon="mdi-cube-outline" /></template>
-          <v-list-item-title>3D 倾斜</v-list-item-title>
-          <v-list-item-subtitle>登录卡片随指针轻微倾斜（关闭则保留玻璃质感、不再倾斜）</v-list-item-subtitle>
+          <v-list-item-title>{{ t('personalize.tilt') }}</v-list-item-title>
+          <v-list-item-subtitle>{{ t('personalize.tilt.desc') }}</v-list-item-subtitle>
           <template #append><v-switch v-model="tilt" color="primary" density="compact" hide-details @update:model-value="toggleFx" /></template>
         </v-list-item>
 
         <v-list-item>
           <template #prepend><v-icon icon="mdi-water" /></template>
-          <v-list-item-title>登录页波纹</v-list-item-title>
-          <v-list-item-subtitle>登录卡片后的蓝色动波纹背景（关闭显示静态纯色底）</v-list-item-subtitle>
+          <v-list-item-title>{{ t('personalize.ripple') }}</v-list-item-title>
+          <v-list-item-subtitle>{{ t('personalize.ripple.desc') }}</v-list-item-subtitle>
           <template #append><v-switch v-model="ripple" color="primary" density="compact" hide-details @update:model-value="toggleFx" /></template>
         </v-list-item>
       </v-list>
 
       <div class="text-center text-body-small text-medium-emphasis py-6">
-        以上均为本地偏好，实时生效，仅保存在这台设备上。
+        {{ t('personalize.localOnly') }}
       </div>
     </div>
 
@@ -104,7 +104,7 @@
     <!-- 字体大小预览：选一个字号，右侧按该字号实时渲染样张，应用/还原 -->
     <v-dialog v-model="fontDialog" max-width="420">
       <v-card>
-        <v-card-title class="text-body-large">字体大小</v-card-title>
+        <v-card-title class="text-body-large">{{ t('login.personalize.font') }}</v-card-title>
         <v-card-text class="d-flex gap-4">
           <div class="wx-font-opt-col">
             <button
@@ -117,18 +117,18 @@
             >{{ f }}</button>
           </div>
           <div class="wx-font-preview">
-            <div class="text-caption text-medium-emphasis mb-1">预览（{{ fontLabels[fontDraft] }}）</div>
+            <div class="text-caption text-medium-emphasis mb-1">{{ t('personalize.font.preview', { n: fontLabels[fontDraft]! }) }}</div>
             <div :style="{ fontSize: fontPreviewPx + 'px', lineHeight: 1.5 }">
-              <p class="font-weight-medium mb-1">标题示例</p>
-              <p>这是一段正文，用来预览字体大小在界面里的实际效果。</p>
-              <p class="text-medium-emphasis">次要文字 / 说明文案也一并放大。</p>
+              <p class="font-weight-medium mb-1">{{ t('personalize.font.sampleTitle') }}</p>
+              <p>{{ t('personalize.font.sampleBody') }}</p>
+              <p class="text-medium-emphasis">{{ t('personalize.font.sampleSecondary') }}</p>
             </div>
           </div>
         </v-card-text>
         <v-card-actions>
           <v-spacer />
-          <v-btn variant="text" @click="fontDialog = false">取消</v-btn>
-          <v-btn color="primary" @click="applyFontDraft">应用</v-btn>
+          <v-btn variant="text" @click="fontDialog = false">{{ t('common.cancel') }}</v-btn>
+          <v-btn color="primary" @click="applyFontDraft">{{ t('personalize.apply') }}</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -136,19 +136,19 @@
     <!-- 组件半透明度：点击行弹出，窗内滑条实时调节（草稿 + 应用，与字体预览同一交互范式） -->
     <v-dialog v-model="alphaDialog" max-width="360">
       <v-card>
-        <v-card-title class="text-body-large">组件半透明度</v-card-title>
+        <v-card-title class="text-body-large">{{ t('personalize.alpha') }}</v-card-title>
         <v-card-text>
-          <div class="text-body-small text-medium-emphasis mb-2">调低让顶栏 / 卡片 / 面板变半透明、透出背景；100 = 完全不透明。</div>
+          <div class="text-body-small text-medium-emphasis mb-2">{{ t('personalize.alpha.hint') }}</div>
           <div class="wx-alpha-preview">
-            <div class="text-caption text-medium-emphasis mb-1">预览（{{ alphaDraft }}% 不透明）</div>
+            <div class="text-caption text-medium-emphasis mb-1">{{ t('personalize.alpha.preview', { n: alphaDraft }) }}</div>
             <div class="wx-alpha-preview-box">
               <div
                 class="wx-alpha-preview-card"
                 :style="{ background: `rgba(255,255,255,${(alphaDraft / 100).toFixed(2)})` }"
               >
-                <span>顶栏</span>
-                <span>卡片</span>
-                <span>面板</span>
+                <span>{{ t('personalize.alpha.topbar') }}</span>
+                <span>{{ t('personalize.alpha.card') }}</span>
+                <span>{{ t('personalize.alpha.panel') }}</span>
               </div>
             </div>
           </div>
@@ -167,8 +167,8 @@
         </v-card-text>
         <v-card-actions>
           <v-spacer />
-          <v-btn variant="text" @click="alphaDialog = false">取消</v-btn>
-          <v-btn color="primary" @click="applyAlphaDraft">应用</v-btn>
+          <v-btn variant="text" @click="alphaDialog = false">{{ t('common.cancel') }}</v-btn>
+          <v-btn color="primary" @click="applyAlphaDraft">{{ t('personalize.apply') }}</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -179,6 +179,7 @@
   import { computed, onMounted, ref } from 'vue'
   import { useRouter } from 'vue-router'
   import { isPageMode } from '@/lib/device'
+  import { t } from '@/lib/i18n'
   import { getFx, getAlpha, saveFx, saveAlpha, getFontLevel, saveFontLevel, FONT_LABELS, FONT_SCALES } from '@/lib/personalize'
   import { useThemeStore } from '@/stores/theme'
 
@@ -195,7 +196,8 @@
   }
 
   /* ---------- 字体大小（与登录页/旧设置页共用 wx_font_level） ---------- */
-  const fontLabels = FONT_LABELS
+  /** FONT_LABELS 是 i18n key（font.s/font.m/…），经 t() 翻译后响应语言切换 */
+  const fontLabels = computed(() => FONT_LABELS.map(k => t(k)))
   const fontScales = FONT_SCALES
   const fontLevel = ref(getFontLevel())
   /** 打开预览弹窗 + 在弹窗内实时预览的草稿级别（点「应用」才真正改全站字号） */
@@ -220,7 +222,7 @@
     fontLevel.value = fontDraft.value
     saveFontLevel(fontDraft.value)
     fontDialog.value = false
-    toast(`字号已设为「${fontLabels[fontDraft.value]}」`)
+    toast(t('personalize.font.saved', { n: fontLabels.value[fontDraft.value]! }))
   }
 
   /* ---------- 特效开关 / 半透明（背景图功能已移除） ---------- */
@@ -243,7 +245,7 @@
     alpha.value = n
     saveAlpha(n)
     alphaDialog.value = false
-    toast(`组件半透明度已设为 ${n}%`)
+    toast(t('personalize.alpha.saved', { n }))
   }
 
   /** 任一特效开关变化 → 整体保存（ripple/tilt/motion 三态一起落盘 + 实时生效） */

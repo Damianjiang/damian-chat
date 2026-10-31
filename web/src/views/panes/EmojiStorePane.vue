@@ -2,13 +2,13 @@
   <v-sheet class="wx-chat-surface wx-panes" flat>
     <v-app-bar class="wx-chat-bar" color="surface" density="compact" flat>
       <v-btn v-if="isMobile" icon="mdi-arrow-left" variant="text" @click="goBack" />
-      <v-toolbar-title class="text-body-large font-weight-medium">表情</v-toolbar-title>
+      <v-toolbar-title class="text-body-large font-weight-medium">{{ t('me.emojis') }}</v-toolbar-title>
     </v-app-bar>
 
     <div class="wx-emoji-bg flex-grow-1 overflow-y-auto wx-scroll pa-2">
       <div class="wx-emoji-panel">
         <div class="d-flex align-center justify-space-between px-3 py-2">
-          <span class="text-body-medium">我的表情</span>
+          <span class="text-body-medium">{{ t('me.emojis.mine') }}</span>
 
           <v-btn
             v-if="recent.length > 0"
@@ -21,7 +21,7 @@
         </div>
 
         <div v-if="recent.length === 0" class="pa-4 text-body-small text-medium-emphasis">
-          还没有表情。在聊天输入框点过表情后，会自动出现在这里。
+          {{ t('me.emojis.empty') }}
         </div>
 
         <div v-else class="wx-emoji-grid">
@@ -39,8 +39,8 @@
 
       <div class="wx-emoji-panel mt-2">
         <div class="d-flex align-center justify-space-between px-3 py-2">
-          <span class="text-body-medium">全部表情</span>
-          <span class="text-body-small text-medium-emphasis">点击发送到最后打开的会话</span>
+          <span class="text-body-medium">{{ t('me.emojis.all') }}</span>
+          <span class="text-body-small text-medium-emphasis">{{ t('me.emojis.tapToSend') }}</span>
         </div>
 
         <div class="wx-emoji-grid">
@@ -66,6 +66,7 @@
   import { useRouter } from 'vue-router'
   import { isPageMode } from '@/lib/device'
   import { ALL_EMOJIS, markEmojiUsed, removeUsedEmoji, usedEmojis } from '@/lib/emoji'
+  import { t } from '@/lib/i18n'
   import { useConversationsStore } from '@/stores/conversations'
 
   const router = useRouter()
@@ -81,14 +82,14 @@
   function send (emoji: string) {
     const s = store.activeSession
     if (!s) {
-      snackMsg.value = '请先在聊天列表里打开一个会话'
+      snackMsg.value = t('me.emojis.noSession')
       snack.value = true
       return
     }
     markEmojiUsed(emoji)
     recent.value = usedEmojis()
     store.send(s, { type: 'sticker', content: '', stickerEmoji: emoji })
-    snackMsg.value = `已发送到「${s.title}」`
+    snackMsg.value = t('me.emojis.sent', { name: s.title })
     snack.value = true
   }
 

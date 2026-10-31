@@ -37,12 +37,12 @@
           <template v-if="canManage">
             <div class="wx-member-cell" @click="inviteSheet = true">
               <div class="wx-member-avatar wx-member-action"><v-icon icon="mdi-plus" size="28" /></div>
-              <div class="wx-member-name">邀请</div>
+              <div class="wx-member-name">{{ t('group.invite') }}</div>
             </div>
 
             <div class="wx-member-cell" @click="removeMode = !removeMode">
               <div class="wx-member-avatar wx-member-action" :class="{ 'is-on': removeMode }"><v-icon icon="mdi-minus" size="28" /></div>
-              <div class="wx-member-name">移除</div>
+              <div class="wx-member-name">{{ t('group.kick') }}</div>
             </div>
           </template>
         </div>
@@ -54,16 +54,16 @@
           <template #prepend>
             <user-avatar :nickname="group?.name ?? ''" :src="group?.avatar" :size="44" />
           </template>
-          <v-list-item-title>群头像</v-list-item-title>
+          <v-list-item-title>{{ t('group.avatar') }}</v-list-item-title>
 
           <template #append>
-            <span class="text-body-medium text-medium-emphasis text-truncate wx-row-value">{{ group?.avatar ? '已设置' : '未设置' }}</span>
+            <span class="text-body-medium text-medium-emphasis text-truncate wx-row-value">{{ group?.avatar ? t('group.avatar.set') : t('group.avatar.none') }}</span>
             <v-icon v-if="canManage" icon="mdi-chevron-right" size="small" />
           </template>
         </v-list-item>
 
         <v-list-item @click="canManage ? openEdit('name') : null">
-          <v-list-item-title>群名称</v-list-item-title>
+          <v-list-item-title>{{ t('group.name') }}</v-list-item-title>
 
           <template #append>
             <span class="text-body-medium text-medium-emphasis text-truncate wx-row-value">{{ group?.name }}</span>
@@ -72,19 +72,19 @@
         </v-list-item>
 
         <v-list-item @click="openEdit('notice')">
-          <v-list-item-title>群公告</v-list-item-title>
+          <v-list-item-title>{{ t('group.notice') }}</v-list-item-title>
 
           <template #append>
-            <span class="text-body-medium text-medium-emphasis text-truncate wx-row-value">{{ group?.notice || '未设置' }}</span>
+            <span class="text-body-medium text-medium-emphasis text-truncate wx-row-value">{{ group?.notice || t('common.notSet') }}</span>
             <v-icon icon="mdi-chevron-right" size="small" />
           </template>
         </v-list-item>
 
         <v-list-item @click="openEdit('groupNick')">
-          <v-list-item-title>我在本群的昵称</v-list-item-title>
+          <v-list-item-title>{{ t('group.myNick') }}</v-list-item-title>
 
           <template #append>
-            <span class="text-body-medium text-medium-emphasis text-truncate wx-row-value">{{ myGroupNick || '默认大面昵称' }}</span>
+            <span class="text-body-medium text-medium-emphasis text-truncate wx-row-value">{{ myGroupNick || t('group.myNick.default') }}</span>
             <v-icon icon="mdi-chevron-right" size="small" />
           </template>
         </v-list-item>
@@ -94,7 +94,7 @@
       <v-list bg-color="surface" class="wx-group-list mt-3">
         <v-list-item>
           <template #prepend><v-icon icon="mdi-bell-off-outline" /></template>
-          <v-list-item-title>消息免打扰</v-list-item-title>
+          <v-list-item-title>{{ t('group.mute') }}</v-list-item-title>
 
           <template #append>
             <v-switch
@@ -110,7 +110,7 @@
 
         <v-list-item>
           <template #prepend><v-icon icon="mdi-pin-outline" /></template>
-          <v-list-item-title>置顶聊天</v-list-item-title>
+          <v-list-item-title>{{ t('group.pin') }}</v-list-item-title>
 
           <template #append>
             <v-switch
@@ -126,19 +126,19 @@
 
         <v-list-item @click="findHistory">
           <template #prepend><v-icon icon="mdi-magnify" /></template>
-          <v-list-item-title>查找聊天记录</v-list-item-title>
+          <v-list-item-title>{{ t('group.search.msg') }}</v-list-item-title>
           <template #append><v-icon icon="mdi-chevron-right" /></template>
         </v-list-item>
 
         <v-list-item v-if="canManage" @click="inviteSheet = true">
           <template #prepend><v-icon icon="mdi-account-plus-outline" /></template>
-          <v-list-item-title>邀请成员</v-list-item-title>
+          <v-list-item-title>{{ t('group.invite.members') }}</v-list-item-title>
           <template #append><v-icon icon="mdi-chevron-right" /></template>
         </v-list-item>
 
         <v-list-item v-if="canManage" @click="openJoinSheet">
           <template #prepend><v-icon icon="mdi-account-check" /></template>
-          <v-list-item-title>加群申请</v-list-item-title>
+          <v-list-item-title>{{ t('group.join.requests') }}</v-list-item-title>
           <template #append>
             <v-badge v-if="group?.joinPending" color="wechat-unread" :content="group!.joinPending" />
             <v-icon v-else icon="mdi-chevron-right" />
@@ -147,8 +147,8 @@
 
         <v-list-item v-if="canManage">
           <template #prepend><v-icon icon="mdi-key" /></template>
-          <v-list-item-title>入群方式</v-list-item-title>
-          <v-list-item-subtitle>{{ group?.joinPolicy === 'open' ? '开放（知道群号直接进）' : '需群主审批' }}</v-list-item-subtitle>
+          <v-list-item-title>{{ t('group.join.policy') }}</v-list-item-title>
+          <v-list-item-subtitle>{{ group?.joinPolicy === 'open' ? t('group.join.open.desc') : t('group.join.approve') }}</v-list-item-subtitle>
           <template #append>
             <v-switch
               class="wx-row-switch"
@@ -166,24 +166,24 @@
       <v-list bg-color="surface" class="wx-group-list mt-3">
         <v-list-item v-if="isOwner" @click="transferSheet = true">
           <template #prepend><v-icon icon="mdi-crown-outline" /></template>
-          <v-list-item-title>转让群主</v-list-item-title>
+          <v-list-item-title>{{ t('group.transfer') }}</v-list-item-title>
           <template #append><v-icon icon="mdi-chevron-right" /></template>
         </v-list-item>
 
         <v-list-item @click="confirmLeave = true">
           <template #prepend><v-icon color="error" icon="mdi-exit-run" /></template>
-          <v-list-item-title class="text-error">退出群聊</v-list-item-title>
+          <v-list-item-title class="text-error">{{ t('group.leave') }}</v-list-item-title>
         </v-list-item>
 
         <v-list-item v-if="isOwner" @click="confirmDissolve = true">
           <template #prepend><v-icon color="error" icon="mdi-delete-outline" /></template>
-          <v-list-item-title class="text-error">解散群聊</v-list-item-title>
+          <v-list-item-title class="text-error">{{ t('group.dissolve') }}</v-list-item-title>
         </v-list-item>
       </v-list>
 
       <div class="pa-4 d-flex align-center justify-center gap-2 text-body-small text-medium-emphasis">
-        <span>群号：{{ groupId }}</span>
-        <v-btn icon="mdi-content-copy" size="x-small" variant="text" title="复制群号" @click="copyGroupId" />
+        <span>{{ t('group.id', { id: groupId }) }}</span>
+        <v-btn icon="mdi-content-copy" size="x-small" variant="text" :title="t('group.copy.id')" @click="copyGroupId" />
       </div>
     </div>
 
@@ -199,18 +199,18 @@
             <div class="font-weight-medium">{{ activeMember?.nickname }}</div>
 
             <div class="text-body-small text-medium-emphasis">
-              {{ activeMember?.role === 'owner' ? '群主' : activeMember?.role === 'admin' ? '管理员' : '群成员' }}
+              {{ activeMember?.role === 'owner' ? t('group.role.owner') : activeMember?.role === 'admin' ? t('group.role.admin') : t('group.role.member') }}
             </div>
           </div>
         </div>
 
         <v-list density="compact">
-          <v-list-item prepend-icon="mdi-account-outline" title="查看资料" @click="viewProfile" />
+          <v-list-item prepend-icon="mdi-account-outline" :title="t('group.viewProfile')" @click="viewProfile" />
 
           <v-list-item
             v-if="activeMember?.userId === meId"
             prepend-icon="mdi-card-account-details-outline"
-            title="设置我在本群的昵称"
+            :title="t('group.myNick.edit')"
             @click="memberSheet = false; openEdit('groupNick')"
           />
 
@@ -218,28 +218,28 @@
             <v-list-item
               v-if="activeMember.userId !== meId && activeMember.role !== 'admin'"
               prepend-icon="mdi-shield-plus"
-              title="设为群管理员"
+              :title="t('group.role.setAdmin')"
               @click="setRole(activeMember, 'admin')"
             />
 
             <v-list-item
               v-if="activeMember.userId !== meId && activeMember.role === 'admin'"
               prepend-icon="mdi-shield-off"
-              title="取消群管理员"
+              :title="t('group.role.unsetAdmin')"
               @click="setRole(activeMember, 'member')"
             />
 
             <v-list-item
               v-if="activeMember.userId !== meId"
               :prepend-icon="activeMember.muted ? 'mdi-volume-high' : 'mdi-volume-off'"
-              :title="activeMember.muted ? '解除禁言' : '禁言该成员'"
+              :title="activeMember.muted ? t('group.unmuteMember') : t('group.muteMember')"
               @click="setMute(activeMember, !activeMember.muted)"
             />
 
             <v-list-item
               v-if="activeMember.userId !== meId"
               prepend-icon="mdi-tag-multiple-outline"
-              :title="`设置头衔（当前：${activeMember.title || '无'}）`"
+              :title="t('group.title.edit', { s: activeMember.title || t('group.title.none') })"
               @click="openTitleEditor(activeMember)"
             />
 
@@ -247,7 +247,7 @@
               v-if="activeMember.userId !== meId"
               class="text-error"
               prepend-icon="mdi-account-remove"
-              title="移出群聊"
+              :title="t('group.remove.member')"
               @click="askRemove(activeMember)"
             />
           </template>
@@ -265,7 +265,7 @@
             v-if="editKind === 'name'"
             v-model="editValue"
             counter
-            label="群名称"
+            :label="t('group.name')"
             maxlength="32"
             variant="outlined"
           />
@@ -274,7 +274,7 @@
             v-else-if="editKind === 'notice'"
             v-model="editValue"
             counter
-            label="群公告"
+            :label="t('group.notice')"
             maxlength="200"
             rows="3"
             variant="outlined"
@@ -284,7 +284,7 @@
             v-else
             v-model="editValue"
             counter
-            label="本群昵称"
+            :label="t('group.myNick.field')"
             maxlength="24"
             variant="outlined"
           />
@@ -292,8 +292,8 @@
 
         <v-card-actions>
           <v-spacer />
-          <v-btn variant="text" @click="editDialog = false">取消</v-btn>
-          <v-btn color="primary" :disabled="!editValue.trim()" @click="saveEdit">保存</v-btn>
+          <v-btn variant="text" @click="editDialog = false">{{ t('common.cancel') }}</v-btn>
+          <v-btn color="primary" :disabled="!editValue.trim()" @click="saveEdit">{{ t('common.save') }}</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -301,7 +301,7 @@
     <!-- 群头像：群主/管理员选图上传（/files/upload kind=avatar 拿 fileId 再 PUT 群） -->
     <v-dialog v-model="avatarDialog" max-width="320">
       <v-card>
-        <v-card-title class="text-body-large">群头像</v-card-title>
+        <v-card-title class="text-body-large">{{ t('group.avatar') }}</v-card-title>
 
         <v-card-text class="d-flex flex-column align-center">
           <user-avatar :nickname="group?.name ?? ''" :src="avatarPreview || group?.avatar" :size="88" />
@@ -314,18 +314,18 @@
             @click="pickAvatarFile"
           >
             <v-icon :icon="avatarUploaded ? 'mdi-check' : 'mdi-camera-plus-outline'" class="mr-1" />
-            {{ avatarUploaded ? '更换图片' : '选择图片' }}
+            {{ avatarUploaded ? t('group.avatar.change') : t('group.avatar.pick') }}
           </v-btn>
-          <div class="text-caption text-medium-emphasis mt-2 text-center">支持 JPG/PNG，≤5MB</div>
+          <div class="text-caption text-medium-emphasis mt-2 text-center">{{ t('group.avatar.hint') }}</div>
         </v-card-text>
 
         <v-card-actions>
-          <v-btn variant="text" @click="closeAvatarDialog">取消</v-btn>
+          <v-btn variant="text" @click="closeAvatarDialog">{{ t('common.cancel') }}</v-btn>
           <v-btn
             color="primary"
             :disabled="!avatarUploaded || avatarBusy"
             @click="saveAvatar"
-          >保存</v-btn>
+          >{{ t('common.save') }}</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -341,7 +341,7 @@
     <!-- 邀请成员 -->
     <v-bottom-sheet v-model="inviteSheet" max-width="440" scrollable>
       <v-card class="pa-2">
-        <div class="text-title-small pa-2">邀请好友加入</div>
+        <div class="text-title-small pa-2">{{ t('group.invite.friends') }}</div>
 
         <v-list density="compact">
           <v-list-item v-for="c in inviteCandidates" :key="c.id" @click="invite(c)">
@@ -354,14 +354,14 @@
           </v-list-item>
         </v-list>
 
-        <div v-if="inviteCandidates.length === 0" class="pa-4 text-body-small text-medium-emphasis">没有可邀请的好友</div>
+        <div v-if="inviteCandidates.length === 0" class="pa-4 text-body-small text-medium-emphasis">{{ t('group.invite.none') }}</div>
       </v-card>
     </v-bottom-sheet>
 
     <!-- 转让群主 -->
     <v-bottom-sheet v-model="transferSheet" max-width="440" scrollable>
       <v-card class="pa-2">
-        <div class="text-title-small pa-2">选择新群主</div>
+        <div class="text-title-small pa-2">{{ t('group.transfer.pick') }}</div>
 
         <v-list density="compact">
           <v-list-item
@@ -384,7 +384,7 @@
     <!-- 加群申请审批（群主/管理员；open 群无待审批、approve 群等群主点头） -->
     <v-bottom-sheet v-model="joinSheet" max-width="440" scrollable>
       <v-card class="pa-2">
-        <div class="text-title-small pa-2">加群申请</div>
+        <div class="text-title-small pa-2">{{ t('group.join.requests') }}</div>
 
         <v-list v-if="!joinBusy && joinList.length" density="compact">
           <v-list-item v-for="r in joinList" :key="r.userId">
@@ -398,18 +398,18 @@
               <div v-if="r.note" class="text-body-small text-medium-emphasis">{{ r.note }}</div>
             </template>
             <template #append>
-              <v-btn color="primary" size="x-small" :disabled="joinBusy" @click="acceptJoin(r.userId)">通过</v-btn>
-              <v-btn size="x-small" variant="text" :disabled="joinBusy" @click="rejectJoin(r.userId)">拒绝</v-btn>
+              <v-btn color="primary" size="x-small" :disabled="joinBusy" @click="acceptJoin(r.userId)">{{ t('group.join.accept') }}</v-btn>
+              <v-btn size="x-small" variant="text" :disabled="joinBusy" @click="rejectJoin(r.userId)">{{ t('contacts.reject') }}</v-btn>
             </template>
           </v-list-item>
         </v-list>
 
         <v-list v-else-if="!joinBusy" class="justify-center" disabled>
-          <v-list-item-title class="text-medium-emphasis">暂无待审批的加群申请</v-list-item-title>
+          <v-list-item-title class="text-medium-emphasis">{{ t('group.join.none') }}</v-list-item-title>
         </v-list>
 
         <div class="d-flex justify-end ga-2 pa-2">
-          <v-btn variant="text" @click="joinSheet = false">关闭</v-btn>
+          <v-btn variant="text" @click="joinSheet = false">{{ t('common.close') }}</v-btn>
         </div>
       </v-card>
     </v-bottom-sheet>
@@ -417,15 +417,15 @@
     <!-- 退出群聊确认 -->
     <v-dialog v-model="confirmLeave" max-width="320">
       <v-card class="pa-4">
-        <div class="text-title-large">退出群聊？</div>
+        <div class="text-title-large">{{ t('group.leave.confirm') }}</div>
 
         <div class="text-body-medium text-medium-emphasis my-2">
-          退出后将不再接收群「{{ group?.name }}」的消息，聊天记录将被删除。
+          {{ t('group.leave.text', { name: group?.name ?? '' }) }}
         </div>
 
         <div class="d-flex justify-end gap-2">
-          <v-btn variant="text" @click="confirmLeave = false">取消</v-btn>
-          <v-btn color="error" @click="leave">退出</v-btn>
+          <v-btn variant="text" @click="confirmLeave = false">{{ t('common.cancel') }}</v-btn>
+          <v-btn color="error" @click="leave">{{ t('group.leave.btn') }}</v-btn>
         </div>
       </v-card>
     </v-dialog>
@@ -433,15 +433,15 @@
     <!-- 移出成员确认 -->
     <v-dialog v-model="confirmRemove" max-width="320">
       <v-card class="pa-4">
-        <div class="text-title-large">移出群聊？</div>
+        <div class="text-title-large">{{ t('group.remove.confirm') }}</div>
 
         <div class="text-body-medium text-medium-emphasis my-2">
-          确定将「{{ pendingRemove?.nickname }}」移出群聊？对方将不再接收本群消息。
+          {{ t('group.remove.text', { name: pendingRemove?.nickname ?? '' }) }}
         </div>
 
         <div class="d-flex justify-end gap-2">
-          <v-btn variant="text" @click="confirmRemove = false">取消</v-btn>
-          <v-btn color="error" @click="doRemoveMember">移出</v-btn>
+          <v-btn variant="text" @click="confirmRemove = false">{{ t('common.cancel') }}</v-btn>
+          <v-btn color="error" @click="doRemoveMember">{{ t('group.remove.btn') }}</v-btn>
         </div>
       </v-card>
     </v-dialog>
@@ -449,11 +449,11 @@
     <!-- 解散确认 -->
     <v-dialog v-model="confirmDissolve" max-width="320">
       <v-card class="pa-4">
-        <div class="text-title-large">解散群聊？</div>
-        <div class="text-body-medium text-medium-emphasis my-2">解散后群「{{ group?.name }}」将被删除，无法恢复。</div>
+        <div class="text-title-large">{{ t('group.dissolve.confirm') }}</div>
+        <div class="text-body-medium text-medium-emphasis my-2">{{ t('group.dissolve.text', { name: group?.name ?? '' }) }}</div>
         <div class="d-flex justify-end gap-2">
-          <v-btn variant="text" @click="confirmDissolve = false">取消</v-btn>
-          <v-btn color="error" @click="dissolve">解散</v-btn>
+          <v-btn variant="text" @click="confirmDissolve = false">{{ t('common.cancel') }}</v-btn>
+          <v-btn color="error" @click="dissolve">{{ t('group.dissolve.btn') }}</v-btn>
         </div>
       </v-card>
     </v-dialog>
@@ -461,26 +461,26 @@
     <!-- 设置头衔（群主/管理员为任意成员单独设置，空 = 清除） -->
     <v-dialog v-model="titleDialog" max-width="340">
       <v-card>
-        <v-card-title class="text-body-large">设置头衔</v-card-title>
+        <v-card-title class="text-body-large">{{ t('group.title.set') }}</v-card-title>
 
         <v-card-text>
           <div class="text-body-small text-medium-emphasis mb-2">
-            为「{{ titleTarget?.nickname }}」设置群头衔，所有群成员可见（留空表示清除）
+            {{ t('group.title.hint', { name: titleTarget?.nickname ?? '' }) }}
           </div>
           <v-text-field
             v-model="titleValue"
             counter
-            label="头衔（如：群管 / 元老 / 管理员）"
+            :label="t('group.title.label')"
             maxlength="12"
-            placeholder="留空 = 清除头衔"
+            :placeholder="t('group.title.ph')"
             variant="outlined"
           />
         </v-card-text>
 
         <v-card-actions>
           <v-spacer />
-          <v-btn variant="text" @click="titleDialog = false">取消</v-btn>
-          <v-btn color="primary" @click="saveTitle">保存</v-btn>
+          <v-btn variant="text" @click="titleDialog = false">{{ t('common.cancel') }}</v-btn>
+          <v-btn color="primary" @click="saveTitle">{{ t('common.save') }}</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -563,7 +563,7 @@
       group.value = res.data
       removeMode.value = false
     } catch {
-      snackMsg.value = '群信息加载失败'
+      snackMsg.value = t('group.load.fail')
       snack.value = true
     }
   }
@@ -595,10 +595,10 @@
     input.value = ''
     if (!file) return
     if (!file.type.startsWith('image/')) {
-      snackMsg.value = '请选择图片文件'; snack.value = true; return
+      snackMsg.value = t('group.avatar.notImage'); snack.value = true; return
     }
     if (file.size > 5 * 1024 * 1024) {
-      snackMsg.value = '头像图片不能超过 5MB'; snack.value = true; return
+      snackMsg.value = t('group.avatar.tooBig'); snack.value = true; return
     }
     if (avatarObjectUrl) { URL.revokeObjectURL(avatarObjectUrl); avatarObjectUrl = '' }
     avatarObjectUrl = URL.createObjectURL(file)
@@ -622,7 +622,7 @@
       }
     } catch (err: any) {
       avatarUploaded.value = ''
-      snackMsg.value = err?.response?.data?.error ?? '群头像上传失败，请重试'
+      snackMsg.value = err?.response?.data?.error ?? t('group.avatar.uploadFail')
       snack.value = true
     } finally {
       avatarBusy.value = false
@@ -639,12 +639,12 @@
     avatarBusy.value = true
     try {
       await api.put(`/groups/${groupId.value}`, { avatar: avatarUploaded.value })
-      snackMsg.value = '群头像已更新'
+      snackMsg.value = t('group.avatar.updated')
       snack.value = true
       await load()
       closeAvatarDialog()
     } catch (err: any) {
-      snackMsg.value = err?.response?.data?.error ?? '群头像保存失败，请重试'
+      snackMsg.value = err?.response?.data?.error ?? t('group.avatar.saveFail')
       snack.value = true
     } finally {
       avatarBusy.value = false
@@ -663,12 +663,12 @@
   function onMemberTap (m: GroupMember) {
     if (removeMode.value) {
       if (m.userId === group.value?.ownerId) {
-        snackMsg.value = '群主不能被移除'
+        snackMsg.value = t('group.remove.owner')
         snack.value = true
         return
       }
       if (m.userId === meId.value) {
-        snackMsg.value = '请使用「退出群聊」'
+        snackMsg.value = t('group.remove.self')
         snack.value = true
         return
       }
@@ -704,10 +704,10 @@
       await api.put(`/groups/${groupId.value}/members/${m.userId}`, { role })
       memberSheet.value = false
       await load()
-      snackMsg.value = role === 'admin' ? `已将 ${m.nickname} 设为管理员` : `已取消 ${m.nickname} 的管理员`
+      snackMsg.value = role === 'admin' ? t('group.role.adminSet', { name: m.nickname }) : t('group.role.adminUnset', { name: m.nickname })
       snack.value = true
     } catch (error: any) {
-      snackMsg.value = error?.response?.data?.error ?? '操作失败'
+      snackMsg.value = error?.response?.data?.error ?? t('common.op.fail')
       snack.value = true
     }
   }
@@ -717,10 +717,10 @@
       await api.put(`/groups/${groupId.value}/members/${m.userId}`, { muted })
       memberSheet.value = false
       await load()
-      snackMsg.value = muted ? `已禁言 ${m.nickname}` : `已解除 ${m.nickname} 的禁言`
+      snackMsg.value = muted ? t('group.muteMember.ok', { name: m.nickname }) : t('group.unmuteMember.ok', { name: m.nickname })
       snack.value = true
     } catch (error: any) {
-      snackMsg.value = error?.response?.data?.error ?? '操作失败'
+      snackMsg.value = error?.response?.data?.error ?? t('common.op.fail')
       snack.value = true
     }
   }
@@ -739,11 +739,11 @@
       await api.delete(`/groups/${groupId.value}/members/${m.userId}`)
       removeMode.value = false
       pendingRemove.value = null
-      snackMsg.value = `已将 ${m.nickname} 移出群聊`
+      snackMsg.value = t('group.remove.ok', { name: m.nickname })
       snack.value = true
       await load()
     } catch (error: any) {
-      snackMsg.value = error?.response?.data?.error ?? '操作失败'
+      snackMsg.value = error?.response?.data?.error ?? t('common.op.fail')
       snack.value = true
     }
   }
@@ -753,7 +753,7 @@
   const editKind = ref<'name' | 'notice' | 'groupNick'>('name')
   const editValue = ref('')
   const editTitle = computed(() =>
-    editKind.value === 'name' ? '群名称' : (editKind.value === 'notice' ? '群公告' : '我在本群的昵称'))
+    editKind.value === 'name' ? t('group.name') : (editKind.value === 'notice' ? t('group.notice') : t('group.myNick')))
 
   function openEdit (kind: 'name' | 'notice' | 'groupNick') {
     editKind.value = kind
@@ -771,10 +771,10 @@
       await (editKind.value === 'groupNick' ? api.put(`/groups/${groupId.value}/members/${meId.value}`, { nickname: value }) : api.put(`/groups/${groupId.value}`, editKind.value === 'name' ? { name: value } : { notice: value }))
       editDialog.value = false
       await load()
-      snackMsg.value = '已保存'
+      snackMsg.value = t('me.saved')
       snack.value = true
     } catch (error: any) {
-      snackMsg.value = error?.response?.data?.error ?? '保存失败'
+      snackMsg.value = error?.response?.data?.error ?? t('common.save.fail')
       snack.value = true
     }
   }
@@ -792,16 +792,16 @@
   }
 
   async function saveTitle () {
-    const t = titleTarget.value
-    if (!t) return
+    const target = titleTarget.value
+    if (!target) return
     try {
-      await api.put(`/groups/${groupId.value}/members/${t.userId}`, { title: titleValue.value.trim() })
+      await api.put(`/groups/${groupId.value}/members/${target.userId}`, { title: titleValue.value.trim() })
       titleDialog.value = false
       await load()
-      snackMsg.value = titleValue.value.trim() ? `已为 ${t.nickname} 设置头衔「${titleValue.value.trim()}」` : `已清除 ${t.nickname} 的头衔`
+      snackMsg.value = titleValue.value.trim() ? t('group.title.ok', { name: target.nickname, title: titleValue.value.trim() }) : t('group.title.cleared', { name: target.nickname })
       snack.value = true
     } catch (error: any) {
-      snackMsg.value = error?.response?.data?.error ?? '设置头衔失败'
+      snackMsg.value = error?.response?.data?.error ?? t('group.title.fail')
       snack.value = true
     }
   }
@@ -813,7 +813,7 @@
       await api.put(`/conversations/${conv.value.id}`, { [flag]: value })
       await convStore.loadSessions()
     } catch {
-      snackMsg.value = '设置失败，请重试'
+      snackMsg.value = t('group.flag.fail')
       snack.value = true
     }
   }
@@ -822,11 +822,11 @@
   async function copyGroupId () {
     try {
       await navigator.clipboard.writeText(groupId.value)
-      snackMsg.value = '群号已复制'
+      snackMsg.value = t('group.copy.ok')
       snack.value = true
     } catch {
       // 剪贴板 API 不可用（非安全上下文）时回退到传统方式
-      snackMsg.value = '复制失败，请手动长按群号'
+      snackMsg.value = t('group.copy.fail')
       snack.value = true
     }
   }
@@ -835,10 +835,10 @@
     try {
       await api.put(`/groups/${groupId.value}`, { joinPolicy: policy })
       if (group.value) group.value.joinPolicy = policy
-      snackMsg.value = policy === 'open' ? '已设为开放（知道群号可直接进）' : '已设为需审批'
+      snackMsg.value = policy === 'open' ? t('group.policy.openOk') : t('group.policy.approveOk')
       snack.value = true
     } catch (error: any) {
-      snackMsg.value = error?.response?.data?.error ?? '设置失败'
+      snackMsg.value = error?.response?.data?.error ?? t('group.set.fail')
       snack.value = true
     }
   }
@@ -853,7 +853,7 @@
       if (group.value) group.value.joinPending = joinList.value.length
     } catch {
       joinList.value = []
-      snackMsg.value = '加群申请加载失败'
+      snackMsg.value = t('group.join.loadFail')
       snack.value = true
     } finally {
       joinBusy.value = false
@@ -866,12 +866,12 @@
       await api.post(`/groups/${groupId.value}/join-requests/${encodeURIComponent(userId)}/accept`)
       joinList.value = joinList.value.filter(x => x.userId !== userId)
       if (group.value) group.value.joinPending = joinList.value.length
-      snackMsg.value = '已通过申请'
+      snackMsg.value = t('group.join.accepted')
       snack.value = true
       // 刷新群成员（新成员进来）
       await load()
     } catch (error: any) {
-      snackMsg.value = error?.response?.data?.error ?? '操作失败'
+      snackMsg.value = error?.response?.data?.error ?? t('common.op.fail')
       snack.value = true
     } finally {
       joinBusy.value = false
@@ -884,10 +884,10 @@
       await api.post(`/groups/${groupId.value}/join-requests/${encodeURIComponent(userId)}/reject`)
       joinList.value = joinList.value.filter(x => x.userId !== userId)
       if (group.value) group.value.joinPending = joinList.value.length
-      snackMsg.value = '已拒绝申请'
+      snackMsg.value = t('group.join.rejected')
       snack.value = true
     } catch (error: any) {
-      snackMsg.value = error?.response?.data?.error ?? '操作失败'
+      snackMsg.value = error?.response?.data?.error ?? t('common.op.fail')
       snack.value = true
     } finally {
       joinBusy.value = false
@@ -900,7 +900,7 @@
     // 聊天页拉到空列表还带 search 参数，用户看到的是「坏了」而不是「还没聊天」。
     const id = conv.value?.id
     if (!id) {
-      snackMsg.value = '该群还没有聊天记录'
+      snackMsg.value = t('group.no.history')
       snack.value = true
       return
     }
@@ -911,12 +911,12 @@
     if (!c.user) return
     try {
       await api.post(`/groups/${groupId.value}/members`, { userId: c.user.id })
-      snackMsg.value = `已邀请 ${c.remark || c.user.nickname} 入群`
+      snackMsg.value = t('group.invite.ok', { name: c.remark || c.user.nickname })
       snack.value = true
       inviteSheet.value = false
       await load()
     } catch (error: any) {
-      snackMsg.value = error?.response?.data?.error ?? '邀请失败'
+      snackMsg.value = error?.response?.data?.error ?? t('group.invite.fail')
       snack.value = true
     }
   }
@@ -925,12 +925,12 @@
     try {
       await api.post(`/groups/${groupId.value}/transfer`, { userId })
       const name = group.value?.members.find(x => x.userId === userId)?.nickname ?? ''
-      snackMsg.value = `已将群主转让给 ${name}`
+      snackMsg.value = t('group.transfer.ok', { name })
       snack.value = true
       transferSheet.value = false
       await load()
     } catch (error: any) {
-      snackMsg.value = error?.response?.data?.error ?? '转让失败'
+      snackMsg.value = error?.response?.data?.error ?? t('group.transfer.fail')
       snack.value = true
     }
   }
@@ -939,13 +939,13 @@
     try {
       await api.delete(`/groups/${groupId.value}`)
       confirmDissolve.value = false
-      snackMsg.value = '群已解散'
+      snackMsg.value = t('group.dissolve.ok')
       snack.value = true
       convStore.loadSessions().catch(() => {})
       goBack(true)
     } catch (error: any) {
       confirmDissolve.value = false
-      snackMsg.value = error?.response?.data?.error ?? '解散失败'
+      snackMsg.value = error?.response?.data?.error ?? t('group.dissolve.fail')
       snack.value = true
     }
   }
@@ -954,12 +954,12 @@
     confirmLeave.value = false
     try {
       await api.post(`/groups/${groupId.value}/leave`)
-      snackMsg.value = '已退出群聊'
+      snackMsg.value = t('group.leave.ok')
       snack.value = true
       convStore.loadSessions().catch(() => {})
       goBack(true)
     } catch (error: any) {
-      snackMsg.value = error?.response?.data?.error ?? '退出失败'
+      snackMsg.value = error?.response?.data?.error ?? t('group.leave.fail')
       snack.value = true
     }
   }

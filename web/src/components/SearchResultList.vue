@@ -27,11 +27,12 @@
       </v-list-item>
     </v-list>
 
-    <v-empty-state v-else class="pa-8" icon="mdi-magnify" title="没有结果" />
+    <v-empty-state v-else class="pa-8" icon="mdi-magnify" :title="t('common.no.result')" />
   </div>
 </template>
 
 <script setup lang="ts">
+  import { t } from '@/lib/i18n'
   import { avatarColor } from '@/lib/utils'
 
   export interface ResultItem {

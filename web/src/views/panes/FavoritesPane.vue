@@ -2,7 +2,7 @@
   <v-sheet class="wx-chat-surface wx-panes" flat>
     <v-app-bar class="wx-chat-bar" color="surface" density="compact" flat>
       <v-btn v-if="isMobile" icon="mdi-arrow-left" variant="text" @click="goBack" />
-      <v-toolbar-title class="text-body-large font-weight-medium">收藏</v-toolbar-title>
+      <v-toolbar-title class="text-body-large font-weight-medium">{{ t('me.favorites') }}</v-toolbar-title>
     </v-app-bar>
 
     <div v-if="loading" class="d-flex justify-center py-8">
@@ -11,8 +11,8 @@
 
     <div v-else-if="items.length === 0" class="flex-grow-1 d-flex flex-column align-center justify-center text-medium-emphasis">
       <v-icon class="mb-3" icon="mdi-star-outline" size="56" />
-      <div class="text-body-medium">还没有收藏</div>
-      <div class="text-body-small mt-1">在聊天里长按消息或动态卡片即可收藏</div>
+      <div class="text-body-medium">{{ t('me.favorites.empty') }}</div>
+      <div class="text-body-small mt-1">{{ t('me.favorites.emptyHint') }}</div>
     </div>
 
     <div v-else class="wx-fav-bg flex-grow-1 overflow-y-auto wx-scroll pa-2">
@@ -25,7 +25,7 @@
               </v-avatar>
             </template>
 
-            <v-list-item-title>{{ f.title || '(无标题)' }}</v-list-item-title>
+            <v-list-item-title>{{ f.title || t('me.favorites.untitled') }}</v-list-item-title>
 
             <v-list-item-subtitle v-if="f.preview" class="text-truncate">{{ f.preview }}</v-list-item-subtitle>
 
@@ -51,6 +51,7 @@
   import { useRouter } from 'vue-router'
   import { api } from '@/lib/api'
   import { isPageMode } from '@/lib/device'
+  import { t } from '@/lib/i18n'
 
   interface FavoriteItem {
     id: string
@@ -78,7 +79,7 @@
       const res = await api.get('/favorites')
       items.value = res.data
     } catch {
-      snackMsg.value = '加载收藏失败'
+      snackMsg.value = t('me.favorites.loadFail')
       snack.value = true
     } finally {
       loading.value = false
@@ -89,10 +90,10 @@
     try {
       await api.delete(`/favorites/${f.id}`)
       items.value = items.value.filter(x => x.id !== f.id)
-      snackMsg.value = '已取消收藏'
+      snackMsg.value = t('me.favorites.removed')
       snack.value = true
     } catch {
-      snackMsg.value = '操作失败'
+      snackMsg.value = t('me.favorites.opFail')
       snack.value = true
     }
   }
@@ -102,7 +103,7 @@
       router.push({ name: 'moment-detail', params: { id: f.targetId } })
       return
     }
-    snackMsg.value = '消息收藏仅作留存预览'
+    snackMsg.value = t('me.favorites.previewOnly')
     snack.value = true
   }
 

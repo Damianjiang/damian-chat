@@ -9,7 +9,7 @@
         @click="goBack"
       />
 
-      <span class="wx-pane-title">朋友圈</span>
+      <span class="wx-pane-title">{{ t('nav.moments') }}</span>
 
       <v-btn
         class="ml-auto"
@@ -24,8 +24,8 @@
       <div class="wx-stagger">
         <v-card class="mb-3 pa-2" color="background" variant="tonal">
           <div class="d-flex align-center gap-2">
-            <user-avatar alt="我的头像" :nickname="auth.user?.nickname" :size="40" :src="auth.user?.avatar" />
-            <span class="text-body-large">我</span>
+            <user-avatar :alt="t('moments.avatar.alt')" :nickname="auth.user?.nickname" :size="40" :src="auth.user?.avatar" />
+            <span class="text-body-large">{{ t('moments.me') }}</span>
           </div>
         </v-card>
 
@@ -43,18 +43,18 @@
       </div>
 
       <div class="pa-4 text-center text-body-small text-medium-emphasis">
-        {{ moments.loading ? '加载中…' : (moments.hasMore ? '' : '没有更多了') }}
+        {{ moments.loading ? t('common.loading') : (moments.hasMore ? '' : t('moments.none')) }}
       </div>
 
       <!-- 评论输入 bottom-sheet -->
       <v-bottom-sheet v-model="commentSheet" max-width="480" scrollable>
         <v-card v-if="commenting" class="pa-4">
-          <div class="text-title-small mb-2">评论 {{ commenting.author?.nickname ?? '' }}</div>
-          <v-text-field v-model="commentText" autofocus placeholder="写下你的评论…" @keydown.enter="submitComment" />
+          <div class="text-title-small mb-2">{{ t('moments.comment.title', { who: commenting.author?.nickname ?? '' }) }}</div>
+          <v-text-field v-model="commentText" autofocus :placeholder="t('moments.comment.ph')" @keydown.enter="submitComment" />
 
           <div class="d-flex justify-end gap-2">
-            <v-btn variant="text" @click="commentSheet = false">取消</v-btn>
-            <v-btn color="primary" :disabled="!commentText.trim()" @click="submitComment">发送</v-btn>
+            <v-btn variant="text" @click="commentSheet = false">{{ t('common.cancel') }}</v-btn>
+            <v-btn color="primary" :disabled="!commentText.trim()" @click="submitComment">{{ t('input.send') }}</v-btn>
           </div>
         </v-card>
       </v-bottom-sheet>
@@ -66,7 +66,7 @@
         <v-textarea
           v-model="postText"
           hide-details
-          label="这一刻的想法…"
+          :label="t('moments.think')"
           rows="4"
           variant="plain"
         />
@@ -85,7 +85,7 @@
           <div class="d-flex flex-wrap gap-1 flex-grow-1">
             <div v-for="(img, i) in postImages" :key="i" class="wx-img-pick">
               <v-img
-                :alt="'图' + (i + 1)"
+                :alt="t('moments.img', { n: i + 1 })"
                 class="rounded-lg"
                 cover
                 height="64"
@@ -109,13 +109,13 @@
           density="compact"
           hide-details
           :items="scopeItems"
-          label="谁可以看"
+          :label="t('moments.scope')"
           variant="outlined"
         />
 
         <div class="d-flex justify-end gap-2 mt-4">
-          <v-btn variant="text" @click="closePost">取消</v-btn>
-          <v-btn color="primary" :disabled="!canPost" :loading="posting" @click="submitPost">发表</v-btn>
+          <v-btn variant="text" @click="closePost">{{ t('common.cancel') }}</v-btn>
+          <v-btn color="primary" :disabled="!canPost" :loading="posting" @click="submitPost">{{ t('moments.post') }}</v-btn>
         </div>
 
         <input
@@ -137,12 +137,12 @@
     <!-- 删除确认 -->
     <v-dialog v-model="deleteConfirm" max-width="320">
       <v-card>
-        <v-card-text class="pt-4">删除这条动态吗？删除后不可恢复。</v-card-text>
+        <v-card-text class="pt-4">{{ t('moments.delete.text') }}</v-card-text>
 
         <v-card-actions>
           <v-spacer />
-          <v-btn variant="text" @click="deleteConfirm = false">取消</v-btn>
-          <v-btn color="error" :loading="deleting" @click="confirmDelete">删除</v-btn>
+          <v-btn variant="text" @click="deleteConfirm = false">{{ t('common.cancel') }}</v-btn>
+          <v-btn color="error" :loading="deleting" @click="confirmDelete">{{ t('common.delete') }}</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -159,6 +159,7 @@
   import { api } from '@/lib/api'
   import { isPageMode } from '@/lib/device'
   import { fileUrl } from '@/lib/files'
+  import { t } from '@/lib/i18n'
   import { useAuthStore } from '@/stores/auth'
   import { useMomentsStore } from '@/stores/moments'
 
@@ -208,11 +209,11 @@
     }, 3000)
   }
 
-  const scopeItems = [
-    { title: '所有人', value: 'all' },
-    { title: '我的好友', value: 'friends' },
-    { title: '仅自己', value: 'private' },
-  ]
+  const scopeItems = computed(() => [
+    { title: t('moments.scope.all'), value: 'all' },
+    { title: t('moments.scope.friends'), value: 'friends' },
+    { title: t('moments.scope.private'), value: 'private' },
+  ])
 
   const canPost = computed(() => postText.value.trim().length > 0 || postImages.value.length > 0)
 
@@ -232,7 +233,7 @@
     try {
       await moments.like(m.id, true)
     } catch {
-      showError('点赞失败，请重试')
+      showError(t('moments.like.fail'))
     }
   }
 
@@ -240,7 +241,7 @@
     try {
       await moments.like(m.id, false)
     } catch {
-      showError('操作失败，请重试')
+      showError(t('moments.op.fail'))
     }
   }
 
@@ -273,7 +274,7 @@
       await moments.comment(commenting.value.id, commentText.value.trim())
       commentSheet.value = false
     } catch {
-      showError('评论发送失败，请重试')
+      showError(t('moments.comment.fail'))
     }
   }
 
@@ -293,7 +294,7 @@
     try {
       for (const file of Array.from(input.files ?? [])) {
         if (file.size > 20 * 1024 * 1024) {
-          showError(`图片「${file.name}」超过 20MB，已跳过`)
+          showError(t('moments.img.tooBig', { name: file.name }))
           continue
         }
         const form = new FormData()
@@ -304,7 +305,7 @@
         postImages.value.push({ url: signed || `/api/files/${res.data.id}`, id: res.data.id })
       }
     } catch {
-      showError('图片上传失败，请重试')
+      showError(t('moments.img.uploadFail'))
     } finally {
       uploading.value = false
       input.value = ''
@@ -317,7 +318,7 @@
       await moments.post(postText.value.trim(), postImages.value.map(i => i.id ?? ''), postScope.value)
       closePost()
     } catch {
-      showError('发表失败，请重试')
+      showError(t('moments.post.fail'))
     } finally {
       posting.value = false
     }

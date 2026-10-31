@@ -2,7 +2,7 @@
   <v-sheet class="wx-panes" flat>
     <v-app-bar class="wx-chat-bar" color="surface" density="compact" flat>
       <v-btn v-if="isMobile" icon="mdi-arrow-left" variant="text" @click="goBack" />
-      <v-toolbar-title class="text-body-large font-weight-medium">动态详情</v-toolbar-title>
+      <v-toolbar-title class="text-body-large font-weight-medium">{{ t('moments.detail.title') }}</v-toolbar-title>
     </v-app-bar>
 
     <div class="flex-grow-1 overflow-y-auto wx-scroll pa-4">
@@ -17,14 +17,14 @@
         @unlike="onUnlike"
       />
 
-      <v-empty-state v-else-if="notFound" icon="mdi-inbox-outline" title="动态不存在或已删除" />
+      <v-empty-state v-else-if="notFound" icon="mdi-inbox-outline" :title="t('moments.detail.notFound')" />
 
       <div v-else class="pa-8 text-center">
         <v-progress-circular indeterminate />
       </div>
 
       <div v-if="moment" class="mt-6">
-        <div class="text-title-small mb-2">评论</div>
+        <div class="text-title-small mb-2">{{ t('moments.comment') }}</div>
 
         <div v-if="moment.comments.length > 0" class="d-flex flex-column gap-2">
           <div v-for="c in moment.comments" :key="c.id" class="d-flex gap-2">
@@ -37,7 +37,7 @@
           </div>
         </div>
 
-        <div v-else class="text-body-small text-medium-emphasis">还没有评论</div>
+        <div v-else class="text-body-small text-medium-emphasis">{{ t('moments.comments.none') }}</div>
       </div>
     </div>
 
@@ -47,12 +47,12 @@
         v-model="commentText"
         autofocus
         hide-details
-        placeholder="写下你的评论…"
+        :placeholder="t('moments.comment.ph')"
         variant="plain"
         @keydown.enter="submitComment"
       />
 
-      <v-btn color="primary" :disabled="!commentText.trim()" size="small" @click="submitComment">发送</v-btn>
+      <v-btn color="primary" :disabled="!commentText.trim()" size="small" @click="submitComment">{{ t('input.send') }}</v-btn>
     </div>
 
     <media-previewer v-model="previewOpen" :url="previewUrl" />
@@ -65,6 +65,7 @@
   import MediaPreviewer from '@/components/MediaPreviewer.vue'
   import MomentCard from '@/components/MomentCard.vue'
   import { isPageMode } from '@/lib/device'
+  import { t } from '@/lib/i18n'
   import { avatarColor } from '@/lib/utils'
   import { useAuthStore } from '@/stores/auth'
   import { useMomentsStore } from '@/stores/moments'

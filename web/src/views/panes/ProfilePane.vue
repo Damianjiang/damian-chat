@@ -2,13 +2,13 @@
   <v-sheet class="wx-chat-surface wx-panes" flat>
     <v-app-bar class="wx-chat-bar" color="surface" density="compact" flat>
       <v-btn v-if="isMobile" icon="mdi-arrow-left" variant="text" @click="router.back()" />
-      <v-toolbar-title class="text-body-large font-weight-medium">个人资料</v-toolbar-title>
+      <v-toolbar-title class="text-body-large font-weight-medium">{{ t('settings.profile') }}</v-toolbar-title>
     </v-app-bar>
 
     <div class="wx-profile-bg flex-grow-1 overflow-y-auto wx-scroll">
       <!-- 头像 + 昵称 + 大面号 -->
       <div class="wx-profile-head">
-        <button class="wx-avatar-upload" title="点击上传头像" type="button" @click="openAvatarDialog">
+        <button class="wx-avatar-upload" :title="t('profile.avatar.upload.tip')" type="button" @click="openAvatarDialog">
           <user-avatar :nickname="auth.user?.nickname" :size="72" :src="auth.user?.avatar" />
 
           <span class="wx-avatar-mask">
@@ -18,7 +18,7 @@
 
         <div class="flex-grow-1">
           <div class="text-headline-small font-weight-medium">{{ auth.user?.nickname }}</div>
-          <div class="text-body-small text-medium-emphasis">大面号：{{ auth.user?.wxId || '-' }}</div>
+          <div class="text-body-small text-medium-emphasis">{{ t('me.wxid') }}：{{ auth.user?.wxId || '-' }}</div>
 
           <div v-if="auth.user?.signature" class="text-body-small text-medium-emphasis text-truncate">
             {{ auth.user.signature }}
@@ -28,7 +28,7 @@
         <v-btn
           icon="mdi-qrcode"
           size="small"
-          title="我的二维码"
+          :title="t('profile.myQr')"
           variant="text"
           @click="qrDialog = true"
         />
@@ -37,7 +37,7 @@
       <!-- 资料项 -->
       <v-list bg-color="surface" class="wx-profile-list">
         <v-list-item @click="nameDialog = true">
-          <v-list-item-title>名字</v-list-item-title>
+          <v-list-item-title>{{ t('profile.name') }}</v-list-item-title>
 
           <template #append>
             <span class="text-body-medium text-medium-emphasis mr-1">{{ auth.user?.nickname }}</span>
@@ -46,7 +46,7 @@
         </v-list-item>
 
         <v-list-item @click="genderDialog = true">
-          <v-list-item-title>性别</v-list-item-title>
+          <v-list-item-title>{{ t('me.gender') }}</v-list-item-title>
 
           <template #append>
             <span class="text-body-medium text-medium-emphasis mr-1">{{ genderText }}</span>
@@ -55,17 +55,17 @@
         </v-list-item>
 
         <v-list-item @click="regionDialog = true">
-          <v-list-item-title>地区</v-list-item-title>
+          <v-list-item-title>{{ t('me.region') }}</v-list-item-title>
 
           <template #append>
-            <span class="text-body-medium text-medium-emphasis mr-1">{{ auth.user?.region || '未设置' }}</span>
+            <span class="text-body-medium text-medium-emphasis mr-1">{{ auth.user?.region || t('profile.unset') }}</span>
             <v-icon icon="mdi-chevron-right" size="small" />
           </template>
         </v-list-item>
 
         <!-- 手机号：不可修改（账号安全绑定），去掉箭头避免「看起来能点其实不能」的误导 -->
         <v-list-item>
-          <v-list-item-title>手机号</v-list-item-title>
+          <v-list-item-title>{{ t('me.phone') }}</v-list-item-title>
 
           <template #append>
             <span class="text-body-medium text-medium-emphasis mr-1">{{ maskedPhone }}</span>
@@ -73,7 +73,7 @@
         </v-list-item>
 
         <v-list-item @click="qrDialog = true">
-          <v-list-item-title>我的二维码</v-list-item-title>
+          <v-list-item-title>{{ t('profile.myQr') }}</v-list-item-title>
 
           <template #append>
             <v-icon icon="mdi-qrcode" size="small" />
@@ -82,11 +82,11 @@
         </v-list-item>
 
         <v-list-item @click="signatureDialog = true">
-          <v-list-item-title>签名</v-list-item-title>
+          <v-list-item-title>{{ t('profile.signature') }}</v-list-item-title>
 
           <template #append>
             <span class="text-body-medium text-medium-emphasis mr-1 text-truncate" style="max-width: 220px">
-              {{ auth.user?.signature || '未设置' }}
+              {{ auth.user?.signature || t('profile.unset') }}
             </span>
 
             <v-icon icon="mdi-chevron-right" size="small" />
@@ -101,7 +101,7 @@
     <!-- 改名 -->
     <v-dialog v-model="nameDialog" max-width="340">
       <v-card>
-        <v-card-title class="text-body-large">更改名字</v-card-title>
+        <v-card-title class="text-body-large">{{ t('profile.name.edit') }}</v-card-title>
 
         <v-card-text>
           <v-text-field
@@ -110,16 +110,16 @@
             counter="20"
             hide-details="auto"
             maxlength="20"
-            placeholder="好名字可以让你的朋友更容易记住你"
+            :placeholder="t('profile.name.hint')"
             variant="plain"
           />
 
-          <div class="text-body-small text-medium-emphasis">好名字可以让你的朋友更容易记住你。</div>
+          <div class="text-body-small text-medium-emphasis">{{ t('profile.name.hint') }}</div>
         </v-card-text>
 
         <v-card-actions>
           <v-spacer />
-          <v-btn color="primary" :disabled="!nameValid" variant="text" @click="saveName">保存</v-btn>
+          <v-btn color="primary" :disabled="!nameValid" variant="text" @click="saveName">{{ t('common.save') }}</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -127,7 +127,7 @@
     <!-- 设置性别 -->
     <v-dialog v-model="genderDialog" max-width="320">
       <v-card>
-        <v-card-title class="text-body-large">设置性别</v-card-title>
+        <v-card-title class="text-body-large">{{ t('profile.gender.set') }}</v-card-title>
 
         <v-list density="compact">
           <v-list-item v-for="g in genderOptions" :key="g.value" @click="pickGender(g.value)">
@@ -141,7 +141,7 @@
 
         <v-card-actions>
           <v-spacer />
-          <v-btn color="primary" variant="text" @click="genderDialog = false">完成</v-btn>
+          <v-btn color="primary" variant="text" @click="genderDialog = false">{{ t('profile.done') }}</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -149,20 +149,20 @@
     <!-- 地区 -->
     <v-dialog v-model="regionDialog" max-width="340">
       <v-card>
-        <v-card-title class="text-body-large">设置地区</v-card-title>
+        <v-card-title class="text-body-large">{{ t('profile.region.set') }}</v-card-title>
 
         <v-card-text>
           <v-select
             v-model="regionDraft"
             :items="regions"
-            label="国家/地区"
+            :label="t('profile.region.label')"
             variant="plain"
           />
         </v-card-text>
 
         <v-card-actions>
           <v-spacer />
-          <v-btn color="primary" variant="text" @click="saveRegion">完成</v-btn>
+          <v-btn color="primary" variant="text" @click="saveRegion">{{ t('profile.done') }}</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -170,7 +170,7 @@
     <!-- 个性签名 -->
     <v-dialog v-model="signatureDialog" max-width="340">
       <v-card>
-        <v-card-title class="text-body-large">个性签名</v-card-title>
+        <v-card-title class="text-body-large">{{ t('me.signature') }}</v-card-title>
 
         <v-card-text>
           <v-textarea
@@ -179,7 +179,7 @@
             counter="30"
             hide-details="auto"
             maxlength="30"
-            placeholder="签名"
+            :placeholder="t('profile.signature')"
             rows="2"
             variant="plain"
           />
@@ -187,7 +187,7 @@
 
         <v-card-actions>
           <v-spacer />
-          <v-btn color="primary" variant="text" @click="saveSignature">完成</v-btn>
+          <v-btn color="primary" variant="text" @click="saveSignature">{{ t('profile.done') }}</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -195,27 +195,27 @@
     <!-- 我的二维码 -->
     <v-dialog v-model="qrDialog" max-width="340">
       <v-card class="text-center pa-4">
-        <div class="text-title-large mb-3">我的二维码</div>
+        <div class="text-title-large mb-3">{{ t('profile.myQr') }}</div>
 
         <v-avatar class="mb-3" :color="avatarColor(meId)" size="64">
           <img v-if="auth.user?.avatar" alt="" :src="auth.user.avatar">
-          <span v-else>{{ (auth.user?.nickname ?? '我').slice(0, 1) }}</span>
+          <span v-else>{{ (auth.user?.nickname ?? t('msg.pat.me')).slice(0, 1) }}</span>
         </v-avatar>
 
         <div class="font-weight-medium mb-3">{{ auth.user?.nickname }}</div>
 
         <div class="d-inline-block pa-3 rounded-lg" style="background: #fff">
-          <img v-if="myQr" alt="我的二维码" :src="myQr" style="width: 200px; height: 200px">
+          <img v-if="myQr" :alt="t('profile.myQr')" :src="myQr" style="width: 200px; height: 200px">
           <v-progress-circular v-else color="primary" indeterminate />
         </div>
 
         <div class="text-body-small text-medium-emphasis mt-3">
-          扫一扫上面的二维码，打开名片并添加好友
+          {{ t('profile.qr.hint') }}
         </div>
 
         <v-card-actions>
           <v-spacer />
-          <v-btn color="primary" variant="text" @click="qrDialog = false">关闭</v-btn>
+          <v-btn color="primary" variant="text" @click="qrDialog = false">{{ t('common.close') }}</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -223,12 +223,11 @@
     <!-- 头像：选图片上传（服务端存 fileId，渲染走带鉴权 blob；不再接受外部链接） -->
     <v-dialog v-model="avatarDialog" max-width="400">
       <v-card>
-        <v-card-title class="text-body-large">修改头像</v-card-title>
+        <v-card-title class="text-body-large">{{ t('profile.avatar.edit') }}</v-card-title>
 
         <v-card-text>
           <div class="text-body-small text-medium-emphasis mb-3">
-            从本地选择一张图片（JPG/PNG/GIF/WEBP，≤5MB）。图片经服务端校验后保存，
-            不再支持填写外部链接。
+            {{ t('profile.avatar.hint') }}
           </div>
 
           <div class="d-flex align-center gap-4">
@@ -240,7 +239,7 @@
             />
 
             <div v-else class="text-body-small text-medium-emphasis">
-              {{ avatarBusy ? '正在上传…' : '请选择图片' }}
+              {{ avatarBusy ? t('profile.avatar.uploading') : t('profile.avatar.pick') }}
             </div>
           </div>
 
@@ -253,7 +252,7 @@
             variant="flat"
             @click="pickAvatarFile"
           >
-            选择图片
+            {{ t('profile.avatar.choose') }}
           </v-btn>
 
           <input
@@ -266,10 +265,10 @@
         </v-card-text>
 
         <v-card-actions>
-          <v-btn v-if="!!auth.user?.avatar" variant="text" @click="clearAvatar">清空</v-btn>
+          <v-btn v-if="!!auth.user?.avatar" variant="text" @click="clearAvatar">{{ t('profile.avatar.clear') }}</v-btn>
           <v-spacer />
-          <v-btn variant="text" @click="avatarDialog = false">取消</v-btn>
-          <v-btn color="primary" :disabled="!avatarUploaded || avatarBusy" @click="saveAvatar">保存</v-btn>
+          <v-btn variant="text" @click="avatarDialog = false">{{ t('common.cancel') }}</v-btn>
+          <v-btn color="primary" :disabled="!avatarUploaded || avatarBusy" @click="saveAvatar">{{ t('common.save') }}</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -285,6 +284,7 @@
   import type { User } from '@/types'
   import UserAvatar from '@/components/UserAvatar.vue'
   import { api } from '@/lib/api'
+  import { t } from '@/lib/i18n'
   import { isPageMode } from '@/lib/device'
   import { fileUrl } from '@/lib/files'
   import { avatarColor } from '@/lib/utils'
@@ -298,7 +298,7 @@
 
   const genderText = computed(() => {
     const g = auth.user?.gender
-    return g === 'male' ? '男' : (g === 'female' ? '女' : '未设置')
+    return g === 'male' ? t('profile.gender.male') : (g === 'female' ? t('profile.gender.female') : t('profile.unset'))
   })
 
   const maskedPhone = computed(() => {
@@ -325,18 +325,21 @@
 
   const nameValid = computed(() => nameDraft.value.trim().length > 0 && nameDraft.value.trim() !== auth.user?.nickname)
 
-  const genderOptions = [
-    { title: '男', value: 'male' as const },
-    { title: '女', value: 'female' as const },
-  ]
+  const genderOptions = computed(() => [
+    { title: t('profile.gender.male'), value: 'male' as const },
+    { title: t('profile.gender.female'), value: 'female' as const },
+  ])
 
-  const regions = ['中国', '中国香港', '中国澳门', '中国台湾', '新加坡', '美国', '日本']
+  const regions = computed(() => [
+    t('profile.region.cn'), t('profile.region.hk'), t('profile.region.mo'), t('profile.region.tw'),
+    t('profile.region.sg'), t('profile.region.us'), t('profile.region.jp'),
+  ])
 
   watch(nameDialog, v => {
     if (v) nameDraft.value = auth.user?.nickname ?? ''
   })
   watch(regionDialog, v => {
-    if (v) regionDraft.value = auth.user?.region || '中国'
+    if (v) regionDraft.value = auth.user?.region || t('profile.region.cn')
   })
   watch(signatureDialog, v => {
     if (v) signatureDraft.value = auth.user?.signature ?? ''
@@ -368,11 +371,11 @@
 
     // 本地预判：类型 + 大小（与后端 5MB 上限一致，避免白传大文件）
     if (!file.type.startsWith('image/')) {
-      toast('请选择图片文件')
+      toast(t('profile.avatar.notImage'))
       return
     }
     if (file.size > 5 * 1024 * 1024) {
-      toast('头像图片不能超过 5MB')
+      toast(t('profile.avatar.tooBig'))
       return
     }
 
@@ -404,7 +407,7 @@
       }
     } catch (error: any) {
       avatarUploaded.value = ''
-      toast(error?.response?.data?.error ?? '头像上传失败，请重试')
+      toast(error?.response?.data?.error ?? t('profile.avatar.fail'))
     } finally {
       avatarBusy.value = false
     }
@@ -421,13 +424,13 @@
 
   async function saveAvatar () {
     if (!avatarUploaded.value || avatarBusy.value) return
-    await patch({ avatar: avatarUploaded.value }, '头像已更新')
+    await patch({ avatar: avatarUploaded.value }, t('profile.avatar.updated'))
     avatarDialog.value = false
     resetAvatarPicker()
   }
 
   async function clearAvatar () {
-    await patch({ avatar: '' }, '已清空头像')
+    await patch({ avatar: '' }, t('profile.avatar.cleared'))
     avatarDialog.value = false
     resetAvatarPicker()
   }
@@ -461,7 +464,7 @@
       }
       toast(msg)
     } catch {
-      toast('保存失败，请重试')
+      toast(t('profile.save.fail'))
     }
   }
 
@@ -469,21 +472,21 @@
     const name = nameDraft.value.trim()
     if (!name) return
     nameDialog.value = false
-    void patch({ nickname: name }, '名字已更新')
+    void patch({ nickname: name }, t('profile.name.updated'))
   }
 
   function pickGender (value: 'male' | 'female') {
-    void patch({ gender: value }, '性别已更新')
+    void patch({ gender: value }, t('profile.gender.updated'))
   }
 
   function saveRegion () {
     regionDialog.value = false
-    void patch({ region: regionDraft.value }, '地区已更新')
+    void patch({ region: regionDraft.value }, t('profile.region.updated'))
   }
 
   function saveSignature () {
     signatureDialog.value = false
-    void patch({ signature: signatureDraft.value.trim() }, '签名已更新')
+    void patch({ signature: signatureDraft.value.trim() }, t('profile.signature.updated'))
   }
 
   /* 二维码名片：内容 wxapp://user/{id}，扫一扫页据此拉取资料并加好友 */
