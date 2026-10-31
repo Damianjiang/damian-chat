@@ -15,7 +15,7 @@ import { defineComponent, h } from 'vue'
 
 // 以下只导入项目实际用到的图标（tree-shaking 最小化 chunk）
 import {
-  mdiAccount, mdiAccountCheckOutline, mdiAccountMultiple, mdiAccountOff, mdiAccountOffOutline,
+  mdiAccount, mdiAccountCheck, mdiAccountCheckOutline, mdiAccountMultiple, mdiAccountOff, mdiAccountOffOutline,
   mdiAccountOutline, mdiAccountPlus, mdiAccountPlusOutline, mdiAccountRemove,
   mdiAlertCircle, mdiAlertCircleOutline,
   mdiAppleKeyboardCommand, mdiAppleKeyboardControl, mdiAppleKeyboardOption, mdiAppleKeyboardShift,
@@ -39,6 +39,7 @@ import {
   mdiCogOutline,
   mdiCommentOutline,
   mdiCompass,
+  mdiConsole,
   mdiContentCopy,
   mdiCrown, mdiCrownOutline,
   mdiCubeOutline,
@@ -57,6 +58,7 @@ import {
   mdiImageMultipleOutline, mdiImagePlus,
   mdiInboxOutline,
   mdiInformation, mdiInformationOutline,
+  mdiKey,
   mdiKeyOutline,
   mdiKeyboardReturn, mdiKeyboardSpace,
   mdiLabel,
@@ -95,11 +97,13 @@ import {
   mdiVolumeHigh, mdiVolumeLow, mdiVolumeMedium, mdiVolumeOff, mdiVolumeVariantOff,
   mdiWater,
   mdiWeatherWindy,
+  mdiWeb,
 } from '@mdi/js'
 
 /** kebab 名 → @mdi/js 导出的 path d（string，可能含多个 M 命令拼接为一条 path） */
 export const mdiIconPaths: Record<string, string> = {
   'mdi-account': mdiAccount,
+  'mdi-account-check': mdiAccountCheck,
   'mdi-account-check-outline': mdiAccountCheckOutline,
   'mdi-account-multiple': mdiAccountMultiple,
   'mdi-account-off': mdiAccountOff,
@@ -150,6 +154,7 @@ export const mdiIconPaths: Record<string, string> = {
   'mdi-cog-outline': mdiCogOutline,
   'mdi-comment-outline': mdiCommentOutline,
   'mdi-compass': mdiCompass,
+  'mdi-console': mdiConsole,
   'mdi-content-copy': mdiContentCopy,
   'mdi-crown': mdiCrown,
   'mdi-crown-outline': mdiCrownOutline,
@@ -179,6 +184,7 @@ export const mdiIconPaths: Record<string, string> = {
   'mdi-inbox-outline': mdiInboxOutline,
   'mdi-information': mdiInformation,
   'mdi-information-outline': mdiInformationOutline,
+  'mdi-key': mdiKey,
   'mdi-key-outline': mdiKeyOutline,
   'mdi-keyboard-return': mdiKeyboardReturn,
   'mdi-keyboard-space': mdiKeyboardSpace,
@@ -240,6 +246,7 @@ export const mdiIconPaths: Record<string, string> = {
   'mdi-volume-variant-off': mdiVolumeVariantOff,
   'mdi-water': mdiWater,
   'mdi-weather-windy': mdiWeatherWindy,
+  'mdi-web': mdiWeb,
 }
 
 /**

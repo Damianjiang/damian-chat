@@ -13,7 +13,7 @@
       <v-menu :close-on-content-click="false" location="bottom end">
         <template #activator="{ props }">
           <v-btn v-bind="props" density="comfortable" size="small" variant="tonal">
-            <v-icon icon="mdi-language" size="18" class="mr-1" />
+            <v-icon icon="mdi-web" size="18" class="mr-1" />
             <span class="text-body-2">{{ langLabel }}</span>
           </v-btn>
         </template>
