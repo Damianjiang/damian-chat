@@ -148,15 +148,31 @@
         <v-list-item v-if="canManage">
           <template #prepend><v-icon icon="mdi-key" /></template>
           <v-list-item-title>{{ t('group.join.policy') }}</v-list-item-title>
-          <v-list-item-subtitle>{{ group?.joinPolicy === 'open' ? t('group.join.open.desc') : t('group.join.approve') }}</v-list-item-subtitle>
+          <v-list-item-subtitle>{{ joinPolicyLabel(group?.joinPolicy ?? 'approve') }}</v-list-item-subtitle>
+          <template #append>
+            <v-btn
+              density="compact"
+              icon="mdi-chevron-right"
+              size="small"
+              variant="text"
+              @click="openPolicyDialog"
+            />
+          </template>
+        </v-list-item>
+
+        <!-- 全员禁言（QQ 式）：开启后普通成员不能发言，群主/管理员不受限 -->
+        <v-list-item v-if="canManage">
+          <template #prepend><v-icon icon="mdi-megaphone-off" /></template>
+          <v-list-item-title>{{ t('group.muteAll') }}</v-list-item-title>
+          <v-list-item-subtitle>{{ t('group.muteAll.desc') }}</v-list-item-subtitle>
           <template #append>
             <v-switch
               class="wx-row-switch"
               color="primary"
               density="compact"
               hide-details
-              :model-value="group?.joinPolicy === 'open'"
-              @update:model-value="v => setJoinPolicy(!!v ? 'open' : 'approve')"
+              :model-value="!!group?.muteAll"
+              @update:model-value="v => setMuteAll(!!v)"
             />
           </template>
         </v-list-item>
@@ -231,9 +247,9 @@
 
             <v-list-item
               v-if="activeMember.userId !== meId"
-              :prepend-icon="activeMember.muted ? 'mdi-volume-high' : 'mdi-volume-off'"
-              :title="activeMember.muted ? t('group.unmuteMember') : t('group.muteMember')"
-              @click="setMute(activeMember, !activeMember.muted)"
+              :prepend-icon="memberMuted(activeMember) ? 'mdi-volume-high' : 'mdi-volume-off'"
+              :title="memberMuted(activeMember) ? t('group.unmuteMember') : t('group.muteMember')"
+              @click="openMuteDuration(activeMember)"
             />
 
             <v-list-item
@@ -399,7 +415,7 @@
             </template>
             <template #append>
               <v-btn color="primary" size="x-small" :disabled="joinBusy" @click="acceptJoin(r.userId)">{{ t('group.join.accept') }}</v-btn>
-              <v-btn size="x-small" variant="text" :disabled="joinBusy" @click="rejectJoin(r.userId)">{{ t('contacts.reject') }}</v-btn>
+              <v-btn size="x-small" variant="text" :disabled="joinBusy" @click="openReject(r.userId)">{{ t('contacts.reject') }}</v-btn>
             </template>
           </v-list-item>
         </v-list>
@@ -413,6 +429,89 @@
         </div>
       </v-card>
     </v-bottom-sheet>
+
+    <!-- 加群方式（QQ 式四选一）+ 入群问题 -->
+    <v-dialog v-model="policyDialog" max-width="380">
+      <v-card>
+        <v-card-title class="text-body-large">{{ t('group.join.policy') }}</v-card-title>
+        <v-card-text>
+          <v-radio-group v-model="policyDraft" density="compact" hide-details>
+            <v-radio :label="t('group.join.open.desc')" value="open" />
+            <v-radio :label="t('group.join.question.desc')" value="question" />
+            <v-radio :label="t('group.join.approve')" value="approve" />
+            <v-radio :label="t('group.join.none2')" value="none" />
+          </v-radio-group>
+          <template v-if="policyDraft === 'question'">
+            <v-text-field
+              v-model="policyQuestion"
+              class="mt-2"
+              counter="64"
+              density="compact"
+              :label="t('group.join.q.label')"
+              :placeholder="t('group.join.q.ph')"
+              variant="outlined"
+            />
+            <v-text-field
+              v-model="policyAnswer"
+              class="mt-2"
+              counter="64"
+              density="compact"
+              :label="t('group.join.a.label')"
+              :placeholder="t('group.join.a.ph')"
+              variant="outlined"
+            />
+            <div class="text-caption text-medium-emphasis">{{ t('group.join.q.hint') }}</div>
+          </template>
+          <div v-else-if="policyDraft === 'none'" class="text-caption text-medium-emphasis mt-2">{{ t('group.join.none.hint') }}</div>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="policyDialog = false">{{ t('common.cancel') }}</v-btn>
+          <v-btn color="primary" @click="savePolicy">{{ t('common.save') }}</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- 禁言时长（QQ 式：限时 / 永久 / 解除） -->
+    <v-dialog v-model="muteDialog" max-width="300">
+      <v-card>
+        <v-card-title class="text-body-large">{{ t('group.mute.pick', { name: muteTarget?.nickname ?? '' }) }}</v-card-title>
+        <v-list>
+          <v-list-item
+            v-for="d in MUTE_DURATIONS"
+            :key="d.minutes"
+            :title="t(d.key)"
+            @click="applyMute('timed', d.minutes)"
+          />
+          <v-list-item :title="t('group.mute.perm')" @click="applyMute('perm')" />
+          <v-list-item v-if="muteTarget && memberMuted(muteTarget)" :title="t('group.unmuteMember')" @click="applyMute('off')" />
+        </v-list>
+      </v-card>
+    </v-dialog>
+
+    <!-- 审批拒绝：可附理由（将通知申请人） -->
+    <v-dialog v-model="rejectDialog" max-width="340">
+      <v-card>
+        <v-card-title class="text-body-large">{{ t('group.join.reject.title') }}</v-card-title>
+        <v-card-text>
+          <v-textarea
+            v-model="rejectReason"
+            auto-grow
+            counter="64"
+            density="compact"
+            :label="t('group.join.reject.reason')"
+            rows="2"
+            variant="outlined"
+          />
+          <div class="text-caption text-medium-emphasis">{{ t('group.join.reject.hint') }}</div>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="rejectDialog = false">{{ t('common.cancel') }}</v-btn>
+          <v-btn color="primary" :loading="joinBusy" @click="confirmReject">{{ t('common.confirm') }}</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
 
     <!-- 退出群聊确认 -->
     <v-dialog v-model="confirmLeave" max-width="320">
@@ -712,18 +811,7 @@
     }
   }
 
-  async function setMute (m: GroupMember, muted: boolean) {
-    try {
-      await api.put(`/groups/${groupId.value}/members/${m.userId}`, { muted })
-      memberSheet.value = false
-      await load()
-      snackMsg.value = muted ? t('group.muteMember.ok', { name: m.nickname }) : t('group.unmuteMember.ok', { name: m.nickname })
-      snack.value = true
-    } catch (error: any) {
-      snackMsg.value = error?.response?.data?.error ?? t('common.op.fail')
-      snack.value = true
-    }
-  }
+  /* 旧的单开关禁言已由「禁言时长对话框」（applyMute）取代 */
 
   function askRemove (m: GroupMember) {
     pendingRemove.value = m
@@ -831,16 +919,121 @@
     }
   }
 
-  async function setJoinPolicy (policy: 'open' | 'approve') {
+  /* ---------- 加群方式（QQ 式四选一）+ 入群问题 ---------- */
+  const policyDialog = ref(false)
+  const policyDraft = ref<'open' | 'approve' | 'question' | 'none'>('approve')
+  const policyQuestion = ref('')
+  const policyAnswer = ref('')
+
+  function joinPolicyLabel (p: string) {
+    switch (p) {
+      case 'open': return t('group.join.open.desc')
+      case 'question': return t('group.join.question.desc')
+      case 'none': return t('group.join.none2')
+      default: return t('group.join.approve')
+    }
+  }
+
+  function openPolicyDialog () {
+    policyDraft.value = (group.value?.joinPolicy ?? 'approve') as typeof policyDraft.value
+    policyQuestion.value = group.value?.joinQuestion ?? ''
+    policyAnswer.value = group.value?.joinAnswer ?? ''
+    policyDialog.value = true
+  }
+
+  async function savePolicy () {
+    if (policyDraft.value === 'question' && (!policyQuestion.value.trim() || !policyAnswer.value.trim())) {
+      snackMsg.value = t('group.join.needQA')
+      snack.value = true
+      return
+    }
     try {
-      await api.put(`/groups/${groupId.value}`, { joinPolicy: policy })
-      if (group.value) group.value.joinPolicy = policy
-      snackMsg.value = policy === 'open' ? t('group.policy.openOk') : t('group.policy.approveOk')
+      await api.put(`/groups/${groupId.value}`, {
+        joinPolicy: policyDraft.value,
+        joinQuestion: policyQuestion.value,
+        joinAnswer: policyAnswer.value,
+      })
+      if (group.value) {
+        group.value.joinPolicy = policyDraft.value
+        group.value.joinQuestion = policyQuestion.value
+        group.value.joinAnswer = policyAnswer.value
+      }
+      policyDialog.value = false
+      snackMsg.value = t('group.policy.ok')
       snack.value = true
     } catch (error: any) {
       snackMsg.value = error?.response?.data?.error ?? t('group.set.fail')
       snack.value = true
     }
+  }
+
+  /* ---------- 全员禁言（QQ 式） ---------- */
+  async function setMuteAll (v: boolean) {
+    try {
+      await api.put(`/groups/${groupId.value}`, { muteAll: v })
+      if (group.value) group.value.muteAll = v
+      snackMsg.value = v ? t('group.muteAll.on') : t('group.muteAll.off')
+      snack.value = true
+    } catch (error: any) {
+      snackMsg.value = error?.response?.data?.error ?? t('group.set.fail')
+      snack.value = true
+    }
+  }
+
+  /* ---------- 成员禁言：永久 / 限时（QQ 式时长） ---------- */
+  const muteDialog = ref(false)
+  const muteTarget = ref<GroupMember | null>(null)
+  const MUTE_DURATIONS = [
+    { minutes: 10, key: 'group.mute.10m' },
+    { minutes: 60, key: 'group.mute.1h' },
+    { minutes: 720, key: 'group.mute.12h' },
+    { minutes: 1440, key: 'group.mute.1d' },
+  ]
+
+  function memberMuted (m: GroupMember) {
+    return !!m.muted || !!(m.mutedUntil && new Date(m.mutedUntil) > new Date())
+  }
+
+  function openMuteDuration (m: GroupMember) {
+    muteTarget.value = m
+    muteDialog.value = true
+  }
+
+  async function applyMute (kind: 'timed' | 'perm' | 'off', minutes = 0) {
+    const m = muteTarget.value
+    if (!m) return
+    try {
+      if (kind === 'timed') await api.put(`/groups/${groupId.value}/members/${m.userId}`, { mutedMinutes: minutes })
+      else if (kind === 'perm') await api.put(`/groups/${groupId.value}/members/${m.userId}`, { muted: true })
+      else await api.put(`/groups/${groupId.value}/members/${m.userId}`, { muted: false, mutedMinutes: 0 })
+      if (kind === 'timed') {
+        m.muted = false
+        m.mutedUntil = new Date(Date.now() + minutes * 60_000).toISOString()
+      } else if (kind === 'perm') {
+        m.muted = true
+        m.mutedUntil = undefined
+      } else {
+        m.muted = false
+        m.mutedUntil = undefined
+      }
+      muteDialog.value = false
+      snackMsg.value = kind === 'off' ? t('group.unmuteMember.ok', { name: m.nickname }) : t('group.muteMember.ok', { name: m.nickname })
+      snack.value = true
+    } catch (error: any) {
+      snackMsg.value = error?.response?.data?.error ?? t('group.flag.fail')
+      snack.value = true
+    }
+  }
+
+  /* ---------- 审批拒绝：可附理由（理由会以系统消息通知申请人，QQ 式） ---------- */
+  const rejectDialog = ref(false)
+  const rejectUserId = ref('')
+  const rejectReason = ref('')
+
+  function openReject (userId: string) {
+    rejectUserId.value = userId
+    rejectReason.value = ''
+    rejectDialog.value = true
   }
 
   /* ---------------- 加群申请审批（群主/管理员；后端非管理者 404） ---------------- */
@@ -878,12 +1071,13 @@
     }
   }
 
-  async function rejectJoin (userId: string) {
+  async function confirmReject () {
     joinBusy.value = true
     try {
-      await api.post(`/groups/${groupId.value}/join-requests/${encodeURIComponent(userId)}/reject`)
-      joinList.value = joinList.value.filter(x => x.userId !== userId)
+      await api.post(`/groups/${groupId.value}/join-requests/${encodeURIComponent(rejectUserId.value)}/reject`, { reason: rejectReason.value })
+      joinList.value = joinList.value.filter(x => x.userId !== rejectUserId.value)
       if (group.value) group.value.joinPending = joinList.value.length
+      rejectDialog.value = false
       snackMsg.value = t('group.join.rejected')
       snack.value = true
     } catch (error: any) {

@@ -138,7 +138,8 @@
       <v-card class="pa-2">
         <div class="text-body-large font-weight-medium pa-2">{{ t('contacts.my.groups') }}</div>
 
-        <!-- 通过群号加群（QQ 式）：输群号 → 后端 lookup（不泄露成员名单）→ 开放群直接进 / 审批群交申请等群主点头 -->
+        <!-- 通过群号加群（QQ 式）：输群号 → lookup → 按加群方式分流：
+             open 直接进 / question 显示问题作答 / approve 填理由交申请 / none 拒绝所有人 -->
         <div class="pa-2">
           <div class="text-body-small text-medium-emphasis mb-1">{{ t('contacts.join.by.no') }}</div>
           <div class="d-flex align-center ga-2">
@@ -153,6 +154,38 @@
             />
             <v-btn color="primary" :disabled="!joinNo.trim() || joinBusy" @click="lookUpJoin">{{ t('contacts.join.btn') }}</v-btn>
           </div>
+
+          <!-- 查到群后的第二步：按加群方式显示问题作答 / 入群理由 -->
+          <div v-if="joinPending" class="mt-2 pa-2 rounded-lg" style="background: rgba(127,127,127,0.1)">
+            <div class="text-body-medium font-weight-medium">{{ joinPending.name }}</div>
+            <div class="text-caption text-medium-emphasis mb-1">{{ joinPolicyHint(joinPending.policy) }}</div>
+            <template v-if="joinPending.policy === 'question'">
+              <div class="text-body-small mb-1">{{ joinPending.question }}</div>
+              <v-text-field
+                v-model="joinAnswer"
+                density="compact"
+                hide-details
+                :placeholder="t('contacts.join.answer.ph')"
+                variant="solo"
+                @keyup.enter="confirmJoin"
+              />
+            </template>
+            <v-text-field
+              v-if="joinPending.policy === 'approve'"
+              v-model="joinNote"
+              class="mt-1"
+              density="compact"
+              hide-details
+              :placeholder="t('contacts.join.reason.ph')"
+              variant="solo"
+              @keyup.enter="confirmJoin"
+            />
+            <div class="d-flex justify-end ga-2 mt-2">
+              <v-btn density="compact" variant="text" @click="joinPending = null">{{ t('common.cancel') }}</v-btn>
+              <v-btn color="primary" density="compact" :disabled="joinBusy || (joinPending.policy === 'question' && !joinAnswer.trim())" @click="confirmJoin">{{ t('common.confirm') }}</v-btn>
+            </div>
+          </div>
+
           <div v-if="joinHint" class="text-caption text-medium-emphasis mt-1">{{ joinHint }}</div>
         </div>
 
@@ -225,6 +258,19 @@
   const joinNo = ref('')
   const joinBusy = ref(false)
   const joinHint = ref('')
+  /** lookup 到的待加入群（question/approve 需要第二步输入：答案 / 理由） */
+  const joinPending = ref<{ id: string, name: string, policy: string, question?: string } | null>(null)
+  const joinAnswer = ref('')
+  const joinNote = ref('')
+
+  function joinPolicyHint (policy: string) {
+    switch (policy) {
+      case 'open': return t('group.join.open.desc')
+      case 'question': return t('group.join.question.desc')
+      case 'none': return t('group.join.none2')
+      default: return t('group.join.approve')
+    }
+  }
 
   async function lookUpJoin () {
     const no = joinNo.value.trim()
@@ -242,19 +288,19 @@
         router.push({ name: 'group', params: { id: g.id } })
         return
       }
-      // 交申请：开放群直接进，审批群进待审批列表（后端按 JoinPolicy 分流）
-      const res = await api.post(`/groups/${g.id}/join`, {})
-      joinNo.value = ''
-      groupsSheet.value = false
-      if (g.joinPolicy === 'open') {
-        snackMsg.value = t('contacts.joined.name', { name: g.name })
-        snack.value = true
-        await conversations.loadSessions()
-        router.push({ name: 'group', params: { id: g.id } })
-      } else {
-        snackMsg.value = t('contacts.join.applied', { name: g.name })
-        snack.value = true
+      if (g.joinPolicy === 'none') {
+        joinHint.value = t('contacts.join.closed')
+        return
       }
+      if (g.joinPolicy === 'question' || g.joinPolicy === 'approve') {
+        // 需要作答/填理由：留在表单里等用户确认（confirmJoin 提交）
+        joinPending.value = { id: g.id, name: g.name, policy: g.joinPolicy, question: g.joinQuestion }
+        joinAnswer.value = ''
+        joinNote.value = ''
+        return
+      }
+      // open：直接进
+      await doJoin(g.id, {}, 'open')
     } catch (error: any) {
       const code = error?.response?.status
       if (code === 404) {
@@ -264,6 +310,34 @@
       }
     } finally {
       joinBusy.value = false
+    }
+  }
+
+  async function confirmJoin () {
+    const g = joinPending.value
+    if (!g || joinBusy.value) return
+    joinBusy.value = true
+    try {
+      await doJoin(g.id, { note: joinNote.value || undefined, answer: joinAnswer.value || undefined }, g.policy)
+    } finally {
+      joinBusy.value = false
+    }
+  }
+
+  async function doJoin (id: string, payload: { note?: string, answer?: string }, policy: string) {
+    const res = await api.post(`/groups/${id}/join`, payload)
+    joinNo.value = ''
+    joinPending.value = null
+    groupsSheet.value = false
+    if (policy === 'open' || policy === 'question') {
+      // 直接入群（open / question 答对）：跳进群聊
+      snackMsg.value = t('contacts.joined.name', { name: id })
+      snack.value = true
+      await conversations.loadSessions()
+      router.push({ name: 'group', params: { id } })
+    } else {
+      snackMsg.value = res.data?.message ?? t('contacts.join.sent')
+      snack.value = true
     }
   }
 

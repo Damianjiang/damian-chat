@@ -166,6 +166,25 @@ public class MessagesController : ControllerBase
                         new { error = "消息已发出，但被对方拒收了。" });
             }
 
+            // 群禁言拦截（QQ 式）：全员禁言时普通成员不可发言（群主/管理员不受限）；
+            // 个人禁言分「永久（Muted）」与「限时（MutedUntil，到期自动解除）」。
+            if (conv.Kind == "group" && _store.Groups.TryGetValue(conv.MemberId, out var muteGroup))
+            {
+                var speakActor = muteGroup.Members.FirstOrDefault(x => x.UserId == me);
+                if (speakActor != null)
+                {
+                    if (muteGroup.MuteAll && speakActor.Role == "member")
+                        return StatusCode(StatusCodes.Status403Forbidden,
+                            new { error = "全员禁言中，仅群主/管理员可以发言" });
+                    if (speakActor.Muted)
+                        return StatusCode(StatusCodes.Status403Forbidden,
+                            new { error = "你已被禁言" });
+                    if (speakActor.MutedUntil.HasValue && speakActor.MutedUntil.Value > DateTime.UtcNow)
+                        return StatusCode(StatusCodes.Status403Forbidden,
+                            new { error = $"你已被禁言，剩余 {Math.Ceiling((speakActor.MutedUntil.Value - DateTime.UtcNow).TotalMinutes)} 分钟" });
+                }
+            }
+
             // 拍一拍（pat）：仅群聊可用；被拍者必须是该群成员且不能拍自己。
             // 放在锁内读会话/群，与其它路径同一把锁，避免字典被并发写。
             string? patTarget = null;
@@ -441,47 +460,77 @@ public class GroupsController : ControllerBase
             if (!_store.Groups.TryGetValue(trimmed, out var g))
                 return NotFound(new { error = "群不存在" });
             bool iAmMember = g.Members.Any(m => m.UserId == me);
-            // 公开聚合信息（不泄露成员名单/公告/消息）
+            var policy = string.IsNullOrEmpty(g.JoinPolicy) ? "approve" : g.JoinPolicy;
+            // 公开聚合信息（不泄露成员名单/公告/消息）；question 模式下发问题本身供申请者作答
             return Ok(new
             {
                 g.Id,
                 g.Name,
                 g.Avatar,
                 MemberCount = g.Members.Count,
-                JoinPolicy = string.IsNullOrEmpty(g.JoinPolicy) ? "approve" : g.JoinPolicy,
+                JoinPolicy = policy,
+                JoinQuestion = policy == "question" ? g.JoinQuestion : null,
                 IAmMember = iAmMember,
             });
         }
     }
 
-    /// <summary>申请加群。open 群直接入；approve 群进待审批列表等群主/管理员通过。已成员 → Ok 无副作用。</summary>
+    /// <summary>入群问题答错的防爆破限流：每 (用户, 群) 每小时最多 5 次错误尝试。</summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (int Count, DateTime WindowStart)> JoinFailHits = new();
+
+    /// <summary>申请加群（QQ 式四种模式：open 直接进 / question 答对自动进 / approve 人工审核 / none 拒绝所有人）。</summary>
     [HttpPost("groups/{id}/join")]
     public async Task<IActionResult> Join(string id, [FromBody] JoinGroup req)
     {
         var me = HttpContext.GetUserId();
-        bool ok;
-        string note;
         lock (_store)
         {
-            if (!_store.Groups.TryGetValue(id, out var g)) { ok = false; note = "群不存在"; return NotFound(new { error = note }); }
+            if (!_store.Groups.TryGetValue(id, out var g)) return NotFound(new { error = "群不存在" });
             g.JoinRequests ??= new();
             // 已是成员：幂等返回
-            if (g.Members.Any(m => m.UserId == me)) { ok = true; note = "你已是群成员"; return Ok(new { ok, message = note }); }
+            if (g.Members.Any(m => m.UserId == me)) return Ok(new { ok = true, message = "你已是群成员" });
             // 已在待审批：去重
-            if (g.JoinRequests.Any(r => r.UserId == me)) { ok = true; note = "申请已提交，等待群主审批"; return Ok(new { ok, message = note }); }
+            if (g.JoinRequests.Any(r => r.UserId == me)) return Ok(new { ok = true, message = "申请已提交，等待群主审批" });
             var policy = string.IsNullOrEmpty(g.JoinPolicy) ? "approve" : g.JoinPolicy;
+
+            if (policy == "none")
+                return BadRequest(new { error = "该群不允许任何人加入" });
+
+            bool directJoin = false;
             if (policy == "open")
             {
-                // 开放群：直接加入（仍受群人数上限约束）
-                if (g.Members.Count >= _store.GroupLimits.MaxMembers) { ok = false; note = "群人数已达上限"; return BadRequest(new { error = note }); }
+                directJoin = true;
+            }
+            else if (policy == "question")
+            {
+                // QQ 式「回答问题入群」：答对自动进群；答案错误计入限流（每 用户×群 每小时 5 次，防爆破标准答案）
+                var answer = (req?.Answer ?? "").Trim();
+                var key = me + "|" + id;
+                var (fails, winStart) = JoinFailHits.GetOrAdd(key, _ => (0, DateTime.UtcNow));
+                var inWindow = DateTime.UtcNow - winStart < TimeSpan.FromHours(1);
+                if (inWindow && fails >= 5)
+                    return StatusCode(StatusCodes.Status429TooManyRequests, new { error = "尝试过于频繁，请一小时后再试" });
+                if (!string.Equals(answer, g.JoinAnswer?.Trim(), StringComparison.OrdinalIgnoreCase))
+                {
+                    JoinFailHits[key] = (inWindow ? fails + 1 : 1, inWindow ? winStart : DateTime.UtcNow);
+                    return BadRequest(new { error = "回答错误，请重试" });
+                }
+                JoinFailHits.TryRemove(key, out _);
+                directJoin = true;
+            }
+
+            if (directJoin)
+            {
+                // 直接入群（open / question 答对）：仍受群人数上限约束
+                if (g.Members.Count >= _store.GroupLimits.MaxMembers)
+                    return BadRequest(new { error = "群人数已达上限" });
                 g.Members.Add(new GroupMember { UserId = me });
                 g.JoinRequests.RemoveAll(r => r.UserId == me);
                 _store.MarkDirty();
-                ok = true; note = "已加入群聊";
             }
             else
             {
-                // 审批群：记一条申请（存昵称快照，避免申请人改名/删号后审批列表悬空）
+                // 审批群：记一条申请（存昵称快照，避免申请人改名/删号后审批列表悬空；Note = 入群理由）
                 string? nick = null;
                 if (_store.Users.TryGetValue(me, out var u)) nick = u.Nickname;
                 g.JoinRequests.Add(new JoinRequest
@@ -491,12 +540,11 @@ public class GroupsController : ControllerBase
                     Note = Validate.Clean(req?.Note, 64) ?? "",
                 });
                 _store.MarkDirty();
-                ok = true; note = "申请已提交，等待群主/管理员审批";
+                return Ok(new { ok = true, message = "申请已提交，等待群主/管理员审批" });
             }
         }
-        if (ok && note == "已加入群聊")
-            await SystemMessages.Post(_hub, _store, id, $"{NicknameOf(me)} 加入了群聊");
-        return Ok(new { ok, message = note });
+        await SystemMessages.Post(_hub, _store, id, $"{NicknameOf(me)} 加入了群聊");
+        return Ok(new { ok = true, message = "已加入群聊" });
     }
 
     /// <summary>审批群待审批列表（仅群主/管理员）。非管理者 NotFound。</summary>
@@ -544,11 +592,14 @@ public class GroupsController : ControllerBase
         return Ok(new { ok });
     }
 
-    /// <summary>审批拒绝（仅群主/管理员）：移除该申请。</summary>
+    public record RejectJoinRequest(string? Reason);
+
+    /// <summary>审批拒绝（仅群主/管理员）：移除该申请；可选附拒绝理由，作为系统消息通知申请人（QQ 式）。</summary>
     [HttpPost("groups/{id}/join-requests/{userId}/reject")]
-    public IActionResult RejectJoin(string id, string userId)
+    public async Task<IActionResult> RejectJoin(string id, string userId, [FromBody] RejectJoinRequest? req)
     {
         var me = HttpContext.GetUserId();
+        string groupName = "";
         lock (_store)
         {
             if (!_store.Groups.TryGetValue(id, out var g)) return NotFound();
@@ -556,12 +607,20 @@ public class GroupsController : ControllerBase
             if (actor == null || (actor.Role != "owner" && actor.Role != "admin")) return Forbid();
             g.JoinRequests ??= new();
             g.JoinRequests.RemoveAll(r => r.UserId == userId);
+            groupName = g.Name;
             _store.MarkDirty();
+        }
+        // 拒绝理由 → 申请人私聊里的系统消息（申请人与管理员之间的会话；申请人已删号则跳过）
+        var reason = Validate.Clean(req?.Reason, 64);
+        if (!string.IsNullOrWhiteSpace(reason) && _store.Users.ContainsKey(userId))
+        {
+            var conv = _store.GetOrCreatePairConversation(me, userId);
+            await SystemMessages.Post(_hub, _store, conv.Id, $"你申请加入「{groupName}」被拒绝：{reason}");
         }
         return Ok(new { ok = true });
     }
 
-    public record JoinGroup(string? Note);
+    public record JoinGroup(string? Note, string? Answer);
 
     /// <summary>
     /// 群公告「确认」：把当前用户的确认时间记到 Group.NoticeReadAt，并广播给全群，
@@ -612,7 +671,7 @@ public class GroupsController : ControllerBase
         return Ok(new { confirmed, total, confirmedAt });
     }
 
-    public record UpdateGroup(string? Name, string? Notice, bool? Muted, string? Avatar, string? JoinPolicy);
+    public record UpdateGroup(string? Name, string? Notice, bool? Muted, string? Avatar, string? JoinPolicy, string? JoinQuestion, string? JoinAnswer, bool? MuteAll);
 
     [HttpPut("groups/{id}")]
     public async Task<IActionResult> Update(string id, [FromBody] UpdateGroup req)
@@ -624,6 +683,7 @@ public class GroupsController : ControllerBase
             return BadRequest(new { error = "群公告过长" });
 
         bool noticeBumped = false;
+        bool muteAllChanged = false;
         DateTime noticeVersion;
         lock (_store)
         {
@@ -669,15 +729,39 @@ public class GroupsController : ControllerBase
                 g.Avatar = string.IsNullOrWhiteSpace(req.Avatar) ? "" : req.Avatar.Trim();
             }
 
-            // 加群策略（open/approve）：仅群主/管理员可改；白名单防注入
+            // 加群策略（QQ 式四选一）：仅群主/管理员可改；白名单防注入。
+            // question 模式必须同时设置问题和答案（答案不回显给非管理员）。
             if (req.JoinPolicy != null)
             {
                 if (actor.Role == "member") return Forbid();
-                g.JoinPolicy = req.JoinPolicy == "open" ? "open" : "approve";
+                g.JoinPolicy = req.JoinPolicy is "open" or "approve" or "question" or "none" ? req.JoinPolicy : "approve";
+            }
+            if (req.JoinQuestion != null || req.JoinAnswer != null)
+            {
+                if (actor.Role == "member") return Forbid();
+                if (req.JoinQuestion != null)
+                    g.JoinQuestion = Validate.Clean(req.JoinQuestion, 64) ?? "";
+                if (req.JoinAnswer != null)
+                    g.JoinAnswer = Validate.Clean(req.JoinAnswer, 64) ?? "";
+            }
+            // 全员禁言（QQ 式）：仅群主/管理员。变更时发系统消息告知全群。
+            if (req.MuteAll.HasValue)
+            {
+                if (actor.Role == "member") return Forbid();
+                if (g.MuteAll != req.MuteAll.Value)
+                {
+                    g.MuteAll = req.MuteAll.Value;
+                    muteAllChanged = true;
+                }
             }
             noticeVersion = g.NoticeUpdatedAt;
             _store.MarkDirty();
         }
+
+        if (muteAllChanged)
+            await SystemMessages.Post(_hub, _store, id, req.MuteAll!.Value
+                ? $"{NicknameOf(me)} 开启了全员禁言"
+                : $"{NicknameOf(me)} 关闭了全员禁言");
 
         // 公告被改/新增：广播全群，在线成员自动「重新展示 + 需再确认」（之前确认的自动隐藏）
         if (noticeBumped)
@@ -741,7 +825,7 @@ public class GroupsController : ControllerBase
         return Ok();
     }
 
-    public record UpdateMemberRequest(string? Role, bool? Muted, string? Nickname, string? Title);
+    public record UpdateMemberRequest(string? Role, bool? Muted, int? MutedMinutes, string? Nickname, string? Title);
 
     [HttpPut("groups/{id}/members/{userId}")]
     public async Task<IActionResult> UpdateMember(string id, string userId, [FromBody] UpdateMemberRequest req)
@@ -785,6 +869,24 @@ public class GroupsController : ControllerBase
             {
                 if (userId != me && actor.Role == "member") return Forbid();
                 m.Muted = req.Muted.Value;
+                changed = true;
+            }
+            // 限时禁言（QQ 式）：仅群主/管理员。MutedMinutes>0 = 设截止时刻；0 = 清除限时。
+            // 永久禁言仍走上面的 Muted；两者叠加，任一生效即不可发言。
+            if (req.MutedMinutes.HasValue)
+            {
+                if (actor.Role is not ("owner" or "admin")) return Forbid();
+                if (m.Role == "owner") return BadRequest(new { error = "不能禁言群主" });
+                if (req.MutedMinutes.Value > 0)
+                {
+                    if (req.MutedMinutes.Value > 60 * 24 * 30)
+                        return BadRequest(new { error = "禁言时长过长（最长 30 天）" });
+                    m.MutedUntil = DateTime.UtcNow.AddMinutes(req.MutedMinutes.Value);
+                }
+                else
+                {
+                    m.MutedUntil = null;
+                }
                 changed = true;
             }
             // 群昵称：本人或群主/管理员

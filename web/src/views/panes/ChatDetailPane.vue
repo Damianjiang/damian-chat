@@ -233,8 +233,11 @@
       </div>
     </div>
 
+    <!-- 群禁言（QQ 式）：全员禁言 / 被限时或永久禁言时，用提示条替换输入框 -->
+    <div v-if="muteBanner" class="wx-notice-banner pa-3 text-center text-body-medium">{{ muteBanner }}</div>
     <!-- 输入区（工具行常驻：图片/文件/语音/投票） -->
     <chat-input-toolbar
+      v-else
       :is-group="isGroup"
       :members="groupMembers"
       :placeholder="t('input.message.ph')"
@@ -365,6 +368,25 @@
   const session = computed(() => store.sessions.find(s => s.id === convId.value))
   const isGroup = computed(() => session.value?.kind === 'group')
   const title = computed(() => session.value?.title ?? t('chat.fallback.title'))
+
+  /* ---------- 群禁言状态（QQ 式）：全员禁言 / 我被限时或永久禁言 → 输入框换成提示条 ---------- */
+  const myGroupMember = computed(() => group.value?.members.find(m => m.userId === meId.value))
+  const amMuted = computed(() =>
+    !!myGroupMember.value?.muted
+    || !!(myGroupMember.value?.mutedUntil && new Date(myGroupMember.value.mutedUntil) > new Date()))
+  const muteBanner = computed(() => {
+    if (!isGroup.value) return ''
+    if (amMuted.value) {
+      const until = myGroupMember.value?.mutedUntil
+      if (until && new Date(until) > new Date()) {
+        const mins = Math.max(1, Math.ceil((new Date(until).getTime() - Date.now()) / 60_000))
+        return t('chat.muted.me.until', { n: mins })
+      }
+      return t('chat.muted.me')
+    }
+    if (group.value?.muteAll && myGroupMember.value?.role === 'member') return t('chat.muted.all')
+    return ''
+  })
 
   /** 顶栏对方头像（PC 双栏时展示） */
   const peerAvatar = computed(() => session.value?.avatar ?? '')

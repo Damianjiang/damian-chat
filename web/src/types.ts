@@ -96,8 +96,15 @@ export interface Group {
   noticeReadCount?: number
   /** 群成员总数（= 已确认进度分母） */
   noticeTotal?: number
-  /** 加群策略：open=知道群号可直接进 / approve=需群主审批（默认 approve） */
-  joinPolicy?: 'open' | 'approve'
+  /** 加群策略（QQ 式四选一）：open=知道群号直接进 / question=答对问题自动进 /
+   *  approve=需群主审批（默认）/ none=不允许任何人加入 */
+  joinPolicy?: 'open' | 'approve' | 'question' | 'none'
+  /** 入群问题（question 模式） */
+  joinQuestion?: string
+  /** 入群问题标准答案（仅群主/管理员编辑；joined 响应会带出） */
+  joinAnswer?: string
+  /** 全员禁言（开启后普通成员不能发言） */
+  muteAll?: boolean
   /** 待审批加群申请数（仅审批群有，群主/管理员据此显示审批入口） */
   joinPending?: number
 }
@@ -108,6 +115,8 @@ export interface GroupMember {
   avatar: string
   role: 'owner' | 'admin' | 'member'
   muted?: boolean
+  /** 限时禁言截止时刻（ISO），到期自动解除 */
+  mutedUntil?: string
   /** 我在本群的昵称（空则显示大面昵称） */
   groupNick?: string
   /** 群头衔（群主/管理员可为每位成员单独设置），空则不显示 */

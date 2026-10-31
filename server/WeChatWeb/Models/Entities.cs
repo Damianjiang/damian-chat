@@ -109,6 +109,12 @@ public class Group
     public DateTime NoticeUpdatedAt { get; set; } = DateTime.UtcNow;
     /// <summary>群投票（微信式：发起/投票/实时看票数，可多选，发起人或群主可截止）。</summary>
     public List<Poll> Polls { get; set; } = new();
+    /// <summary>入群问题（JoinPolicy=question 时生效）：申请者答对即自动进群（QQ 式「回答问题入群」）。</summary>
+    public string JoinQuestion { get; set; } = "";
+    /// <summary>入群问题的标准答案（不区分大小写比较；仅群主/管理员与入群流程可见）。</summary>
+    public string JoinAnswer { get; set; } = "";
+    /// <summary>全员禁言（QQ 式）：开启后普通成员不能在群内发言，群主/管理员不受限。</summary>
+    public bool MuteAll { get; set; }
 }
 
 /// <summary>群投票。</summary>
@@ -136,7 +142,10 @@ public class GroupMember
 {
     public string UserId { get; set; } = "";
     public string Role { get; set; } = "member";
+    /// <summary>永久禁言（QQ 式「禁言」；限时禁言用 MutedUntil）。</summary>
     public bool Muted { get; set; }
+    /// <summary>限时禁言截止时刻（QQ 式：10 分钟/1 小时/12 小时/1 天…），到期自动解除。</summary>
+    public DateTime? MutedUntil { get; set; }
     /// <summary>我在本群的昵称（空则显示大面昵称）。</summary>
     public string Nickname { get; set; } = "";
     /// <summary>群头衔（群主/管理员可为每位成员单独设置，如「群管」「元老」「管理员」），空则不显示。</summary>
