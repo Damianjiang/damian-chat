@@ -43,6 +43,15 @@ public sealed class ChatHub : Hub
     {
         var user = CurrentUserId;
 
+        // 未认证连接（无 / 坏 JWT 的握手）一律拒绝：不登记、不参与任何推送。
+        // 此前会「挂着但不登记」——白白占用全局连接配额，等于给匿名客户端留了常驻通道。
+        if (string.IsNullOrEmpty(user))
+        {
+            _log.Write("auth", new { ts = DateTime.UtcNow, result = "ws-unauthenticated-rejected" });
+            Context.Abort();
+            return;
+        }
+
         // 封禁/删号拦截：旧 access token 仍可用（签发后最长 2h），但被封用户绝不允许再挂实时通道。
         // 需要在这里按 sub 反查 DataStore（UserInvalidationMiddleware 只管 HTTP 请求，管不到 WS）。
         if (!string.IsNullOrEmpty(user))

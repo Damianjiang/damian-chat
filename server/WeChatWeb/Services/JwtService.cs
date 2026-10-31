@@ -23,6 +23,8 @@ public sealed class JwtService
             new Claim(JwtRegisteredClaimNames.Sub, user.Id),
             new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
             new Claim("phone", user.Phone),
+            // 签发时刻（秒）：UserInvalidationMiddleware 据此拒绝「改密码之前签发」的旧令牌
+            new Claim("pwd", DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString()),
         };
         var notBefore = DateTime.UtcNow;
         var expires = DateTime.UtcNow.AddHours(2);

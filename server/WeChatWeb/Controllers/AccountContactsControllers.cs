@@ -581,15 +581,29 @@ public class AccountController : ControllerBase
         if (PasswordPolicy.Validate(req.NewPassword) is { } pwErr)
             return BadRequest(new { error = "新密码长度需 8-32 位" });
 
+        List<Data.ConnectionState>? myConnections = null;
         lock (_store)
         {
             if (!_store.Users.TryGetValue(me, out var user)) return NotFound();
             if (!PasswordHasher.Verify(req.OldPassword ?? "", user.Password))
                 return BadRequest(new { error = "原密码不正确" });
             user.Password = PasswordHasher.Hash(req.NewPassword);
+            // 改密即时失效：记改密时刻 → UserInvalidationMiddleware 拒绝「改密前签发」的 access token。
+            // 截断到整秒：令牌里的 pwd 时间戳是秒级精度，亚秒部分会让「同一秒签发的新令牌」被误杀。
+            var nowUtc = DateTime.UtcNow;
+            user.PasswordChangedAt = new DateTime(nowUtc.Ticks - nowUtc.Ticks % TimeSpan.TicksPerSecond, DateTimeKind.Utc);
             foreach (var kv in _store.RefreshTokens.Where(kv => kv.Value.UserId == me).ToList())
                 _store.RefreshTokens.Remove(kv.Key);
+            // 本机其它实时连接一并踢线（前端会话校验失败自动回登录页）
+            myConnections = _store.ConnectionsOf(me)
+                .Select(id => _store.Connections[id])
+                .Where(c => c.CallerContext != null)
+                .ToList();
             _store.MarkDirty();
+        }
+        foreach (var c in myConnections)
+        {
+            try { c.CallerContext?.Abort(); } catch { /* 连接可能已断开 */ }
         }
         // 立即落盘放到锁外（SaveNow 全库序列化不进全局锁；仍保证重启不回滚旧密码）
         _store.SaveNow();

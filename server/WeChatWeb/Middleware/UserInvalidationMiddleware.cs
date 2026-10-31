@@ -36,13 +36,27 @@ public sealed class UserInvalidationMiddleware
             {
                 if (!_store.Users.TryGetValue(sub, out var u) || u.Banned)
                 {
-                    context.User = new ClaimsPrincipal(new ClaimsIdentity());
-                    context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-                    context.Response.ContentType = "application/json; charset=utf-8";
-                    return context.Response.WriteAsync("{\"error\":\"登录已失效，请重新登录\"}");
+                    return Reject(context);
+                }
+
+                // 改密码即时失效：令牌携带签发时的 pwd 时间戳（早于最近一次改密 → 401）。
+                // 没有 pwd claim 的是升级前签发的旧令牌 —— 放行，避免上线即全员掉线。
+                if (u.PasswordChangedAt > DateTime.MinValue
+                    && long.TryParse(context.User?.FindFirstValue("pwd"), out var pwdEpoch)
+                    && u.PasswordChangedAt > DateTime.UnixEpoch.AddSeconds(pwdEpoch))
+                {
+                    return Reject(context);
                 }
             }
         }
         return _next(context);
+    }
+
+    private static Task Reject (HttpContext context)
+    {
+        context.User = new ClaimsPrincipal(new ClaimsIdentity());
+        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+        context.Response.ContentType = "application/json; charset=utf-8";
+        return context.Response.WriteAsync("{\"error\":\"登录已失效，请重新登录\"}");
     }
 }

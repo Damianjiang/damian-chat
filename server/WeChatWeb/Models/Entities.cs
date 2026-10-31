@@ -24,6 +24,9 @@ public class User
     public bool IsBot { get; set; }
     public Dictionary<string, bool> Privacy { get; set; } = new();
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    /// <summary>密码最近一次修改时刻（UTC）。改密时：refresh token 全部吊销 + 踢掉实时连接，
+    /// 中间件按令牌内的 pwd 签发时间戳拒绝「改密前签发」的 access token（不必等 2h 自然过期）。</summary>
+    public DateTime PasswordChangedAt { get; set; } = DateTime.MinValue;
 }
 
 public class Contact
