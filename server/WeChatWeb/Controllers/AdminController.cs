@@ -111,6 +111,7 @@ public class AdminController : ControllerBase
         {
             _sec.RegisterKey,
             _sec.EnableCaptcha,
+            _sec.EnableSlider,
             _sec.MaxLoginAttempts,
             _sec.LockoutMinutes,
             _sec.AuthPerMinute,
@@ -125,7 +126,7 @@ public class AdminController : ControllerBase
         });
     }
 
-    public record SecurityUpdate(string? RegisterKey, bool? EnableCaptcha, int? MaxLoginAttempts, int? LockoutMinutes, int? AuthPerMinute, int? ApiPerMinute, int? FwRequestsPerMinute, int? FwMaxConcurrent, long? FwBytesPerMinute, int? FwBanThreshold, int? FwBanMinutes, int? FloodMessagesPerMinute);
+    public record SecurityUpdate(string? RegisterKey, bool? EnableCaptcha, bool? EnableSlider, int? MaxLoginAttempts, int? LockoutMinutes, int? AuthPerMinute, int? ApiPerMinute, int? FwRequestsPerMinute, int? FwMaxConcurrent, long? FwBytesPerMinute, int? FwBanThreshold, int? FwBanMinutes, int? FloodMessagesPerMinute);
 
     /// <summary>更新安全配置（立即生效并写入 security.json）。</summary>
     [HttpPut("security")]
@@ -141,6 +142,7 @@ public class AdminController : ControllerBase
             _sec.RegisterKey = key;
         }
         if (req.EnableCaptcha.HasValue) _sec.EnableCaptcha = req.EnableCaptcha.Value;
+        if (req.EnableSlider.HasValue) _sec.EnableSlider = req.EnableSlider.Value;
         if (req.MaxLoginAttempts is > 0 and < 1000) _sec.MaxLoginAttempts = req.MaxLoginAttempts!.Value;
         if (req.LockoutMinutes is > 0 and < 10000) _sec.LockoutMinutes = req.LockoutMinutes!.Value;
         if (req.AuthPerMinute is > 0 and < 100000) _sec.AuthPerMinute = req.AuthPerMinute!.Value;

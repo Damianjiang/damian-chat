@@ -111,11 +111,11 @@ public class AuthController : ControllerBase
         return Ok(new { captchaId = id, image = dataUrl });
     }
 
-    /// <summary>登录策略（公开）：是否需要验证码、注册是否开放，供登录页自适应。</summary>
+    /// <summary>登录策略（公开）：是否需要滑块/验证码、注册是否开放，供登录页自适应。</summary>
     [HttpGet("policy")]
     public IActionResult Policy () => Ok(new
     {
-        slider = true,          // 滑块：登录/注册按钮点击即弹出（开源 @miitvip/captcha）
+        slider = _sec.EnableSlider,    // 滑块：登录/注册按钮点击即弹出；管理端可关（安全设置页）
         captcha = _sec.EnableCaptcha,  // 图形验证码：双重验证的第一重
         registerOpen = !string.IsNullOrEmpty(_sec.RegisterKey),
     });
@@ -136,8 +136,9 @@ public class AuthController : ControllerBase
             return BadRequest(new { error = "图形验证码错误或已过期，请刷新重试" });
         }
 
-        // 双重人机验证 ②：滑块挑战换来的 pass token（一次性、90 秒、绑定 IP）
-        if (!_slider.ConsumePass(req.PassToken, Ip))
+        // 双重人机验证 ②：滑块挑战换来的 pass token（一次性、90 秒、绑定 IP）。
+        // 管理端可关（EnableSlider）：关闭后不再要求 passToken（图形验证码仍在）。
+        if (_sec.EnableSlider && !_slider.ConsumePass(req.PassToken, Ip))
         {
             _guard.RecordFailure(Ip, account, _sec);
             _log.Write("auth", new { ts = DateTime.UtcNow, result = "slider-missing", account, ip = Ip, ua = Ua });
@@ -211,8 +212,8 @@ public class AuthController : ControllerBase
             return BadRequest(new { error = "图形验证码错误或已过期，请刷新重试" });
         }
 
-        // 双重人机验证 ②：滑块 pass token
-        if (!_slider.ConsumePass(req.PassToken, Ip))
+        // 双重人机验证 ②：滑块 pass token（管理端可关 EnableSlider）
+        if (_sec.EnableSlider && !_slider.ConsumePass(req.PassToken, Ip))
         {
             _guard.RecordFailure(Ip, account, _sec);
             _log.Write("auth", new { ts = DateTime.UtcNow, result = "slider-missing", account, ip = Ip, ua = Ua });

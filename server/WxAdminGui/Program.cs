@@ -82,6 +82,7 @@ internal sealed class SecurityCfg
 {
     public string RegisterKey { get; set; } = "";   // 空 = 关闭注册，管理员在控制台设置注册密码
     public bool EnableCaptcha { get; set; } = true;
+    public bool EnableSlider { get; set; } = true;
     public int MaxLoginAttempts { get; set; } = 5;
     public int LockoutMinutes { get; set; } = 10;
     public int AuthPerMinute { get; set; } = 20;
@@ -137,6 +138,7 @@ internal sealed class MainForm : Form
     /* ---- 安全页 ---- */
     private readonly TextBox _txtRegKey = new() { Width = 220 };
     private readonly CheckBox _chkCaptcha = new() { Text = "启用图形验证码", AutoSize = true, Checked = true };
+    private readonly CheckBox _chkSlider = new() { Text = "启用滑块验证（登录/注册）", AutoSize = true, Checked = true };
     private readonly NumericUpDown _nudAttempts = new() { Minimum = 1, Maximum = 999, Width = 80, Value = 5 };
     private readonly NumericUpDown _nudLockMin = new() { Minimum = 1, Maximum = 999, Width = 80, Value = 10 };
     private readonly NumericUpDown _nudPerMin = new() { Minimum = 5, Maximum = 9999, Width = 80, Value = 20 };
@@ -460,6 +462,7 @@ internal sealed class MainForm : Form
             _txtRegKey,
             new Label { Text = "（留空 = 关闭注册）", AutoSize = true, ForeColor = Color.DimGray, Padding = new Padding(6, 6, 16, 0) },
             _chkCaptcha,
+            _chkSlider,
         });
         var row2 = new FlowLayoutPanel { AutoSize = true, WrapContents = true };
         row2.Controls.AddRange(new Control[]
@@ -1396,6 +1399,7 @@ internal sealed class MainForm : Form
     {
         public string RegisterKey { get; set; } = "";   // 空 = 关闭注册，管理员在控制台设置注册密码
         public bool EnableCaptcha { get; set; } = true;
+        public bool EnableSlider { get; set; } = true;
         public int MaxLoginAttempts { get; set; } = 5;
         public int LockoutMinutes { get; set; } = 10;
         public int AuthPerMinute { get; set; } = 20;
@@ -1420,6 +1424,7 @@ internal sealed class MainForm : Form
 
         _txtRegKey.Text = s!.RegisterKey;
         _chkCaptcha.Checked = s.EnableCaptcha;
+        _chkSlider.Checked = s.EnableSlider;
         _nudAttempts.Value = Math.Clamp(s.MaxLoginAttempts, 1, 999);
         _nudLockMin.Value = Math.Clamp(s.LockoutMinutes, 1, 999);
         _nudPerMin.Value = Math.Clamp(s.AuthPerMinute, 5, 9999);
@@ -1510,6 +1515,7 @@ internal sealed class MainForm : Form
         {
             RegisterKey = _txtRegKey.Text.Trim(),
             EnableCaptcha = _chkCaptcha.Checked,
+            EnableSlider = _chkSlider.Checked,
             MaxLoginAttempts = (int)_nudAttempts.Value,
             LockoutMinutes = (int)_nudLockMin.Value,
             AuthPerMinute = (int)_nudPerMin.Value,

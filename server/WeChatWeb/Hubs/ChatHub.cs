@@ -195,6 +195,14 @@ public sealed class ChatHub : Hub
             await hub.Clients.Clients(connections).SendAsync("NewMessage", message);
     }
 
+    /// <summary>供控制器调用：群投票有变化（有人投票/被截止）时推给会话全体在线成员，打开的投票卡片实时刷新。</summary>
+    public static async Task BroadcastPoll(IHubContext<ChatHub> hub, DataStore store, string conversationId, object poll)
+    {
+        var connections = MemberConnections(store, conversationId);
+        if (connections.Count > 0)
+            await hub.Clients.Clients(connections).SendAsync("PollUpdated", conversationId, poll);
+    }
+
     /// <summary>
     /// 供控制器调用：已读状态只广播给自己的其它端（多端红点同步）。
     /// 不发给对方 —— 微信单聊没有已读回执，对方是否阅读不应打扰发送者。

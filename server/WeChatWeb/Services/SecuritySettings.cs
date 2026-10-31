@@ -13,6 +13,8 @@ public sealed class SecuritySettings
     /// <summary>注册密码（用户注册时必须填写）。为空表示关闭注册，可在管理端设置。</summary>
     public string RegisterKey { get; set; } = "";
     public bool EnableCaptcha { get; set; } = true;
+    /// <summary>滑块验证开关（登录/注册按钮点击即弹出）。管理端可关；关闭后仅剩图形验证码防线。</summary>
+    public bool EnableSlider { get; set; } = true;
     public int MaxLoginAttempts { get; set; } = 5;
     public int LockoutMinutes { get; set; } = 10;
     public int AuthPerMinute { get; set; } = 20;
