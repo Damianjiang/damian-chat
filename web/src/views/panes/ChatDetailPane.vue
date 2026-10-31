@@ -1198,7 +1198,7 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #07c160;
+  background: var(--dm-primary, #07C160);
   animation: wx-typing-blink 1s infinite;
 }
 

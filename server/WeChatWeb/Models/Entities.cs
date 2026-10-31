@@ -14,8 +14,15 @@ public class User
     public string Nickname { get; set; } = "";
     public string Avatar { get; set; } = "";
 
-    /// <summary>大面号（唯一、可搜索，首次生成后不变）。</summary>
+    /// <summary>大面号（唯一）。随机生成的默认不可被搜索（WxIdCustom=false），
+    /// 用户改成自定义大面号后即可被搜索 —— 与微信随机 wxid 搜不到的机制一致。</summary>
     public string WxId { get; set; } = "";
+    /// <summary>大面号是否为用户自定义（true=可被大面号搜索；false=系统随机生成，搜索不可见）。</summary>
+    public bool WxIdCustom { get; set; }
+    /// <summary>大面号最近一次修改时刻（UTC），配合 WxIdChangeCooldownDays 做冷却。</summary>
+    public DateTime WxIdChangedAt { get; set; } = DateTime.MinValue;
+    /// <summary>绑定邮箱（邮箱注册用户的登录凭据 / 找回渠道）。空 = 未绑定。</summary>
+    public string Email { get; set; } = "";
     public string Signature { get; set; } = "";
     public string Region { get; set; } = "";
     public string Gender { get; set; } = "unknown";

@@ -17,8 +17,9 @@ public class AuthController : ControllerBase
     private readonly SliderCaptchaService _slider;
     private readonly LoginGuard _guard;
     private readonly WeChatWeb.Services.LoginBackgroundStore _loginBg;
+    private readonly EmailCodeService _emailCode;
 
-    public AuthController (DataStore store, JwtService jwt, LogService log, SecuritySettings sec, CaptchaService captcha, SliderCaptchaService slider, LoginGuard guard, WeChatWeb.Services.LoginBackgroundStore loginBg)
+    public AuthController (DataStore store, JwtService jwt, LogService log, SecuritySettings sec, CaptchaService captcha, SliderCaptchaService slider, LoginGuard guard, WeChatWeb.Services.LoginBackgroundStore loginBg, EmailCodeService emailCode)
     {
         _store = store;
         _jwt = jwt;
@@ -28,6 +29,7 @@ public class AuthController : ControllerBase
         _slider = slider;
         _guard = guard;
         _loginBg = loginBg;
+        _emailCode = emailCode;
     }
 
     /* ---------------- 登录页主题 / 背景（公开，无鉴权） ---------------- */
@@ -97,7 +99,8 @@ public class AuthController : ControllerBase
     private static readonly Regex AccountPattern = new(@"^(?:1[3-9]\d{9}|[A-Za-z0-9_]{3,32}|[\u4e00-\u9fa5]{2,16})$", RegexOptions.Compiled);
 
     public record LoginRequest (string Account, string Password, string? CaptchaId, string? Captcha, string? PassToken = null);
-    public record RegisterRequest (string Account, string Password, string RegisterKey, string? CaptchaId = null, string? Captcha = null, string? PassToken = null);
+    public record RegisterRequest (string Account, string Password, string RegisterKey, string? CaptchaId = null, string? Captcha = null, string? PassToken = null, string? Email = null, string? EmailCode = null);
+    public record EmailCodeRequest (string Email, string? CaptchaId, string? Captcha);
     public record RefreshRequest (string RefreshToken);
 
     /// <summary>账号不存在时用于抹平时序的固定哈希（进程启动时算一次）。</summary>
@@ -111,14 +114,33 @@ public class AuthController : ControllerBase
         return Ok(new { captchaId = id, image = dataUrl });
     }
 
-    /// <summary>登录策略（公开）：是否需要滑块/验证码、注册是否开放，供登录页自适应。</summary>
+    /// <summary>登录策略（公开）：是否需要滑块/验证码、注册是否开放与注册模式，供登录页自适应。</summary>
     [HttpGet("policy")]
     public IActionResult Policy () => Ok(new
     {
         slider = _sec.EnableSlider,    // 滑块：登录/注册按钮点击即弹出；管理端可关（安全设置页）
         captcha = _sec.EnableCaptcha,  // 图形验证码：双重验证的第一重
         registerOpen = !string.IsNullOrEmpty(_sec.RegisterKey),
+        registerMode = string.IsNullOrEmpty(_sec.RegisterKey) ? "" : _sec.RegisterMode, // direct=账号注册 / email=邮箱注册（空=注册关闭）
+        smtpReady = _sec.SmtpReady,    // 邮箱注册需要 SMTP；未配置时前端提示管理员
     });
+
+    /// <summary>发送邮箱验证码（注册 / 后续绑定邮箱共用）。图形验证码挡机器人；发送侧自身节流在 EmailCodeService。</summary>
+    [HttpPost("email-code")]
+    public IActionResult EmailCode ([FromBody] EmailCodeRequest req)
+    {
+        // 不看注册开关：已注册用户「绑定邮箱」也走本接口；滥用由验证码+节流兜底
+        // 图形验证码（若开启）：挡脚本批量发信
+        if (_sec.EnableCaptcha && !_captcha.Verify(req.CaptchaId, req.Captcha))
+            return BadRequest(new { error = "图形验证码错误或已过期，请刷新重试" });
+        var err = _emailCode.Send(req.Email, Ip, "register");
+        if (err != null)
+        {
+            _guard.RecordFailure(Ip, (req.Email ?? "").Trim(), _sec);
+            return BadRequest(new { error = err });
+        }
+        return Ok(new { ok = true });
+    }
 
     /// <summary>账号密码 + 图形验证码登录。失败计入 IP 限速与账号锁定。</summary>
     [HttpPost("login")]
@@ -197,6 +219,9 @@ public class AuthController : ControllerBase
     [HttpPost("register")]
     public IActionResult Register ([FromBody] RegisterRequest req)
     {
+        // 注册模式（管理端配置）：direct=账号即大面号；email=邮箱+验证码注册，
+        // 登录账号=邮箱，大面号随机生成且默认不可被搜索（微信 2017 年后关闭随机
+        // wxid 搜索，防批量加人骚扰；用户改成自定义大面号后才可被搜到）。
         var account = (req.Account ?? "").Trim();
         var blocked = _guard.Check(Ip, account, _sec);
         if (blocked != null) return StatusCode(StatusCodes.Status429TooManyRequests, new { error = blocked });
@@ -227,7 +252,18 @@ public class AuthController : ControllerBase
             return StatusCode(StatusCodes.Status403Forbidden, new { error = "注册密钥不正确（管理员可在后台修改）" });
         }
 
-        if (!AccountPattern.IsMatch(account))
+        string email = "";
+        if (_sec.RegisterMode == "email")
+        {
+            // 邮箱模式：登录账号就是邮箱（不再要求手机号/用户名格式），大面号随机生成
+            email = (req.Email ?? "").Trim().ToLowerInvariant();
+            if (!EmailCodeService.ValidEmail(email))
+                return BadRequest(new { error = "请输入正确的邮箱地址" });
+            var codeErr = _emailCode.Verify(email, req.EmailCode);
+            if (codeErr != null) return BadRequest(new { error = codeErr });
+            account = email;
+        }
+        else if (!AccountPattern.IsMatch(account))
             return BadRequest(new { error = "账号需为 11 位手机号、3-32 位字母/数字/下划线，或 2-16 位中文" });
         if (PasswordPolicy.Validate(req.Password) is { } pwErr)
             return BadRequest(new { error = pwErr });
@@ -240,7 +276,20 @@ public class AuthController : ControllerBase
                 _guard.RecordFailure(Ip, account, _sec);
                 return Conflict(new { error = "该账号已被注册" });
             }
+            if (email.Length > 0 && _store.Users.Values.Any(u => u.Email == email))
+            {
+                _guard.RecordFailure(Ip, account, _sec);
+                return Conflict(new { error = "该邮箱已被绑定" });
+            }
             user = _store.RegisterUser(account, req.Password);
+            if (email.Length > 0) user.Email = email;
+            // 邮箱注册：大面号随机生成（WxIdCustom=false → 不可被搜索），昵称给个默认
+            if (_sec.RegisterMode == "email")
+            {
+                user.WxId = Validate.GenerateUniqueWxId(_store);
+                user.WxIdCustom = false;
+                user.Nickname = "用户" + user.WxId[^4..];
+            }
         }
 
         _guard.ResetAccount(account);
@@ -302,6 +351,8 @@ public class AuthController : ControllerBase
         u.Nickname,
         u.Avatar,
         WxId = u.WxId,
+        u.WxIdCustom,
+        u.Email,
         u.Signature,
         u.Region,
         u.Gender,

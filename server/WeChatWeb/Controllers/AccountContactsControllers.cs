@@ -40,13 +40,101 @@ public static class UserPrincipal
 public class UsersController : ControllerBase
 {
     private readonly DataStore _store;
-    public UsersController(DataStore store) => _store = store;
+    private readonly SecuritySettings _sec;
+    private readonly EmailCodeService _emailCode;
+    public UsersController(DataStore store, SecuritySettings sec, EmailCodeService emailCode)
+    {
+        _store = store;
+        _sec = sec;
+        _emailCode = emailCode;
+    }
 
     [HttpGet("users/me")]
     public IActionResult Me()
     {
         var user = HttpContext.FindUser(_store);
-        return user is null ? NotFound() : Ok(PublicProfile(user, true));
+        return user is null ? NotFound() : Ok(SelfProfile(user));
+    }
+
+    /// <summary>本人视图：公开资料 + 邮箱/大面号自定义状态/改号冷却（只下发给自己）。</summary>
+    internal static object SelfProfile (Models.User u)
+    {
+        var p = PublicProfile(u, true);
+        return new
+        {
+            p.Id,
+            p.Nickname,
+            p.Avatar,
+            p.Phone,
+            p.WxId,
+            p.Signature,
+            p.Region,
+            p.Gender,
+            u.WxIdCustom,
+            u.WxIdChangedAt,
+            u.Email,
+            u.CreatedAt,
+        };
+    }
+
+    public record ChangeWxIdRequest (string WxId);
+
+    /// <summary>
+    /// 修改大面号（微信式）：唯一 + 格式校验 + 冷却（管理端可配天数，0=不限）。
+    /// 改成自定义号后立即可被搜索（WxIdCustom=true）。
+    /// </summary>
+    [HttpPut("users/me/wxid")]
+    public IActionResult ChangeWxId ([FromBody] ChangeWxIdRequest req)
+    {
+        var user = HttpContext.FindUser(_store);
+        if (user is null) return NotFound();
+        var wxId = (req.WxId ?? "").Trim().ToLowerInvariant();
+        if (!Validate.IsWxId(wxId))
+            return BadRequest(new { error = "大面号需 6-20 位，小写字母开头，可含数字/下划线/连字符" });
+
+        var cooldown = Math.Max(0, _sec.WxIdChangeCooldownDays);
+        if (cooldown > 0)
+        {
+            var last = user.WxIdChangedAt == DateTime.MinValue ? (DateTime?)null : user.WxIdChangedAt;
+            if (last.HasValue && (DateTime.UtcNow - last.Value).TotalDays < cooldown)
+            {
+                var next = last.Value.AddDays(cooldown);
+                return BadRequest(new { error = $"修改太频繁，{next:yyyy-MM-dd} 后才能再次修改", nextAllowedAt = next });
+            }
+        }
+
+        lock (_store)
+        {
+            if (_store.Users.Values.Any(u => u.WxId == wxId))
+                return Conflict(new { error = "该大面号已被使用" });
+            user.WxId = wxId;
+            user.WxIdCustom = true;
+            user.WxIdChangedAt = DateTime.UtcNow;
+            _store.MarkDirty();
+        }
+        return Ok(SelfProfile(user));
+    }
+
+    public record BindEmailRequest (string Email, string Code);
+
+    /// <summary>绑定/换绑邮箱：需邮箱验证码（邮箱注册用户换绑同样走这里）。</summary>
+    [HttpPut("users/me/email")]
+    public IActionResult BindEmail ([FromBody] BindEmailRequest req)
+    {
+        var user = HttpContext.FindUser(_store);
+        if (user is null) return NotFound();
+        var email = (req.Email ?? "").Trim().ToLowerInvariant();
+        if (!EmailCodeService.ValidEmail(email)) return BadRequest(new { error = "请输入正确的邮箱地址" });
+        var err = _emailCode.Verify(email, req.Code);
+        if (err != null) return BadRequest(new { error = err });
+        lock (_store)
+        {
+            if (_store.Users.Values.Any(u => u.Email == email))
+                return Conflict(new { error = "该邮箱已被其他账号绑定" });
+            user.Email = email;
+            _store.MarkDirty();
+        }
+        return Ok(SelfProfile(user));
     }
 
     /// <summary>
@@ -266,12 +354,24 @@ public class ContactsController : ControllerBase
         {
             var phone = (req.Phone ?? "").Trim();
             var wxId = (req.WxId ?? "").Trim();
-            var target = !string.IsNullOrEmpty(req.UserId)
-                ? _store.Users.Values.FirstOrDefault(u => u.Id == req.UserId)
-                // 前端把同一输入同时作为 phone 与 wxId 传过来，命中任一即可（手机号或大面号）
-                : _store.Users.Values.FirstOrDefault(u =>
-                    (phone.Length > 0 && u.Phone == phone)
-                    || (wxId.Length > 0 && !string.IsNullOrEmpty(u.WxId) && u.WxId == wxId));
+            // 搜索隐私（微信「添加我的方式」）：
+            //  · 随机生成的大面号（WxIdCustom=false）搜不到 —— 与微信随机 wxid 一致，防批量加人；
+            //  · 自定义大面号可搜，但对方可关（privacy.searchByWxId，默认开）；
+            //  · 手机号搜索对方可关（privacy.searchByPhone，默认开）。
+            User? target;
+            if (!string.IsNullOrEmpty(req.UserId))
+            {
+                target = _store.Users.Values.FirstOrDefault(u => u.Id == req.UserId);
+            }
+            else
+            {
+                bool Searchable (User u, string key)
+                    => !u.Privacy.TryGetValue(key, out var v) || v;
+                target = _store.Users.Values.FirstOrDefault(u =>
+                    (wxId.Length > 0 && !string.IsNullOrEmpty(u.WxId) && u.WxId == wxId
+                        && u.WxIdCustom && Searchable(u, "searchByWxId"))
+                    || (phone.Length > 0 && u.Phone == phone && Searchable(u, "searchByPhone")));
+            }
             if (target == null) return BadRequest(new { error = "该手机号或大面号不存在" });
             if (target.Id == me) return BadRequest(new { error = "不能添加自己为好友" });
             if (_store.Contacts.TryGetValue(me, out var mine) && mine.Any(c => c.OtherUserId == target.Id))

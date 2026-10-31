@@ -177,6 +177,7 @@ builder.Services.AddSingleton(_ => securitySettings);
 builder.Services.AddSingleton<CaptchaService>();
 builder.Services.AddSingleton<SliderCaptchaService>();
 builder.Services.AddSingleton<LoginGuard>();
+builder.Services.AddSingleton<EmailCodeService>();
 
 // 限流：滑块挑战接口按 IP 限制，防止挑战被批量刷取（登录/接口另有 AuthRateLimit/ApiRateLimit 中间件）
 builder.Services.AddRateLimiter(options =>

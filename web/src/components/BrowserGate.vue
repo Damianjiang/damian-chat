@@ -124,8 +124,8 @@
 }
 
 .wx-gate-btn--primary {
-  background: #07c160;
-  border-color: #07c160;
+  background: var(--dm-primary, #07C160);
+  border-color: var(--dm-primary, #07C160);
   color: #ffffff;
 }
 
@@ -159,7 +159,7 @@
   margin: 8px auto;
   padding: 9px 0;
   font-size: 14px;
-  color: #07c160;
+  color: var(--dm-primary, #07C160);
   background: #f5f5f5;
   border-radius: 8px;
   text-decoration: none;

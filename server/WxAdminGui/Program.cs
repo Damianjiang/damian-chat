@@ -93,6 +93,14 @@ internal sealed class SecurityCfg
     public int FwBanThreshold { get; set; } = 50;
     public int FwBanMinutes { get; set; } = 30;
     public int FloodMessagesPerMinute { get; set; } = 60;
+    public string RegisterMode { get; set; } = "direct";
+    public int WxIdChangeCooldownDays { get; set; } = 365;
+    public string SmtpHost { get; set; } = "";
+    public int SmtpPort { get; set; } = 465;
+    public string SmtpUser { get; set; } = "";
+    public string SmtpPass { get; set; } = "";
+    public string SmtpFrom { get; set; } = "";
+    public bool SmtpSsl { get; set; } = true;
 
     public static SecurityCfg LoadFile()
     {
@@ -137,6 +145,16 @@ internal sealed class MainForm : Form
 
     /* ---- 安全页 ---- */
     private readonly TextBox _txtRegKey = new() { Width = 220 };
+    // 注册模式（direct=账号注册 / email=邮箱注册）+ 大面号修改冷却 + SMTP（邮箱注册验证码）
+    private readonly ComboBox _cmbRegMode = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 160 };
+    private readonly NumericUpDown _nudWxIdCooldown = new() { Minimum = 0, Maximum = 3650, Width = 70, Value = 365 };
+    private readonly TextBox _txtSmtpHost = new() { Width = 150 };
+    private readonly NumericUpDown _nudSmtpPort = new() { Minimum = 1, Maximum = 65535, Width = 70, Value = 465 };
+    private readonly TextBox _txtSmtpUser = new() { Width = 150 };
+    private readonly TextBox _txtSmtpPass = new() { Width = 150, UseSystemPasswordChar = true };
+    private readonly TextBox _txtSmtpFrom = new() { Width = 150 };
+    private readonly CheckBox _chkSmtpSsl = new() { Text = "SSL(465)", AutoSize = true, Checked = true };
+    private readonly Button _btnSmtpTest = new() { Text = "发送测试邮件…", AutoSize = true };
     private readonly CheckBox _chkCaptcha = new() { Text = "启用图形验证码", AutoSize = true, Checked = true };
     private readonly CheckBox _chkSlider = new() { Text = "启用滑块验证（登录/注册）", AutoSize = true, Checked = true };
     private readonly NumericUpDown _nudAttempts = new() { Minimum = 1, Maximum = 999, Width = 80, Value = 5 };
@@ -281,6 +299,8 @@ internal sealed class MainForm : Form
         _chkAutoStartServer.CheckedChanged += (_, _) => Run(() => { _cfg.AutoStartServer = _chkAutoStartServer.Checked; _cfg.Save(); });
         _btnSecRead.Click += (_, _) => RunAsync(async () => { await LoadSecurityAsync(); _msg.Text = "安全设置已读取"; });
         _btnSecSave.Click += (_, _) => RunAsync(async () => { await SaveSecurityAsync(); _msg.Text = "安全设置已保存"; });
+        _btnSmtpTest.Click += (_, _) => RunAsync(SmtpTestAsync);
+        _cmbRegMode.SelectedIndex = 0;
         _btnLimitsRead.Click += (_, _) => RunAsync(async () => { await LoadLimitsAsync(); _msg.Text = "限制配置已读取"; });
         _btnLimitsSave.Click += (_, _) => RunAsync(async () => { await SaveLimitsAsync(); _msg.Text = "限制配置已保存（即时生效）"; });
         _btnCleanupFiles.Click += (_, _) => RunAsync(CleanupFilesAsync);
@@ -456,6 +476,7 @@ internal sealed class MainForm : Form
         var secLayout = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new Padding(0) };
 
         var row1 = new FlowLayoutPanel { AutoSize = true, WrapContents = true };
+        _cmbRegMode.Items.AddRange(new object[] { "direct（账号注册：大面号=注册账号）", "email（邮箱注册：大面号随机生成）" });
         row1.Controls.AddRange(new Control[]
         {
             new Label { Text = "注册密码：", AutoSize = true, Padding = new Padding(0, 6, 0, 0) },
@@ -463,6 +484,33 @@ internal sealed class MainForm : Form
             new Label { Text = "（留空 = 关闭注册）", AutoSize = true, ForeColor = Color.DimGray, Padding = new Padding(6, 6, 16, 0) },
             _chkCaptcha,
             _chkSlider,
+        });
+        var row1b = new FlowLayoutPanel { AutoSize = true, WrapContents = true };
+        row1b.Controls.AddRange(new Control[]
+        {
+            new Label { Text = "注册方式：", AutoSize = true, Padding = new Padding(0, 6, 0, 0) }, _cmbRegMode,
+            new Label { Text = "大面号可修改间隔：", AutoSize = true, Padding = new Padding(12, 6, 0, 0) }, _nudWxIdCooldown,
+            new Label { Text = "天（0=不限；微信为 365）", AutoSize = true, Padding = new Padding(4, 6, 0, 0) },
+        });
+        var smtpRow1 = new FlowLayoutPanel { AutoSize = true, WrapContents = true };
+        smtpRow1.Controls.AddRange(new Control[]
+        {
+            new Label { Text = "SMTP 服务器：", AutoSize = true, Padding = new Padding(0, 6, 0, 0) }, _txtSmtpHost,
+            new Label { Text = "端口：", AutoSize = true, Padding = new Padding(8, 6, 0, 0) }, _nudSmtpPort, _chkSmtpSsl,
+        });
+        var smtpRow2 = new FlowLayoutPanel { AutoSize = true, WrapContents = true };
+        smtpRow2.Controls.AddRange(new Control[]
+        {
+            new Label { Text = "SMTP 账号：", AutoSize = true, Padding = new Padding(0, 6, 0, 0) }, _txtSmtpUser,
+            new Label { Text = "密码/授权码：", AutoSize = true, Padding = new Padding(8, 6, 0, 0) }, _txtSmtpPass,
+            new Label { Text = "（留空=不修改）", AutoSize = true, ForeColor = Color.DimGray, Padding = new Padding(4, 6, 0, 0) },
+        });
+        var smtpRow3 = new FlowLayoutPanel { AutoSize = true, WrapContents = true };
+        smtpRow3.Controls.AddRange(new Control[]
+        {
+            new Label { Text = "发件人地址：", AutoSize = true, Padding = new Padding(0, 6, 0, 0) }, _txtSmtpFrom,
+            _btnSmtpTest,
+            new Label { Text = "（邮箱注册/绑定邮箱用；留空发件人=用 SMTP 账号）", AutoSize = true, ForeColor = Color.DimGray, Padding = new Padding(8, 6, 0, 0) },
         });
         var row2 = new FlowLayoutPanel { AutoSize = true, WrapContents = true };
         row2.Controls.AddRange(new Control[]
@@ -531,7 +579,7 @@ internal sealed class MainForm : Form
         limCol.Controls.AddRange(new Control[] { limRow1, limRow2, limRow3 });
         limBox.Controls.Add(limCol);
 
-        secLayout.Controls.AddRange(new Control[] { row1, row2, row3, row3b, row3c, row3d, row4, limBox });
+        secLayout.Controls.AddRange(new Control[] { row1, row1b, row2, row3, row3b, row3c, row3d, smtpRow1, smtpRow2, smtpRow3, row4, limBox });
         secBox.Controls.Add(secLayout);
         security.Controls.Add(secBox);
 
@@ -1410,6 +1458,52 @@ internal sealed class MainForm : Form
         public int FwBanThreshold { get; set; } = 50;
         public int FwBanMinutes { get; set; } = 30;
         public int FloodMessagesPerMinute { get; set; } = 60;
+        public string RegisterMode { get; set; } = "direct";
+        public int WxIdChangeCooldownDays { get; set; } = 365;
+        public string SmtpHost { get; set; } = "";
+        public int SmtpPort { get; set; } = 465;
+        public string SmtpUser { get; set; } = "";
+        public string? SmtpPass { get; set; }
+        public string SmtpFrom { get; set; } = "";
+        public bool SmtpSsl { get; set; } = true;
+        public bool? hasPass { get; set; }
+        public bool? ready { get; set; }
+    }
+
+    /// <summary>SMTP 测试：先保存当前 SMTP 配置，再向管理员输入的邮箱发一封验证码邮件。</summary>
+    private async Task SmtpTestAsync()
+    {
+        string email;
+        using (var dlg = new Form
+        {
+            Width = 380, Height = 150, Text = "发送测试邮件",
+            FormBorderStyle = FormBorderStyle.FixedDialog, StartPosition = FormStartPosition.CenterParent,
+            MaximizeBox = false, MinimizeBox = false,
+        })
+        {
+            var lbl = new Label { Text = "接收邮箱：", AutoSize = true, Location = new Point(12, 18) };
+            var txt = new TextBox { Width = 230, Location = new Point(80, 14) };
+            var ok = new Button { Text = "发送", DialogResult = DialogResult.OK, Location = new Point(80, 50), Width = 90 };
+            var cancel = new Button { Text = "取消", DialogResult = DialogResult.Cancel, Location = new Point(190, 50), Width = 90 };
+            dlg.Controls.AddRange(new Control[] { lbl, txt, ok, cancel });
+            dlg.AcceptButton = ok; dlg.CancelButton = cancel;
+            if (dlg.ShowDialog(this) != DialogResult.OK || string.IsNullOrWhiteSpace(txt.Text)) return;
+            email = txt.Text.Trim();
+        }
+        var payload = JsonSerializer.Serialize(new
+        {
+            email,
+            captchaId = "",
+            captcha = "",
+        });
+        using var req = ApiRequest(HttpMethod.Post, "auth/email-code", payload);
+        req.Headers.Remove("X-Admin-Key");   // 该接口是给最终用户的，管理 Key 不需要
+        using var resp = await G.Http.SendAsync(req);
+        var body = await resp.Content.ReadAsStringAsync();
+        if (resp.IsSuccessStatusCode)
+            MessageBox.Show(this, $"测试邮件已发送到 {email.Trim()}（验证码模式）。收到即代表 SMTP 配置正确。", "发送测试邮件", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        else
+            MessageBox.Show(this, "发送失败：" + body, "发送测试邮件", MessageBoxButtons.OK, MessageBoxIcon.Warning);
     }
 
     private async Task LoadSecurityAsync()
@@ -1435,6 +1529,14 @@ internal sealed class MainForm : Form
         _nudFwBanHit.Value = Math.Clamp(s.FwBanThreshold, 1, 99999);
         _nudFwBanMin.Value = Math.Clamp(s.FwBanMinutes, 1, 10080);
         _nudFloodMsgs.Value = Math.Clamp(s.FloodMessagesPerMinute, 1, 100000);
+        _cmbRegMode.SelectedIndex = s.RegisterMode == "email" ? 1 : 0;
+        _nudWxIdCooldown.Value = Math.Clamp(s.WxIdChangeCooldownDays, 0, 3650);
+        _txtSmtpHost.Text = s.SmtpHost;
+        _nudSmtpPort.Value = Math.Clamp(s.SmtpPort, 1, 65535);
+        _txtSmtpUser.Text = s.SmtpUser;
+        _txtSmtpPass.PlaceholderText = s.hasPass == true ? "已设置（留空=不修改）" : "未设置";
+        _txtSmtpFrom.Text = s.SmtpFrom;
+        _chkSmtpSsl.Checked = s.SmtpSsl;
         _lblSecHint.Text = _running ? "来源：管理 API（运行中，保存即时生效）" : "来源：security.json（服务停止，启动后生效）";
     }
 
@@ -1526,6 +1628,14 @@ internal sealed class MainForm : Form
             FwBanThreshold = (int)_nudFwBanHit.Value,
             FwBanMinutes = (int)_nudFwBanMin.Value,
             FloodMessagesPerMinute = (int)_nudFloodMsgs.Value,
+            RegisterMode = _cmbRegMode.SelectedIndex == 1 ? "email" : "direct",
+            WxIdChangeCooldownDays = (int)_nudWxIdCooldown.Value,
+            SmtpHost = _txtSmtpHost.Text.Trim(),
+            SmtpPort = (int)_nudSmtpPort.Value,
+            SmtpUser = _txtSmtpUser.Text.Trim(),
+            SmtpPass = _txtSmtpPass.Text.Length > 0 ? _txtSmtpPass.Text : null,   // 留空=不改
+            SmtpFrom = _txtSmtpFrom.Text.Trim(),
+            SmtpSsl = _chkSmtpSsl.Checked,
         };
 
         if (_running)

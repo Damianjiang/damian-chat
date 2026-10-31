@@ -219,7 +219,7 @@
 .wx-scanner-frame {
   position: absolute;
   inset: 12%;
-  border: 2px solid #07c160;
+  border: 2px solid var(--dm-primary, #07C160);
   border-radius: 8px;
   box-shadow: 0 0 0 999px rgba(0, 0, 0, 0.35);
   pointer-events: none;

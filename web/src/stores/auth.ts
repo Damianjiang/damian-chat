@@ -45,6 +45,12 @@ export const useAuthStore = defineStore('auth', {
       return this.applySession(res.data)
     },
 
+    /** 邮箱注册：邮箱 + 验证码 + 密码 + 注册密钥（登录账号=邮箱，大面号由服务端随机生成） */
+    async registerEmail (email: string, emailCode: string, password: string, registerKey: string, captchaId: string, captcha: string, passToken: string) {
+      const res = await api.post('/auth/register', { email, emailCode, password, registerKey, captchaId, captcha, passToken })
+      return this.applySession(res.data)
+    },
+
     async fetchMe () {
       const res = await api.get('/users/me')
       this.user = res.data

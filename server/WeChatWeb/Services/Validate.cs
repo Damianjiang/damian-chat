@@ -1,5 +1,7 @@
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using WeChatWeb.Data;
 
 namespace WeChatWeb.Services;
 
@@ -37,9 +39,38 @@ public static class Validate
         new(StringComparer.Ordinal)
         {
             "searchable", "strangerMoments", "signatureVisible", "phone", "wxId",
+            "searchByPhone", "searchByWxId",
         };
 
     private static readonly Regex WxIdPattern = new(@"^[a-z][a-z0-9_-]{5,19}$", RegexOptions.Compiled);
+
+    /// <summary>大面号是否合法（自定义大面号用）：小写字母开头，6-20 位小写字母/数字/下划线/连字符。</summary>
+    public static bool IsWxId (string? s) => !string.IsNullOrWhiteSpace(s) && WxIdPattern.IsMatch(s);
+
+    private const string WxIdAlphabet = "abcdefghjkmnpqrstuvwxyz23456789";
+    /// <summary>
+    /// 生成随机大面号（wxid_ 前缀 + 8 位无歧义小写字母数字，加密随机源）。
+    /// 与微信一致：随机号默认不可被搜索（WxIdCustom=false），防止批量加人骚扰。
+    /// </summary>
+    public static string GenerateRandomWxId ()
+    {
+        Span<char> chars = stackalloc char[8];
+        for (var i = 0; i < chars.Length; i++)
+            chars[i] = WxIdAlphabet[RandomNumberGenerator.GetInt32(WxIdAlphabet.Length)];
+        return "wxid_" + new string(chars);
+    }
+
+    /// <summary>全库唯一随机大面号（调用方需持有 lock(store)）。</summary>
+    public static string GenerateUniqueWxId (DataStore store)
+    {
+        for (var i = 0; i < 20; i++)
+        {
+            var id = GenerateRandomWxId();
+            if (!store.Users.Values.Any(u => u.WxId == id)) return id;
+        }
+        // 20 次全撞（概率约等于 0）：加长一档
+        return "wxid_" + Guid.NewGuid().ToString("N")[..12];
+    }
     // 账号：11 位手机号 / 3-32 位字母数字下划线 / 2-16 位中文
     private static readonly Regex AccountPattern = new(@"^(?:1[3-9]\d{9}|[A-Za-z0-9_]{3,32}|[\u4e00-\u9fa5]{2,16})$", RegexOptions.Compiled);
     private static readonly Regex SafeFileName = new(@"^[^\x00-\x1f<>:""|?*\\/]+$", RegexOptions.Compiled);
@@ -49,9 +80,7 @@ public static class Validate
 
     public static bool IsAccount (string? s) => !string.IsNullOrWhiteSpace(s) && AccountPattern.IsMatch(s);
 
-    public static bool IsWxId (string? s) => !string.IsNullOrWhiteSpace(s) && WxIdPattern.IsMatch(s);
-
-    /// <summary>
+/// <summary>
     /// 打散用户输入里的 HTML/标签结构（存储型 XSS 纵深防御 + 日志/数据投毒）：
     /// 直接删除尖括号，任何 &lt;tag ...&gt; / &lt;img onerror&gt; / &lt;script&gt; 结构都被破坏成惰性文本；
     /// 同时去掉其它控制字符（保留换行/制表符）。

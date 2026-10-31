@@ -1,6 +1,6 @@
 # Damian Chat (大面聊天)
 
-A **self-hosted, WeChat-style instant messaging platform**: real-time group & private chat, Moments, rich media, QQ-style join-by-group-number, and a hardened security layer. **C# ASP.NET Core 8 + SignalR** on the backend, **Vue 3 + Vuetify 4 + TypeScript** on the frontend. No third-party SaaS — it just runs on your machine.
+A **self-hosted, WeChat-style open-source instant messaging platform**: WeChat-like UI & interactions, real-time private / group chat, Moments, QQ-style group join & management, email-code registration and a WeChat-like custom ID ("大面号") system — plus a deeply hardened security layer. **C# / ASP.NET Core 8 + SignalR** on the backend, **Vue 3 + Vuetify 4 + TypeScript** on the frontend. No third-party SaaS — it just runs on your machine.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![.NET](https://img.shields.io/badge/.NET-8.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com)
@@ -34,6 +34,7 @@ A **self-hosted, WeChat-style instant messaging platform**: real-time group & pr
 - 🛡️ **Security hardening** — traffic firewall (per-IP concurrency + rate + auto-ban), per-identity message-flood cap, httpOnly refresh tokens, dual slider + image captcha, isolated web honeypot, per-entrypoint group/message/conversation authorization, sensitive-word filtering, loopback + key gated admin API.
 - 🎨 **WeChat-like UX** — conversation list, group-member grid, "pat a pat", quote reply, @member / @everyone, dark mode, font-size personalization, offline Service Worker cache.
 - 🖥️ **Admin GUI** — a WPF tray-resident tool: start/stop the service, change the port, view online users, tweak security policy, manage users, read logs / feedback.
+- 👤 **WeChat-like account system** — register directly or via email verification code (SMTP configurable in the admin GUI); a randomly-generated ID is unsearchable by default (mirroring WeChat's wxid), while custom IDs are changeable with a configurable cooldown (365 days by default, like WeChat); "ways to add me" privacy toggles control who can find you.
 
 ## Features
 
@@ -41,20 +42,23 @@ A **self-hosted, WeChat-style instant messaging platform**: real-time group & pr
 - 1v1 private + multi-person group chats; text, images (aspect-fit + click-to-preview), voice, files;
 - recall / quote-reply / save / delete messages;
 - group "pat a pat", @member, @everyone, group announcement + confirmation receipt;
-- **QQ-style join-by-group-number**: open groups join directly, approval groups wait for the owner; group numbers are one-click copyable;
+- **QQ-style group join & management**: join by group number with four policies (open / answer a question / apply with a reason / closed), brute-force-limited join questions; **mute-all and per-member timed mute (10 min ~ permanent)**; rejection with an optional reason delivered to the applicant; owner / admin tiered permissions;
+- **Group polls**: poll cards with single/multi choice, live vote bars, closable;
 - pin / mute / collapse conversations; multi-device IndexedDB cache + offline fallback.
 
 ### Profile & Social
-- register / login with dual captcha + strength policy + failure lockout;
+- register / login with dual captcha + strength policy + failure lockout; **email registration** (SMTP code, admin-configured) or direct account registration, switchable in the admin GUI;
+- **Custom ID (大面号) system**: email-registered users get a random ID that is unsearchable by default (anti-mass-add), changeable to a custom one (configurable cooldown); bind / re-bind email with verification codes;
+- **Search privacy ("ways to add me")**: independent toggles for being found by phone number or by custom ID;
 - avatar, nickname, signature, gender, region, phone-privacy toggle;
 - contacts + friend relationships, member profile cards;
 - **Moments**: post text/media, like and comment;
 - personalization: theme color, dark mode, translucency, wallpaper, font size (S/M/L/XL, persists across refresh).
 
 ### Admin
-- real-time online users, ban / unban;
+- real-time online users, ban / unban, create / delete users;
 - user and group management, announcements / confirmations;
-- hot-tweak security policy (rate limits, ban thresholds, honeypot switch);
+- hot-tweak security policy (rate limits, ban thresholds, honeypot switch, registration mode / key / SMTP mail service, ID-change cooldown) with a one-click SMTP test email;
 - feedback collection + deletion, log / console viewing.
 
 ## Tech stack

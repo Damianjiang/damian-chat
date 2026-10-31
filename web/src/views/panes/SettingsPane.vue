@@ -19,6 +19,24 @@
           <template #append><v-icon icon="mdi-chevron-right" /></template>
         </v-list-item>
 
+        <!-- 大面号：显示当前号，点击进修改对话框（PUT /users/me/wxid，服务端有冷却期） -->
+        <v-list-item @click="openWxidDialog">
+          <v-list-item-title>{{ t('account.wxid') }}</v-list-item-title>
+          <template #append>
+            <span class="text-body-medium text-medium-emphasis mr-1 wx-wxid-text">{{ auth.user?.wxId || '--' }}</span>
+            <v-icon icon="mdi-chevron-right" size="small" />
+          </template>
+        </v-list-item>
+
+        <!-- 邮箱：显示绑定状态，点击进绑定/换绑对话框（PUT /users/me/email） -->
+        <v-list-item @click="openEmailDialog">
+          <v-list-item-title>{{ t('account.email') }}</v-list-item-title>
+          <template #append>
+            <span class="text-body-medium text-medium-emphasis mr-1 wx-wxid-text">{{ auth.user?.email || t('account.email.notBound') }}</span>
+            <v-icon icon="mdi-chevron-right" size="small" />
+          </template>
+        </v-list-item>
+
         <v-list-item @click="privacyDialog = true">
           <v-list-item-title>{{ t('settings.privacy') }}</v-list-item-title>
           <template #append><v-icon icon="mdi-chevron-right" /></template>
@@ -152,6 +170,97 @@
       </v-card>
     </v-dialog>
 
+    <!-- 修改大面号（6-20 位、小写字母开头；冷却期由服务端 400 + nextAllowedAt 控制） -->
+    <v-dialog v-model="wxidDialog" max-width="360">
+      <v-card>
+        <v-card-title>{{ t('account.wxid.change') }}</v-card-title>
+
+        <v-card-text>
+          <v-text-field
+            v-model="newWxId"
+            autocomplete="off"
+            counter="20"
+            :error="newWxId.length > 0 && !wxidValid"
+            :error-messages="newWxId.length > 0 && !wxidValid ? [t('account.wxid.invalid')] : []"
+            :hint="t('account.wxid.hint')"
+            :persistent-hint="true"
+            :label="t('account.wxid')"
+            :placeholder="t('account.wxid.ph')"
+          />
+          <div v-if="wxidCooldownAt" class="text-body-small text-error mt-1">{{ t('account.wxid.cooldown', { date: wxidCooldownAt }) }}</div>
+        </v-card-text>
+
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="wxidDialog = false">{{ t('common.cancel') }}</v-btn>
+          <v-btn color="primary" :disabled="!wxidValid || newWxId === (auth.user?.wxId ?? '')" :loading="wxidLoading" @click="changeWxId">{{ t('account.wxid.modify') }}</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- 绑定 / 换绑邮箱（验证码走 /auth/email-code；开启图形验证码时需先填验证码） -->
+    <v-dialog v-model="emailDialog" max-width="380">
+      <v-card>
+        <v-card-title>{{ t('account.email.bind') }}</v-card-title>
+
+        <v-card-text>
+          <v-text-field
+            v-model="bindEmail"
+            autocomplete="email"
+            :error="bindEmail.length > 0 && !emailValid"
+            :error-messages="bindEmail.length > 0 && !emailValid ? [t('account.email.invalid')] : []"
+            :label="t('account.email')"
+            :placeholder="t('account.email.ph')"
+            type="email"
+          />
+
+          <div class="d-flex align-center gap-2">
+            <v-text-field
+              v-model="bindCode"
+              class="flex-grow-1"
+              :label="t('account.email.code')"
+              :placeholder="t('account.email.code.ph')"
+            />
+
+            <v-btn
+              class="wx-code-btn"
+              :disabled="!emailValid || emailCodeLeft > 0"
+              :loading="emailCodeSending"
+              variant="tonal"
+              @click="sendBindEmailCode"
+            >{{ emailCodeLeft > 0 ? t('account.email.code.resend', { n: emailCodeLeft }) : t('account.email.code.send') }}</v-btn>
+          </div>
+
+          <!-- 开启图形验证码时：发验证码前需先填图形验证码 -->
+          <div v-if="settingsCaptchaRequired" class="d-flex align-center gap-2 mt-2">
+            <v-text-field
+              v-model="settingsCaptchaInput"
+              class="flex-grow-1"
+              density="compact"
+              hide-details
+              :label="t('login.captcha')"
+              :placeholder="t('login.captcha.ph')"
+            />
+            <div class="wx-settings-captcha" :title="t('login.captcha.refresh')" @click="refreshSettingsCaptcha">
+              <img v-if="settingsCaptchaImage" :alt="t('login.captcha')" :src="settingsCaptchaImage">
+              <v-icon v-else icon="mdi-reload" />
+            </div>
+          </div>
+        </v-card-text>
+
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="emailDialog = false">{{ t('common.cancel') }}</v-btn>
+          <v-btn
+            color="primary"
+            :disabled="!emailValid || bindCode.trim().length !== 6"
+            :loading="emailLoading"
+            @click="bindEmailSubmit"
+          >{{ t('account.email.bindBtn') }}</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <!-- 通知 -->
     <v-dialog v-model="notifyDialog" max-width="360">
       <v-card>
@@ -219,6 +328,23 @@
             density="compact"
             hide-details
             :label="t('settings.privacy.signatureVisible')"
+          />
+
+          <!-- 新增隐私开关：手机号 / 大面号 是否可被搜索（走 privacy 字典随保存提交） -->
+          <v-switch
+            v-model="privacy.searchByPhone"
+            color="primary"
+            density="compact"
+            hide-details
+            :label="t('settings.privacy.searchByPhone')"
+          />
+
+          <v-switch
+            v-model="privacy.searchByWxId"
+            color="primary"
+            density="compact"
+            hide-details
+            :label="t('settings.privacy.searchByWxId')"
           />
         </v-card-text>
 
@@ -505,7 +631,7 @@
 
   /* ---------- 隐私（存服务端） ---------- */
   const privacyDialog = ref(false)
-  const privacy = reactive<Record<string, boolean>>({ searchable: true, strangerMoments: true, signatureVisible: true })
+  const privacy = reactive<Record<string, boolean>>({ searchable: true, strangerMoments: true, signatureVisible: true, searchByPhone: true, searchByWxId: true })
   const privacyLoading = ref(false)
 
   async function savePrivacy () {
@@ -519,6 +645,145 @@
       toast(t('common.save.fail'))
     } finally {
       privacyLoading.value = false
+    }
+  }
+
+  /* ---------- 大面号（PUT /users/me/wxid；格式 6-20 位、小写字母开头，服务端有修改冷却期） ---------- */
+  const wxidDialog = ref(false)
+  const newWxId = ref('')
+  const wxidLoading = ref(false)
+  /** 冷却期提示时间（yyyy-MM-dd），服务端 400 nextAllowedAt 时填入 */
+  const wxidCooldownAt = ref('')
+  /** 大面号格式：6-20 位、小写字母开头、可含数字/下划线/连字符 */
+  const wxidValid = computed(() => /^[a-z][a-z0-9_-]{5,19}$/.test(newWxId.value))
+
+  function openWxidDialog () {
+    newWxId.value = auth.user?.wxId ?? ''
+    wxidCooldownAt.value = ''
+    wxidDialog.value = true
+  }
+
+  /** ISO → yyyy-MM-dd（冷却提示只展示日期）。 */
+  function fmtDate (iso: string): string {
+    const d = new Date(iso)
+    if (Number.isNaN(d.getTime())) return iso
+    const p = (n: number) => String(n).padStart(2, '0')
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+  }
+
+  async function changeWxId () {
+    if (!wxidValid.value || wxidLoading.value) return
+    wxidLoading.value = true
+    try {
+      const res = await api.put('/users/me/wxid', { wxId: newWxId.value.trim() })
+      auth.user = res.data
+      toast(t('account.wxid.ok'))
+      wxidDialog.value = false
+    } catch (error: any) {
+      // 冷却期内：服务端 400 带 nextAllowedAt（ISO），提示到某日期后才能再改
+      const next = error?.response?.data?.nextAllowedAt
+      if (next) {
+        wxidCooldownAt.value = fmtDate(next)
+        toast(t('account.wxid.cooldown', { date: wxidCooldownAt.value }))
+      } else {
+        toast(error?.response?.data?.error ?? t('common.save.fail'))
+      }
+    } finally {
+      wxidLoading.value = false
+    }
+  }
+
+  /* ---------- 绑定 / 换绑邮箱（PUT /users/me/email；验证码走 /auth/email-code，60s 节流） ---------- */
+  const emailDialog = ref(false)
+  const bindEmail = ref('')
+  const bindCode = ref('')
+  const emailLoading = ref(false)
+  const emailCodeLeft = ref(0)
+  const emailCodeSending = ref(false)
+  let emailCodeTimer: ReturnType<typeof setInterval> | null = null
+  const emailValid = computed(() => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(bindEmail.value.trim()))
+
+  /* 设置页自己的图形验证码状态（发邮箱验证码用，与登录页互不影响） */
+  const settingsPolicyLoaded = ref(false)
+  const settingsCaptchaRequired = ref(false)
+  const settingsCaptchaId = ref('')
+  const settingsCaptchaImage = ref('')
+  const settingsCaptchaInput = ref('')
+
+  async function refreshSettingsCaptcha () {
+    try {
+      const res = await api.get('/auth/captcha')
+      settingsCaptchaId.value = res.data.captchaId
+      settingsCaptchaImage.value = res.data.image
+      settingsCaptchaInput.value = ''
+    } catch { /* 拿不到就让用户重试（点验证码框刷新） */ }
+  }
+
+  async function openEmailDialog () {
+    bindEmail.value = auth.user?.email ?? ''
+    bindCode.value = ''
+    settingsCaptchaInput.value = ''
+    emailDialog.value = true
+    // 只拉一次 policy 决定发验证码是否要带图形验证码
+    if (!settingsPolicyLoaded.value) {
+      try {
+        const res = await api.get('/auth/policy')
+        settingsCaptchaRequired.value = res.data.captcha !== false
+        settingsPolicyLoaded.value = true
+      } catch { /* 拿不到就按默认不弹，服务端会兜底校验 */ }
+    }
+    if (settingsCaptchaRequired.value) await refreshSettingsCaptcha()
+  }
+
+  function startEmailCodeCountdown () {
+    emailCodeLeft.value = 60
+    if (emailCodeTimer) clearInterval(emailCodeTimer)
+    emailCodeTimer = setInterval(() => {
+      emailCodeLeft.value--
+      if (emailCodeLeft.value <= 0 && emailCodeTimer) {
+        clearInterval(emailCodeTimer)
+        emailCodeTimer = null
+      }
+    }, 1000)
+  }
+
+  async function sendBindEmailCode () {
+    if (!emailValid.value || emailCodeLeft.value > 0 || emailCodeSending.value) return
+    if (settingsCaptchaRequired.value && !settingsCaptchaInput.value.trim()) {
+      toast(t('login.captcha.ph'))
+      return
+    }
+    emailCodeSending.value = true
+    try {
+      await api.post('/auth/email-code', {
+        email: bindEmail.value.trim(),
+        captchaId: settingsCaptchaId.value || undefined,
+        captcha: settingsCaptchaRequired.value ? settingsCaptchaInput.value.trim() : undefined,
+      })
+      toast(t('account.email.code.sent'))
+      startEmailCodeCountdown()
+      // 图形验证码已被服务端消费，刷新一张备用
+      if (settingsCaptchaRequired.value) await refreshSettingsCaptcha()
+    } catch (error: any) {
+      toast(error?.response?.data?.error ?? t('account.email.code.fail'))
+      if (settingsCaptchaRequired.value) await refreshSettingsCaptcha()
+    } finally {
+      emailCodeSending.value = false
+    }
+  }
+
+  async function bindEmailSubmit () {
+    if (!emailValid.value || bindCode.value.trim().length !== 6 || emailLoading.value) return
+    emailLoading.value = true
+    try {
+      const res = await api.put('/users/me/email', { email: bindEmail.value.trim(), code: bindCode.value.trim() })
+      auth.user = res.data
+      toast(t('account.email.ok'))
+      emailDialog.value = false
+    } catch (error: any) {
+      toast(error?.response?.data?.error ?? t('common.save.fail'))
+    } finally {
+      emailLoading.value = false
     }
   }
 
@@ -901,6 +1166,8 @@
   onBeforeUnmount(() => {
     if (devLogUnsub) { devLogUnsub(); devLogUnsub = null }
     if (devClickTimer) clearTimeout(devClickTimer)
+    // 清掉邮箱绑定「获取验证码」60s 倒计时
+    if (emailCodeTimer) { clearInterval(emailCodeTimer); emailCodeTimer = null }
   })
 
 </script>
@@ -969,6 +1236,32 @@
 }
 .v-theme--dark .devlog-viewer { background: #000; }
 .devlog-live { margin: 0 !important; }
+
+/* 大面号 / 邮箱行：右侧当前值过长时截断 */
+.wx-wxid-text { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 绑定邮箱「获取验证码」按钮：不被输入框挤压 */
+.wx-code-btn { flex: 0 0 auto; }
+
+/* 绑定邮箱对话框：图形验证码框（与登录页 .wx-captcha 同款样式） */
+.wx-settings-captcha {
+  flex: 0 0 auto;
+  width: 110px;
+  height: 40px;
+  border: 1px solid rgba(0, 0, 0, 0.14);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  cursor: pointer;
+  background: #ffffff;
+}
+.v-theme--dark .wx-settings-captcha {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.16);
+}
+.wx-settings-captcha img { width: 100%; height: 100%; object-fit: contain; }
 
 /* ★ 界面语言按钮：tonal 默认底色 = currentColor 低透明度铺底，在 surface 列表上几乎不可见
    （.text-surface 等 vuetify 颜色工具类带 !important，故按钮上不写 color，由这里上色）。

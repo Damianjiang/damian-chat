@@ -122,11 +122,19 @@ public class AdminController : ControllerBase
             _sec.FwBanThreshold,
             _sec.FwBanMinutes,
             _sec.FloodMessagesPerMinute,
+            _sec.RegisterMode,
+            _sec.WxIdChangeCooldownDays,
+            _sec.SmtpHost,
+            _sec.SmtpPort,
+            _sec.SmtpUser,
+            _sec.SmtpFrom,
+            _sec.SmtpSsl,
+            hasPass = !string.IsNullOrEmpty(_sec.SmtpPass),
             file = SecuritySettings.FilePath,
         });
     }
 
-    public record SecurityUpdate(string? RegisterKey, bool? EnableCaptcha, bool? EnableSlider, int? MaxLoginAttempts, int? LockoutMinutes, int? AuthPerMinute, int? ApiPerMinute, int? FwRequestsPerMinute, int? FwMaxConcurrent, long? FwBytesPerMinute, int? FwBanThreshold, int? FwBanMinutes, int? FloodMessagesPerMinute);
+    public record SecurityUpdate(string? RegisterKey, bool? EnableCaptcha, bool? EnableSlider, int? MaxLoginAttempts, int? LockoutMinutes, int? AuthPerMinute, int? ApiPerMinute, int? FwRequestsPerMinute, int? FwMaxConcurrent, long? FwBytesPerMinute, int? FwBanThreshold, int? FwBanMinutes, int? FloodMessagesPerMinute, string? RegisterMode, int? WxIdChangeCooldownDays, string? SmtpHost, int? SmtpPort, string? SmtpUser, string? SmtpPass, string? SmtpFrom, bool? SmtpSsl);
 
     /// <summary>更新安全配置（立即生效并写入 security.json）。</summary>
     [HttpPut("security")]
@@ -154,6 +162,15 @@ public class AdminController : ControllerBase
         if (req.FwBanMinutes is >= 1 and < 10080) _sec.FwBanMinutes = req.FwBanMinutes!.Value;
         // 消息洪泛上限（身份维度）：0/负 = 关闭此检查（钳到 1）；上限 100000 防误填
         if (req.FloodMessagesPerMinute is not null) _sec.FloodMessagesPerMinute = Math.Clamp(req.FloodMessagesPerMinute.Value, 1, 100_000);
+        // 注册模式（direct/email）；冷却天数 0-3650；SMTP 配置
+        if (req.RegisterMode is "direct" or "email") _sec.RegisterMode = req.RegisterMode;
+        if (req.WxIdChangeCooldownDays.HasValue) _sec.WxIdChangeCooldownDays = Math.Clamp(req.WxIdChangeCooldownDays.Value, 0, 3650);
+        if (req.SmtpHost != null) _sec.SmtpHost = req.SmtpHost.Trim();
+        if (req.SmtpPort is >= 1 and <= 65535) _sec.SmtpPort = req.SmtpPort.Value;
+        if (req.SmtpUser != null) _sec.SmtpUser = req.SmtpUser.Trim();
+        if (req.SmtpPass != null) _sec.SmtpPass = req.SmtpPass;   // 空串=清除
+        if (req.SmtpFrom != null) _sec.SmtpFrom = req.SmtpFrom.Trim();
+        if (req.SmtpSsl.HasValue) _sec.SmtpSsl = req.SmtpSsl.Value;
         _sec.Save();
         _log.Write("auth", new { ts = DateTime.UtcNow, result = "admin-security-updated", file = SecuritySettings.FilePath });
         return GetSecurity();
@@ -425,6 +442,7 @@ public class AdminController : ControllerBase
                 Password = PasswordHasher.Hash(pwd),
                 Nickname = nickname ?? account,
                 WxId = "wx" + Guid.NewGuid().ToString("N")[..8],
+                WxIdCustom = true,   // 管理员创建的账号：账号名即登录名，随机大面号仅占位且可搜（管理员场景）
             };
             _store.Users[user.Id] = user;
             _store.Contacts[user.Id] = new List<WeChatWeb.Models.Contact>();

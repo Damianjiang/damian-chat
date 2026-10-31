@@ -172,12 +172,47 @@
             />
 
             <v-text-field
+              v-if="!emailRegister"
               v-model="regAccount"
               autocomplete="username"
               :label="t('login.account')"
               :placeholder="t('login.reg.account.ph')"
               prepend-inner-icon="mdi-account-plus-outline"
             />
+
+            <!-- 邮箱注册模式：不显示账号输入框，改为 邮箱 + 验证码（大面号由服务端自动生成） -->
+            <template v-else>
+              <v-text-field
+                v-model="regEmail"
+                autocomplete="email"
+                :error="regEmail.length > 0 && !emailValid"
+                :error-messages="regEmail.length > 0 && !emailValid ? [t('login.reg.email.invalid')] : []"
+                :label="t('login.reg.email')"
+                :placeholder="t('login.reg.email.ph')"
+                prepend-inner-icon="mdi-email-outline"
+                type="email"
+              />
+
+              <div class="d-flex align-center gap-2">
+                <v-text-field
+                  v-model="regCode"
+                  class="flex-grow-1"
+                  :label="t('login.reg.code')"
+                  :placeholder="t('login.reg.code.ph')"
+                  prepend-inner-icon="mdi-shield-lock-outline"
+                />
+
+                <v-btn
+                  class="wx-code-btn"
+                  :disabled="!emailValid || codeLeft > 0"
+                  :loading="codeSending"
+                  variant="tonal"
+                  @click="sendEmailCode"
+                >{{ codeLeft > 0 ? t('login.reg.code.resend', { n: codeLeft }) : t('login.reg.code.send') }}</v-btn>
+              </div>
+
+              <div class="text-body-small text-medium-emphasis mb-2">{{ t('login.reg.email.hint') }}</div>
+            </template>
 
             <v-text-field
               v-model="regPassword"
@@ -286,7 +321,7 @@
 </template>
 
 <script setup lang="ts">
-  import { computed, nextTick, onMounted, reactive, ref } from 'vue'
+  import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
   import { useRoute, useRouter } from 'vue-router'
   import SliderCaptcha from '@/components/SliderCaptcha.vue'
   import LoginRippleBg from '@/components/LoginRippleBg.vue'
@@ -495,6 +530,7 @@
       const res = await api.get('/auth/policy')
       captchaRequired.value = res.data.captcha !== false
       registerOpen.value = !!res.data.registerOpen
+      registerMode.value = res.data.registerMode || 'direct'
       policyLoaded.value = true
       if (captchaRequired.value) await refreshCaptcha()
     } catch { /* 拿不到就按默认（需要验证码） */ }
@@ -555,6 +591,60 @@
   const regPassword2 = ref('')
   const regKey = ref('')
 
+  /* ---------- 邮箱注册模式（policy.registerMode === 'email'） ---------- */
+  /** 注册模式：direct=账号注册（原有），email=邮箱注册（登录账号=邮箱，大面号自动生成） */
+  const registerMode = ref<'direct' | 'email' | ''>('direct')
+  const emailRegister = computed(() => policyLoaded.value && registerMode.value === 'email')
+  const regEmail = ref('')
+  const regCode = ref('')
+  /** 邮箱格式校验 */
+  const emailValid = computed(() => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(regEmail.value.trim()))
+  /** 「获取验证码」60 秒倒计时防抖 */
+  const codeLeft = ref(0)
+  const codeSending = ref(false)
+  let codeTimer: ReturnType<typeof setInterval> | null = null
+
+  function startCodeCountdown () {
+    codeLeft.value = 60
+    if (codeTimer) clearInterval(codeTimer)
+    codeTimer = setInterval(() => {
+      codeLeft.value--
+      if (codeLeft.value <= 0 && codeTimer) {
+        clearInterval(codeTimer)
+        codeTimer = null
+      }
+    }, 1000)
+  }
+
+  /** 发送邮箱验证码：开启图形验证码时需先填好验证码（随请求一起提交给 /auth/email-code） */
+  async function sendEmailCode () {
+    if (!emailValid.value || codeLeft.value > 0 || codeSending.value) return
+    if (captchaRequired.value && !captchaInput.value.trim()) {
+      snackMsg.value = t('login.captcha.ph')
+      snack.value = true
+      return
+    }
+    codeSending.value = true
+    try {
+      await api.post('/auth/email-code', {
+        email: regEmail.value.trim(),
+        captchaId: captchaId.value || undefined,
+        captcha: captchaRequired.value ? captchaInput.value.trim() : undefined,
+      })
+      snackOkMsg.value = t('login.reg.code.sent')
+      snackOk.value = true
+      startCodeCountdown()
+      // 验证码已被服务端消费，刷新图形验证码供注册提交用
+      if (captchaRequired.value) await refreshCaptcha()
+    } catch (error: any) {
+      snackMsg.value = error?.response?.data?.error ?? t('login.reg.code.fail')
+      snack.value = true
+      if (captchaRequired.value) await refreshCaptcha()
+    } finally {
+      codeSending.value = false
+    }
+  }
+
   /** 两次密码是否不一致（用于注册页实时红字提示，不再只在提交时才弹） */
   const pwMismatch = computed(() => regPassword2.value.length > 0 && regPassword.value !== regPassword2.value)
 
@@ -574,13 +664,21 @@
     return { score: s, level, hint }
   })
 
-  const validRegister = computed(() =>
-    regAccount.value.trim().length >= 3
-    && regPassword.value.length >= 8
-    && regPassword.value === regPassword2.value
-    && regKey.value.trim().length > 0
-    && (!captchaRequired.value || captchaInput.value.trim().length > 0),
-  )
+  const validRegister = computed(() => {
+    if (emailRegister.value) {
+      return emailValid.value
+        && regCode.value.trim().length === 6
+        && regPassword.value.length >= 8
+        && regPassword.value === regPassword2.value
+        && regKey.value.trim().length > 0
+        && (!captchaRequired.value || captchaInput.value.trim().length > 0)
+    }
+    return regAccount.value.trim().length >= 3
+      && regPassword.value.length >= 8
+      && regPassword.value === regPassword2.value
+      && regKey.value.trim().length > 0
+      && (!captchaRequired.value || captchaInput.value.trim().length > 0)
+  })
 
   async function doRegister () {
     if (regPassword.value !== regPassword2.value) {
@@ -590,7 +688,12 @@
     }
     loading.value = true
     try {
-      await auth.register(regAccount.value.trim(), regPassword.value, regKey.value.trim(), captchaId.value, captchaInput.value.trim(), passToken.value)
+      if (emailRegister.value) {
+        // 邮箱注册：登录账号=邮箱，大面号由服务端随机生成
+        await auth.registerEmail(regEmail.value.trim(), regCode.value.trim(), regPassword.value, regKey.value.trim(), captchaId.value, captchaInput.value.trim(), passToken.value)
+      } else {
+        await auth.register(regAccount.value.trim(), regPassword.value, regKey.value.trim(), captchaId.value, captchaInput.value.trim(), passToken.value)
+      }
       await enterApp()
       snackOkMsg.value = t('login.reg.ok')
       snackOk.value = true
@@ -635,6 +738,11 @@
   onMounted(async () => {
     loadLoginTheme()
     loadPolicy()
+  })
+
+  onBeforeUnmount(() => {
+    // 清掉「获取验证码」60s 倒计时
+    if (codeTimer) { clearInterval(codeTimer); codeTimer = null }
   })
 </script>
 
@@ -867,6 +975,9 @@ html[data-dm-mode='dark'] .wx-login-head :deep(.v-btn--variant-tonal) {
 html[data-dm-mode='dark'] .wx-login-head :deep(.v-btn--variant-tonal:hover) {
   background: rgba(24, 28, 38, 0.92);
 }
+
+/* 邮箱注册「获取验证码」按钮：不被输入框挤压 */
+.wx-code-btn { flex: 0 0 auto; height: 40px; }
 
 /* 图形验证码框 */
 .wx-captcha {

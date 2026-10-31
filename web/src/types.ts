@@ -17,6 +17,12 @@ export interface User {
   nickname: string
   avatar: string
   wxId?: string
+  /** 绑定的邮箱（邮箱注册 / 设置里换绑后由服务端带出） */
+  email?: string
+  /** 是否为自定义大面号（服务端随机生成的默认为 false） */
+  wxIdCustom?: boolean
+  /** 上次修改大面号的时刻（ISO；冷却期判定用） */
+  wxIdChangedAt?: string
   signature: string
   region: string
   gender: 'unknown' | 'male' | 'female'

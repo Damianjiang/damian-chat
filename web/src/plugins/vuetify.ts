@@ -30,6 +30,14 @@ function buildTheme (dark: boolean) {
   // 暗色下主色提亮，保证对比度
   const primary = dark ? adapt(p.primary, 30) : p.primary
 
+  // 我的气泡色：主色向白色混合 65%（原硬编码 #95EC69 不随主题变，
+  // 换主题后聊天页气泡还是绿色 —— "强调色改了没完全生效"的根因之一）
+  const bubbleMe = (() => {
+    const n = Number.parseInt(p.primary.slice(1), 16)
+    const mix = (v: number) => Math.round(v + (255 - v) * 0.65)
+    return '#' + ((1 << 24) + (mix(n >> 16) << 16) + (mix((n >> 8) & 0xff) << 8) + mix(n & 0xff)).toString(16).slice(1)
+  })()
+
   return dark
     ? {
         dark: true,
@@ -79,7 +87,7 @@ function buildTheme (dark: boolean) {
           'on-background': '#181818',
           'on-surface': '#181818',
           'wechat-chat-bg': p.surfaceTint,
-          'wechat-bubble-me': '#95EC69',
+          'wechat-bubble-me': bubbleMe,
           'wechat-bubble-other': '#FFFFFF',
           'wechat-divider': '#E5E5E5',
           'wechat-unread': '#FA5151',
