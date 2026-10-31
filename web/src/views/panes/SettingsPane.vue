@@ -42,7 +42,7 @@
           <template #append>
             <v-menu :close-on-content-click="false" location="end">
               <template #activator="{ props }">
-                <v-btn v-bind="props" color="surface" density="comfortable" size="small" variant="tonal">
+                <v-btn v-bind="props" class="wx-lang-btn" density="comfortable" size="small" variant="tonal">
                   <span class="text-body-2">{{ langValue === 'auto' ? t('settings.lang.auto') : langValue === 'zh' ? t('settings.lang.zh') : t('settings.lang.en') }}</span>
                 </v-btn>
               </template>
@@ -967,4 +967,20 @@
 }
 .v-theme--dark .devlog-viewer { background: #000; }
 .devlog-live { margin: 0 !important; }
+
+/* ★ 界面语言按钮：tonal 默认底色 = currentColor 低透明度铺底，在 surface 列表上几乎不可见
+   （.text-surface 等 vuetify 颜色工具类带 !important，故按钮上不写 color，由这里上色）。
+   类名是 .v-btn--variant-tonal（v-btn--tonal 是旧类名，v4 里不存在）。 */
+.wx-lang-btn {
+  background: rgba(0, 0, 0, 0.05);
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  color: #1a1a1a;
+}
+.wx-lang-btn:hover { background: rgba(0, 0, 0, 0.09); }
+html[data-dm-mode='dark'] .wx-lang-btn {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.18);
+  color: #f5f5f5;
+}
+html[data-dm-mode='dark'] .wx-lang-btn:hover { background: rgba(255, 255, 255, 0.18); }
 </style>

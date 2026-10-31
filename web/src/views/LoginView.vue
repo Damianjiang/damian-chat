@@ -12,7 +12,7 @@
     <div class="wx-login-head">
       <v-menu :close-on-content-click="false" location="bottom end">
         <template #activator="{ props }">
-          <v-btn v-bind="props" color="surface" density="comfortable" size="small" variant="tonal">
+          <v-btn v-bind="props" density="comfortable" size="small" variant="tonal">
             <v-icon icon="mdi-language" size="18" class="mr-1" />
             <span class="text-body-2">{{ langLabel }}</span>
           </v-btn>
@@ -34,7 +34,7 @@
       <v-chip v-if="appVersion" class="wx-login-version" density="comfortable" size="small" variant="tonal">v{{ appVersion }}</v-chip>
       <v-btn
         class="wx-perf-btn-head"
-        :color="perfMode ? 'primary' : 'surface'"
+        :color="perfMode ? 'primary' : undefined"
         :variant="perfMode ? 'flat' : 'tonal'"
         density="comfortable"
         size="small"
@@ -44,7 +44,7 @@
       >{{ perfMode ? t('login.perf.on') : t('login.perf.off') }}</v-btn>
       <v-menu :close-on-content-click="false" location="bottom end">
         <template #activator="{ props }">
-          <v-btn v-bind="props" color="surface" density="comfortable" icon="mdi-tune" size="small" :title="t('login.personalize')" variant="tonal" />
+          <v-btn v-bind="props" density="comfortable" icon="mdi-tune" size="small" :title="t('login.personalize')" variant="tonal" />
         </template>
         <v-card width="264">
           <v-card-title class="text-body-medium pb-0">{{ t('login.personalize') }}</v-card-title>
@@ -692,7 +692,7 @@ html[data-dm-mode='dark'] .wx-ms-bg,
   justify-content: center;
 }
 
-/* 右上角：版本号 + 性能 + 个性化 */
+/* 右上角：版本号 + 性能 + 个性化（窄窗口自动换行，不向左溢出裁切） */
 .wx-login-head {
   position: fixed;
   top: 14px;
@@ -701,6 +701,9 @@ html[data-dm-mode='dark'] .wx-ms-bg,
   display: flex;
   align-items: center;
   gap: 8px;
+  max-width: calc(100vw - 32px);
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 /* ---- 卡片壳（v-sheet）：透明，仅承担 3D transform ---- */
@@ -842,24 +845,26 @@ html[data-dm-mode='dark'] .wx-login-version {
 /* 右上角性能按钮 */
 .wx-perf-btn-head { max-width: 150px; }
 
-/* ★ 右上角「关闭特效 / 个性化」两个中性按钮：登录页是浅蓝全幅背景，
-   Vuetify 的 tonal + surface 底色接近全透明 → 按钮看不见。
-   统一给白底半透明 + 细边框 + 深字（与版本号 chip 同观感）。
-   用 .v-btn--tonal 精确匹配：激活态的 perf 按钮是 .v-btn--flat（绿色）不受影响。 */
-.wx-login-head :deep(.v-btn--tonal) {
+/* ★ 右上角「语言 / 关闭特效 / 个性化」中性按钮：登录页是浅蓝全幅背景，
+   Vuetify 4 的 tonal 底色 = currentColor 的低透明度铺底，接近全透明 → 按钮看不见。
+   注意 .text-surface 等 vuetify 颜色工具类带 !important，会盖掉这里的 color，
+   所以按钮上不能写 color="surface"，统一由这里上色。
+   类名必须是 .v-btn--variant-tonal（v-btn--tonal 是旧类名，v4 里不存在）；
+   激活态的 perf 按钮是 .v-btn--flat（绿色）不受影响。 */
+.wx-login-head :deep(.v-btn--variant-tonal) {
   background: rgba(255, 255, 255, 0.72);
   border: 1px solid rgba(0, 0, 0, 0.09);
   color: #181818;
 }
-.wx-login-head :deep(.v-btn--tonal:hover) {
+.wx-login-head :deep(.v-btn--variant-tonal:hover) {
   background: rgba(255, 255, 255, 0.92);
 }
-html[data-dm-mode='dark'] .wx-login-head :deep(.v-btn--tonal) {
+html[data-dm-mode='dark'] .wx-login-head :deep(.v-btn--variant-tonal) {
   background: rgba(24, 28, 38, 0.72);
   border-color: rgba(255, 255, 255, 0.14);
   color: #f5f5f5;
 }
-html[data-dm-mode='dark'] .wx-login-head :deep(.v-btn--tonal:hover) {
+html[data-dm-mode='dark'] .wx-login-head :deep(.v-btn--variant-tonal:hover) {
   background: rgba(24, 28, 38, 0.92);
 }
 
