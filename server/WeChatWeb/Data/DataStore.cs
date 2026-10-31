@@ -491,7 +491,12 @@ public sealed class DataStore
     public void MarkRead (string conversationId, string userId)
     {
         if (Conversations.TryGetValue(conversationId, out var conv))
+        {
             conv.ReadMarks[userId] = DateTime.UtcNow;
+            // 已读必须同时清零增量未读计数：UnreadFor 优先读 UnreadCounts，
+            // 只写 ReadMarks 不动它的话，残留的计数会在刷新/重登后把红点盖回来
+            conv.UnreadCounts[userId] = 0;
+        }
     }
 
     /// <summary>清空某会话全部消息 + 索引 + 文件引用，并立即落盘（群解散用）。</summary>
