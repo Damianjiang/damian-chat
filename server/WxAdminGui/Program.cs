@@ -86,6 +86,12 @@ internal sealed class SecurityCfg
     public int LockoutMinutes { get; set; } = 10;
     public int AuthPerMinute { get; set; } = 20;
     public int ApiPerMinute { get; set; } = 300;
+    public int FwRequestsPerMinute { get; set; } = 1000;
+    public int FwMaxConcurrent { get; set; } = 60;
+    public long FwBytesPerMinute { get; set; } = 500L * 1024 * 1024;
+    public int FwBanThreshold { get; set; } = 50;
+    public int FwBanMinutes { get; set; } = 30;
+    public int FloodMessagesPerMinute { get; set; } = 60;
 
     public static SecurityCfg LoadFile()
     {
@@ -135,6 +141,14 @@ internal sealed class MainForm : Form
     private readonly NumericUpDown _nudLockMin = new() { Minimum = 1, Maximum = 999, Width = 80, Value = 10 };
     private readonly NumericUpDown _nudPerMin = new() { Minimum = 5, Maximum = 9999, Width = 80, Value = 20 };
     private readonly NumericUpDown _nudApiPerMin = new() { Minimum = 10, Maximum = 999999, Width = 90, Value = 300 };
+    // 防火墙（IP 维度）+ 消息洪泛（身份维度）限制：security.json 一直有、此前 GUI 没有控件。
+    // 服务端有下限地板（fw 请求 ≥100 / 并发 ≥2 / 下行 ≥1MB），控件 Minimum 与之对齐。
+    private readonly NumericUpDown _nudFwReq = new() { Minimum = 100, Maximum = 9999999, Width = 90, Value = 1000 };
+    private readonly NumericUpDown _nudFwConc = new() { Minimum = 2, Maximum = 99999, Width = 70, Value = 60 };
+    private readonly NumericUpDown _nudFwMb = new() { Minimum = 1, Maximum = 102400, Width = 80, Value = 500 };
+    private readonly NumericUpDown _nudFwBanHit = new() { Minimum = 1, Maximum = 99999, Width = 70, Value = 50 };
+    private readonly NumericUpDown _nudFwBanMin = new() { Minimum = 1, Maximum = 10080, Width = 70, Value = 30 };
+    private readonly NumericUpDown _nudFloodMsgs = new() { Minimum = 1, Maximum = 100000, Width = 80, Value = 60 };
     private readonly Button _btnSecRead = new() { Text = "读取", AutoSize = true };
     private readonly Button _btnSecSave = new() { Text = "保存", AutoSize = true };
     private readonly Label _lblSecHint = new() { Text = "", AutoSize = true, ForeColor = Color.DimGray };
@@ -462,6 +476,29 @@ internal sealed class MainForm : Form
             new Label { Text = "全站 API 限流：", AutoSize = true, Padding = new Padding(0, 6, 0, 0) }, _nudApiPerMin,
             new Label { Text = "次/分钟/IP", AutoSize = true, Padding = new Padding(4, 6, 0, 0) },
         });
+        var row3b = new FlowLayoutPanel { AutoSize = true, WrapContents = true };
+        row3b.Controls.AddRange(new Control[]
+        {
+            new Label { Text = "防火墙·每IP请求：", AutoSize = true, Padding = new Padding(0, 6, 0, 0) }, _nudFwReq,
+            new Label { Text = "次/分钟（下限100）", AutoSize = true, Padding = new Padding(4, 6, 16, 0) },
+            new Label { Text = "并发连接：", AutoSize = true, Padding = new Padding(0, 6, 0, 0) }, _nudFwConc,
+            new Label { Text = "个", AutoSize = true, Padding = new Padding(4, 6, 0, 0) },
+        });
+        var row3c = new FlowLayoutPanel { AutoSize = true, WrapContents = true };
+        row3c.Controls.AddRange(new Control[]
+        {
+            new Label { Text = "下行流量：", AutoSize = true, Padding = new Padding(0, 6, 0, 0) }, _nudFwMb,
+            new Label { Text = "MB/分钟", AutoSize = true, Padding = new Padding(4, 6, 16, 0) },
+            new Label { Text = "触发封禁：", AutoSize = true, Padding = new Padding(0, 6, 0, 0) }, _nudFwBanHit,
+            new Label { Text = "次429/分钟 → 封", AutoSize = true, Padding = new Padding(4, 6, 0, 0) }, _nudFwBanMin,
+            new Label { Text = "分钟", AutoSize = true, Padding = new Padding(4, 6, 0, 0) },
+        });
+        var row3d = new FlowLayoutPanel { AutoSize = true, WrapContents = true };
+        row3d.Controls.AddRange(new Control[]
+        {
+            new Label { Text = "每用户发消息：", AutoSize = true, Padding = new Padding(0, 6, 0, 0) }, _nudFloodMsgs,
+            new Label { Text = "条/分钟（身份维度，防偷 token 重放洪水）", AutoSize = true, Padding = new Padding(4, 6, 0, 0) },
+        });
         var row4 = new FlowLayoutPanel { AutoSize = true, WrapContents = true, Padding = new Padding(0, 8, 0, 0) };
         row4.Controls.AddRange(new Control[] { _btnSecRead, _btnSecSave, new Label { Width = 12 }, _lblSecHint });
 
@@ -491,7 +528,7 @@ internal sealed class MainForm : Form
         limCol.Controls.AddRange(new Control[] { limRow1, limRow2, limRow3 });
         limBox.Controls.Add(limCol);
 
-        secLayout.Controls.AddRange(new Control[] { row1, row2, row3, row4, limBox });
+        secLayout.Controls.AddRange(new Control[] { row1, row2, row3, row3b, row3c, row3d, row4, limBox });
         secBox.Controls.Add(secLayout);
         security.Controls.Add(secBox);
 
@@ -1363,6 +1400,12 @@ internal sealed class MainForm : Form
         public int LockoutMinutes { get; set; } = 10;
         public int AuthPerMinute { get; set; } = 20;
         public int ApiPerMinute { get; set; } = 300;
+        public int FwRequestsPerMinute { get; set; } = 1000;
+        public int FwMaxConcurrent { get; set; } = 60;
+        public long FwBytesPerMinute { get; set; } = 500L * 1024 * 1024;
+        public int FwBanThreshold { get; set; } = 50;
+        public int FwBanMinutes { get; set; } = 30;
+        public int FloodMessagesPerMinute { get; set; } = 60;
     }
 
     private async Task LoadSecurityAsync()
@@ -1381,6 +1424,12 @@ internal sealed class MainForm : Form
         _nudLockMin.Value = Math.Clamp(s.LockoutMinutes, 1, 999);
         _nudPerMin.Value = Math.Clamp(s.AuthPerMinute, 5, 9999);
         _nudApiPerMin.Value = Math.Clamp(s.ApiPerMinute, 10, 999999);
+        _nudFwReq.Value = Math.Clamp(s.FwRequestsPerMinute, 100, 9999999);
+        _nudFwConc.Value = Math.Clamp(s.FwMaxConcurrent, 2, 99999);
+        _nudFwMb.Value = Math.Clamp(s.FwBytesPerMinute / 1024 / 1024, 1L, 102400L);
+        _nudFwBanHit.Value = Math.Clamp(s.FwBanThreshold, 1, 99999);
+        _nudFwBanMin.Value = Math.Clamp(s.FwBanMinutes, 1, 10080);
+        _nudFloodMsgs.Value = Math.Clamp(s.FloodMessagesPerMinute, 1, 100000);
         _lblSecHint.Text = _running ? "来源：管理 API（运行中，保存即时生效）" : "来源：security.json（服务停止，启动后生效）";
     }
 
@@ -1465,6 +1514,12 @@ internal sealed class MainForm : Form
             LockoutMinutes = (int)_nudLockMin.Value,
             AuthPerMinute = (int)_nudPerMin.Value,
             ApiPerMinute = (int)_nudApiPerMin.Value,
+            FwRequestsPerMinute = (int)_nudFwReq.Value,
+            FwMaxConcurrent = (int)_nudFwConc.Value,
+            FwBytesPerMinute = (long)_nudFwMb.Value * 1024 * 1024,
+            FwBanThreshold = (int)_nudFwBanHit.Value,
+            FwBanMinutes = (int)_nudFwBanMin.Value,
+            FloodMessagesPerMinute = (int)_nudFloodMsgs.Value,
         };
 
         if (_running)
