@@ -478,15 +478,15 @@
     // key = 日期标签本身（稳定）：用下标做 key 时向前翻页 prepend 历史，
     // 所有分组下标整体位移，每个分组节点都被就地打补丁（换 label + 重 diff 内部消息），白白放大重渲染
     const groups: { key: string, label: string, messages: Message[] }[] = []
-    let last = ''
+    let current: { key: string, label: string, messages: Message[] } | null = null
     for (const m of msgs) {
       const label = timeLabel(m.createdAt)
-      if (label !== last) {
-        groups.push({ key: label, label, messages: [] })
-        last = label
+      // 追踪当前分组，免掉每条消息一次 groups.at(-1)（长会话每次新消息全量重算时是纯开销）
+      if (!current || label !== current.label) {
+        current = { key: label, label, messages: [] }
+        groups.push(current)
       }
-      const g = groups.at(-1)
-      g?.messages.push(m)
+      current.messages.push(m)
     }
     return groups
   })

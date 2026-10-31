@@ -19,23 +19,40 @@ export function formatFileSize (bytes?: number | null): string {
   return `${(bytes / 1024 / 1024 / 1024).toFixed(1)}GB`
 }
 
-/** 聊天时间分组标签 */
+/* 聊天时间分组标签 —— 最热路径：每条消息渲染都要调，且每条新消息到达都会对
+   全部消息重算分组。按 iso 记忆化（Date 解析 + 拼串只做一次）；跨天时标签会变
+   （昨天→今天），检测到日期翻转整体清空缓存。上限 4096 条防长会话无界增长。 */
+const timeLabelCache = new Map<string, string>()
+let timeLabelDay = -1
+
 export function timeLabel (iso: string): string {
   const d = new Date(iso)
   const now = new Date()
+  if (now.getDate() !== timeLabelDay) {
+    timeLabelDay = now.getDate()
+    timeLabelCache.clear()
+  }
+  const hit = timeLabelCache.get(iso)
+  if (hit !== undefined) {
+    return hit
+  }
   const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate())
   const startYesterday = new Date(startToday.getTime() - 86_400_000)
   const hm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  let label: string
   if (d >= startToday) {
-    return hm
+    label = hm
+  } else if (d >= startYesterday) {
+    label = `昨天 ${hm}`
+  } else if (d.getFullYear() === now.getFullYear()) {
+    label = `${d.getMonth() + 1}月${d.getDate()}日 ${hm}`
+  } else {
+    label = `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`
   }
-  if (d >= startYesterday) {
-    return `昨天 ${hm}`
+  if (timeLabelCache.size < 4096) {
+    timeLabelCache.set(iso, label)
   }
-  if (d.getFullYear() === now.getFullYear()) {
-    return `${d.getMonth() + 1}月${d.getDate()}日 ${hm}`
-  }
-  return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`
+  return label
 }
 
 export function sessionTimeLabel (iso?: string): string {
