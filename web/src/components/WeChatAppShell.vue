@@ -103,6 +103,7 @@
   import { useRoute, useRouter } from 'vue-router'
 
   import { layoutMode } from '@/lib/device'
+  import { t } from '@/lib/i18n'
   import BlockedUsersPane from '@/views/panes/BlockedUsersPane.vue'
   import ChatDetailPane from '@/views/panes/ChatDetailPane.vue'
   import ChatListPane from '@/views/panes/ChatListPane.vue'
@@ -185,23 +186,23 @@
   }
 
   /* ---------------- 底部导航（手机） ---------------- */
-  const bottomItems = [
-    { icon: 'mdi-chat-outline', label: '聊天', to: '/chat' },
-    { icon: 'mdi-account-multiple', label: '通讯录', to: '/contacts' },
-    { icon: 'mdi-compass', label: '发现', to: '/discovery' },
-    { icon: 'mdi-account-outline', label: '我', to: '/me' },
-  ]
+  const bottomItems = computed(() => [
+    { icon: 'mdi-chat-outline', label: t('nav.chat'), to: '/chat' },
+    { icon: 'mdi-account-multiple', label: t('nav.contacts'), to: '/contacts' },
+    { icon: 'mdi-compass', label: t('nav.discovery'), to: '/discovery' },
+    { icon: 'mdi-account-outline', label: t('nav.me'), to: '/me' },
+  ])
 
   const bottomTab = computed(() => `/${section.value}`)
 
   /* ---------------- 顶部 tabs（iPad two） ---------------- */
-  const topTabs = [
-    { label: '聊天', value: '/chat' },
-    { label: '通讯录', value: '/contacts' },
-    { label: '朋友圈', value: '/moments' },
-    { label: '发现', value: '/discovery' },
-    { label: '我', value: '/me' },
-  ]
+  const topTabs = computed(() => [
+    { label: t('nav.chat'), value: '/chat' },
+    { label: t('nav.contacts'), value: '/contacts' },
+    { label: t('nav.moments'), value: '/moments' },
+    { label: t('nav.discovery'), value: '/discovery' },
+    { label: t('nav.me'), value: '/me' },
+  ])
 
   const tab = computed({
     get: () => `/${section.value}`,
@@ -209,13 +210,13 @@
   })
 
   /* ---------------- 左侧 rail（电脑 three） ---------------- */
-  const railItems = [
-    { icon: 'mdi-chat-outline', label: '聊天', to: '/chat', prefix: '/chat' },
-    { icon: 'mdi-account-multiple', label: '通讯录', to: '/contacts', prefix: '/contacts' },
-    { icon: 'mdi-camera-account', label: '朋友圈', to: '/moments', prefix: '/moments' },
-    { icon: 'mdi-compass', label: '发现', to: '/discovery', prefix: '/discovery' },
-    { icon: 'mdi-account-outline', label: '我', to: '/me', prefix: '/me' },
-  ]
+  const railItems = computed(() => [
+    { icon: 'mdi-chat-outline', label: t('nav.chat'), to: '/chat', prefix: '/chat' },
+    { icon: 'mdi-account-multiple', label: t('nav.contacts'), to: '/contacts', prefix: '/contacts' },
+    { icon: 'mdi-camera-account', label: t('nav.moments'), to: '/moments', prefix: '/moments' },
+    { icon: 'mdi-compass', label: t('nav.discovery'), to: '/discovery', prefix: '/discovery' },
+    { icon: 'mdi-account-outline', label: t('nav.me'), to: '/me', prefix: '/me' },
+  ])
 
   function isRailActive (item: { to: string, prefix?: string }) {
     return route.path === item.to || (item.prefix ? route.path.startsWith(item.prefix) : false)
@@ -235,24 +236,30 @@
   )
 
   /** 右列占位：按当前栏目给出不同引导文案 */
-  const placeholderMap: Record<string, { icon: string, text: string }> = {
-    chat: { icon: 'mdi-chat-outline', text: '选择一个会话开始聊天' },
-    contacts: { icon: 'mdi-account-outline', text: '选择一位联系人查看详情' },
-    moments: { icon: 'mdi-camera-account', text: '查看朋友圈动态' },
-    discovery: { icon: 'mdi-compass', text: '从左侧选择一个功能' },
-    search: { icon: 'mdi-magnify', text: '搜索联系人、聊天记录与网页' },
-    me: { icon: 'mdi-cog-outline', text: '管理账号与设置' },
+  const placeholderMap: Record<string, { icon: string, key: string }> = {
+    chat: { icon: 'mdi-chat-outline', key: 'shell.empty.chat' },
+    contacts: { icon: 'mdi-account-outline', key: 'shell.empty.contacts' },
+    moments: { icon: 'mdi-camera-account', key: 'shell.empty.moments' },
+    discovery: { icon: 'mdi-compass', key: 'shell.empty.discovery' },
+    search: { icon: 'mdi-magnify', key: 'shell.empty.search' },
+    me: { icon: 'mdi-cog-outline', key: 'shell.empty.me' },
   }
 
   const placeholderIcon = computed(() => placeholderMap[section.value]?.icon ?? 'mdi-chat-outline')
   /** 空状态副标题：告诉用户下一步做什么，而不是留一片空白 */
   const placeholderHint = computed(() => {
-    if (placeholderText.value.includes('会话')) return '在左侧选择一个会话，即可开始聊天'
-    if (placeholderText.value.includes('联系人')) return '点击左侧联系人查看名片与聊天入口'
-    return '从左侧列表中选择一项查看详情'
+    switch (section.value) {
+      case 'chat': return t('shell.empty.chat.hint')
+      case 'contacts': return t('shell.empty.contacts.hint')
+      case 'moments': return t('shell.empty.moments.hint')
+      case 'discovery': return t('shell.empty.discovery.hint')
+      case 'search': return t('shell.empty.search.hint')
+      case 'me': return t('shell.empty.me.hint')
+      default: return ''
+    }
   })
 
-  const placeholderText = computed(() => placeholderMap[section.value]?.text ?? '选择一个会话开始聊天')
+  const placeholderText = computed(() => t(placeholderMap[section.value]?.key ?? 'shell.empty.chat'))
 </script>
 
 <style scoped>

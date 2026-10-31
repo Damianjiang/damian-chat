@@ -12,6 +12,8 @@ import { registerPlugins } from '@/plugins'
 import App from './App.vue'
 
 import { installHooks, mark as logMark } from '@/lib/clientlog'
+// 首屏即设置 <html lang>（language store 模块副作用，按 localStorage/navigator 自动识别），避免语言闪烁
+import '@/stores/language'
 import 'unfonts.css'
 import '@puzzle-style'
 import '@/styles/wechat.scss'

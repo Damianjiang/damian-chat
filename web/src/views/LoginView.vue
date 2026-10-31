@@ -8,8 +8,29 @@
       <login-ripple-bg v-if="bgMode === 'ripple' && fx.ripple" :color="bgRipple" />
     </div>
 
-    <!-- 右上角：版本号 + 性能模式 + 个性化（主题配色/明暗/字号，本地持久化） -->
+    <!-- 右上角：语言 + 版本号 + 性能模式 + 个性化（主题配色/明暗/字号，本地持久化） -->
     <div class="wx-login-head">
+      <v-menu :close-on-content-click="false" location="bottom end">
+        <template #activator="{ props }">
+          <v-btn v-bind="props" color="surface" density="comfortable" size="small" variant="tonal">
+            <v-icon icon="mdi-language" size="18" class="mr-1" />
+            <span class="text-body-2">{{ langLabel }}</span>
+          </v-btn>
+        </template>
+        <v-card width="160">
+          <v-list density="compact" lines="one" nav>
+            <v-list-item
+              v-for="opt in langOptions"
+              :key="opt.value"
+              :active="langValue === opt.value"
+              :active-color="'primary'"
+              @click="setLang(opt.value)"
+            >
+              <v-list-item-title>{{ opt.label }}</v-list-item-title>
+            </v-list-item>
+          </v-list>
+        </v-card>
+      </v-menu>
       <v-chip v-if="appVersion" class="wx-login-version" density="comfortable" size="small" variant="tonal">v{{ appVersion }}</v-chip>
       <v-btn
         class="wx-perf-btn-head"
@@ -18,17 +39,17 @@
         density="comfortable"
         size="small"
         :icon="perfMode ? 'mdi-bolt' : 'mdi-gauge'"
-        :title="perfMode ? '已关闭背景与3D特效，点此恢复' : '登录界面卡顿时点此关闭背景与3D特效'"
+        :title="perfMode ? t('login.perf.on.title') : t('login.perf.off.title')"
         @click="togglePerfMode"
-      >{{ perfMode ? '恢复特效' : '关闭特效' }}</v-btn>
+      >{{ perfMode ? t('login.perf.on') : t('login.perf.off') }}</v-btn>
       <v-menu :close-on-content-click="false" location="bottom end">
         <template #activator="{ props }">
-          <v-btn v-bind="props" color="surface" density="comfortable" icon="mdi-tune" size="small" title="个性化" variant="tonal" />
+          <v-btn v-bind="props" color="surface" density="comfortable" icon="mdi-tune" size="small" :title="t('login.personalize')" variant="tonal" />
         </template>
         <v-card width="264">
-          <v-card-title class="text-body-medium pb-0">个性化</v-card-title>
+          <v-card-title class="text-body-medium pb-0">{{ t('login.personalize') }}</v-card-title>
           <v-card-text>
-            <div class="text-body-small text-medium-emphasis mb-1">主题配色</div>
+            <div class="text-body-small text-medium-emphasis mb-1">{{ t('login.personalize.theme') }}</div>
             <div class="wx-swatches">
               <button
                 v-for="p in theme.presets"
@@ -42,7 +63,7 @@
               />
             </div>
 
-            <div class="text-body-small text-medium-emphasis my-2">深色模式</div>
+            <div class="text-body-small text-medium-emphasis my-2">{{ t('login.personalize.dark') }}</div>
             <v-btn-toggle
               :model-value="theme.mode"
               class="wx-mode-toggle"
@@ -50,12 +71,12 @@
               mandatory
               @update:model-value="(v: any) => theme.setMode(v)"
             >
-              <v-btn value="light">亮</v-btn>
-              <v-btn value="dark">暗</v-btn>
-              <v-btn value="system">跟随</v-btn>
+              <v-btn value="light">{{ t('login.mode.light') }}</v-btn>
+              <v-btn value="dark">{{ t('login.mode.dark') }}</v-btn>
+              <v-btn value="system">{{ t('login.mode.system') }}</v-btn>
             </v-btn-toggle>
 
-            <div class="text-body-small text-medium-emphasis my-2">字体大小</div>
+            <div class="text-body-small text-medium-emphasis my-2">{{ t('login.personalize.font') }}</div>
             <v-btn-group class="wx-font-group" density="compact">
               <v-btn
                 v-for="f in fontOpts"
@@ -86,16 +107,16 @@
       <div class="wx-ms-card">
         <!-- 品牌行：logo + 产品名（左上，Segoe 风格） -->
         <div class="wx-ms-brand">
-          <img class="wx-ms-brand-logo" src="/icon-192.png" alt="大面聊天" />
+          <img class="wx-ms-brand-logo" src="/icon-192.png" alt="Damian Chat" />
           <div class="wx-ms-brand-text">
-            <div class="wx-ms-brand-name">大面聊天</div>
-            <div class="wx-ms-brand-sub">安全 · 简洁 · 即时通讯</div>
+            <div class="wx-ms-brand-name">{{ t('login.brand') }}</div>
+            <div class="wx-ms-brand-sub">{{ t('login.brand.sub') }}</div>
           </div>
         </div>
 
         <div class="wx-ms-panel">
           <h1 class="wx-ms-title">
-            {{ tab === 'login' ? '登录到你的账户' : '创建账户' }}
+            {{ tab === 'login' ? t('login.title') : t('login.title.register') }}
           </h1>
 
           <div class="wx-login-form">
@@ -105,16 +126,16 @@
             <v-text-field
               v-model="account"
               autocomplete="username"
-              label="账号"
-              placeholder="请输入账号"
+              :label="t('login.account')"
+              :placeholder="t('login.account.ph')"
               prepend-inner-icon="mdi-account-outline"
             />
 
             <v-text-field
               v-model="password"
               autocomplete="current-password"
-              label="密码"
-              placeholder="请输入密码"
+              :label="t('login.password')"
+              :placeholder="t('login.password.ph')"
               prepend-inner-icon="mdi-lock-outline"
               type="password"
               @keyup.enter="submit"
@@ -127,13 +148,13 @@
                 class="flex-grow-1"
                 density="compact"
                 hide-details
-                label="图形验证码"
-                placeholder="不区分大小写"
+                :label="t('login.captcha')"
+                :placeholder="t('login.captcha.ph')"
                 @keyup.enter="submit"
               />
 
-              <div class="wx-captcha" title="点击刷新验证码" @click="refreshCaptcha">
-                <img v-if="captchaImage" alt="图形验证码" :src="captchaImage">
+              <div class="wx-captcha" :title="t('login.captcha.refresh')" @click="refreshCaptcha">
+                <img v-if="captchaImage" :alt="t('login.captcha')" :src="captchaImage">
                 <v-icon v-else icon="mdi-reload" />
               </div>
             </div>
@@ -145,7 +166,7 @@
             <v-alert
               v-if="policyLoaded && !registerOpen"
               class="mb-3"
-              text="注册未开放，请联系管理员获取注册密钥"
+              :text="t('login.reg.closed')"
               type="info"
               variant="tonal"
             />
@@ -153,20 +174,20 @@
             <v-text-field
               v-model="regAccount"
               autocomplete="username"
-              label="账号"
-              placeholder="手机号 / 字母数字下划线 / 中文"
+              :label="t('login.account')"
+              :placeholder="t('login.reg.account.ph')"
               prepend-inner-icon="mdi-account-plus-outline"
             />
 
             <v-text-field
               v-model="regPassword"
-              :error-messages="regPassword ? (regPassword.length < 8 ? '至少 8 位' : []) : []"
+              :error-messages="regPassword ? (regPassword.length < 8 ? [t('login.reg.password.tooShort')] : []) : []"
               :error="regPassword.length > 0 && regPassword.length < 8"
-              :hint="'8-32 位，含大小写字母与数字更安全'"
+              :hint="t('login.reg.password.hint')"
               :persistent-hint="!regPassword"
               autocomplete="new-password"
-              label="密码"
-              placeholder="8-32 位"
+              :label="t('login.password')"
+              :placeholder="t('login.reg.password.ph')"
               prepend-inner-icon="mdi-lock-outline"
               type="password"
             >
@@ -188,20 +209,20 @@
             <v-text-field
               v-model="regPassword2"
               :error="pwMismatch"
-              :error-messages="pwMismatch ? ['两次输入的密码不一致'] : []"
+              :error-messages="pwMismatch ? [t('login.reg.mismatch')] : []"
               :success="regPassword2.length > 0 && !pwMismatch"
-              :success-messages="regPassword2.length > 0 && !pwMismatch ? ['密码一致'] : []"
+              :success-messages="regPassword2.length > 0 && !pwMismatch ? [t('login.reg.same')] : []"
               autocomplete="new-password"
-              label="确认密码"
-              placeholder="再次输入密码"
+              :label="t('login.reg.confirm')"
+              :placeholder="t('login.reg.confirm.ph')"
               prepend-inner-icon="mdi-lock-check-outline"
               type="password"
             />
 
             <v-text-field
               v-model="regKey"
-              label="注册密钥"
-              placeholder="向管理员索取"
+              :label="t('login.reg.key')"
+              :placeholder="t('login.reg.key.ph')"
               prepend-inner-icon="mdi-key-outline"
               @keyup.enter="submit"
             />
@@ -213,12 +234,12 @@
                 class="flex-grow-1"
                 density="compact"
                 hide-details
-                label="图形验证码"
-                placeholder="不区分大小写"
+                :label="t('login.captcha')"
+                :placeholder="t('login.captcha.ph')"
               />
 
-              <div class="wx-captcha" title="点击刷新验证码" @click="refreshCaptcha">
-                <img v-if="captchaImage" alt="图形验证码" :src="captchaImage">
+              <div class="wx-captcha" :title="t('login.captcha.refresh')" @click="refreshCaptcha">
+                <img v-if="captchaImage" :alt="t('login.captcha')" :src="captchaImage">
                 <v-icon v-else icon="mdi-reload" />
               </div>
             </div>
@@ -234,7 +255,7 @@
               :loading="loading"
               @click="submit"
             >
-              {{ tab === 'login' ? '登录' : '注册并登录' }}
+              {{ tab === 'login' ? t('login.btn') : t('login.btn.register') }}
             </v-btn>
           </div>
 
@@ -246,10 +267,10 @@
               class="wx-ms-switch-link"
               :disabled="!(policyLoaded && registerOpen)"
               @click="switchTab('register')"
->没有账户？立即注册</button>
-            <button v-else type="button" class="wx-ms-switch-link" @click="switchTab('login')">已有账户？直接登录</button>
+>{{ t('login.no.account') }}</button>
+            <button v-else type="button" class="wx-ms-switch-link" @click="switchTab('login')">{{ t('login.has.account') }}</button>
           </div>
-          <p class="wx-ms-help">遇到问题请联系管理员</p>
+          <p class="wx-ms-help">{{ t('login.help') }}</p>
         </div>
         </div>
         </div>
@@ -270,6 +291,7 @@
   import SliderCaptcha from '@/components/SliderCaptcha.vue'
   import LoginRippleBg from '@/components/LoginRippleBg.vue'
   import { api } from '@/lib/api'
+  import { t } from '@/lib/i18n'
   import { initRealtime } from '@/lib/realtime'
   import { resolveDark } from '@/lib/theme'
   import { getFx } from '@/lib/personalize'
@@ -277,6 +299,7 @@
   import { useAuthStore } from '@/stores/auth'
   import { useContactsStore } from '@/stores/contacts'
   import { useConversationsStore } from '@/stores/conversations'
+  import { useLanguageStore } from '@/stores/language'
   import { useThemeStore } from '@/stores/theme'
 
   const route = useRoute()
@@ -285,6 +308,22 @@
   const theme = useThemeStore()
   const conversations = useConversationsStore()
   const contacts = useContactsStore()
+  const langStore = useLanguageStore()
+
+  /* ---------- 语言切换器（右上角：自动 / 中文 / English） ---------- */
+  const langOptions = computed(() => [
+    { value: 'auto', label: t('login.lang.auto') },
+    { value: 'zh', label: t('login.lang.zh') },
+    { value: 'en', label: t('login.lang.en') },
+  ])
+  const langValue = computed(() => langStore.mode)
+  const langLabel = computed(() =>
+    langValue.value === 'auto' ? t('login.lang.auto')
+      : langValue.value === 'zh' ? t('login.lang.zh')
+        : t('login.lang.en'))
+  function setLang (val: string) {
+    langStore.setLang(val as 'auto' | 'zh' | 'en')
+  }
 
   /* ---------- 个性化特效：波纹 / 3D 倾斜 / 动效（lib/personalize，设置→个性化可开关） ---------- */
   const fx = reactive({ ...getFx() })
@@ -400,12 +439,12 @@
   }
 
   /* ---------- 字号（个性化，存 localStorage 与设置页/个性化子页共用 wx_font_level） ---------- */
-  const fontOpts = [
-    { label: '小', level: 0 },
-    { label: '标准', level: 1 },
-    { label: '大', level: 2 },
-    { label: '特大', level: 3 },
-  ]
+  const fontOpts = computed(() => [
+    { label: t('font.s'), level: 0 },
+    { label: t('font.m'), level: 1 },
+    { label: t('font.l'), level: 2 },
+    { label: t('font.xl'), level: 3 },
+  ])
   const fontLevel = ref(Number(localStorage.getItem('wx_font_level')) || 1)
   function applyFont (level: number) {
     fontLevel.value = level
@@ -437,7 +476,7 @@
       captchaImage.value = res.data.image
       captchaInput.value = ''
     } catch {
-      snackMsg.value = '验证码获取失败'
+      snackMsg.value = t('login.captcha.fail')
       snack.value = true
     }
   }
@@ -498,10 +537,10 @@
     try {
       await auth.login(account.value.trim(), password.value, captchaId.value, captchaInput.value.trim(), passToken.value)
       await enterApp()
-      snackOkMsg.value = '登录成功'
+      snackOkMsg.value = t('login.ok')
       snackOk.value = true
     } catch (error: any) {
-      snackMsg.value = error?.response?.data?.error ?? '登录失败'
+      snackMsg.value = error?.response?.data?.error ?? t('login.fail')
       snack.value = true
       if (captchaRequired.value) await refreshCaptcha()
       passToken.value = ''
@@ -522,7 +561,7 @@
   /** 密码强度：4 段条（长度≥8 / 大小写混合 / 数字 / 符号），供注册页实时展示 */
   const passwordStrength = computed(() => {
     const p = regPassword.value
-    if (!p) return { score: 0, level: 0, hint: '未输入' }
+    if (!p) return { score: 0, level: 0, hint: t('login.pw.empty') }
     let s = 0
     if (p.length >= 8) s++
     if (p.length >= 12) s++
@@ -531,7 +570,7 @@
     if (/[^A-Za-z0-9]/.test(p)) s++
     s = Math.min(4, s)
     const level = p.length < 8 ? 0 : s <= 1 ? 1 : s <= 2 ? 2 : s === 3 ? 3 : 4
-    const hint = ['太弱', '弱', '一般', '强', '很强'][level]
+    const hint = [t('login.pw.weak'), t('login.pw.fair'), t('login.pw.good'), t('login.pw.strong'), t('login.pv.vstrong')][level]
     return { score: s, level, hint }
   })
 

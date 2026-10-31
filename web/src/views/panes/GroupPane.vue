@@ -2,18 +2,18 @@
   <v-sheet class="wx-panes" flat>
     <v-app-bar class="wx-chat-bar" color="surface" density="compact" flat>
       <v-btn v-if="isMobile" icon="mdi-arrow-left" variant="text" @click="goBack" />
-      <v-toolbar-title class="text-body-large font-weight-medium">群聊设置</v-toolbar-title>
+      <v-toolbar-title class="text-body-large font-weight-medium">{{ t('group.settings') }}</v-toolbar-title>
     </v-app-bar>
 
     <div class="flex-grow-1 overflow-y-auto wx-scroll">
       <!-- 成员宫格（人数过多自动折叠，点「查看全部」展开；点头像查资料卡） -->
       <div class="wx-member-sec pa-3">
         <div class="wx-member-sec-head d-flex align-center justify-space-between">
-          <span class="text-body-small text-medium-emphasis">成员 <span class="text-primary font-weight-medium">{{ group?.members?.length ?? 0 }}</span> 人</span>
+          <span class="text-body-small text-medium-emphasis">{{ t('group.member.count', { n: group?.members?.length ?? 0 }) }}</span>
           <v-btn v-if="membersTruncated" color="primary" density="compact" size="x-small" variant="text" @click="showAllMembers = true">
-            <v-icon icon="mdi-eye" size="16" class="mr-1" /> 查看全部 {{ group?.members?.length }} 人
+            <v-icon icon="mdi-eye" size="16" class="mr-1" /> {{ t('gp.showAll', { n: group?.members?.length ?? 0 }) }}
           </v-btn>
-          <v-btn v-else-if="membersTotal > MAX_COLLAPSED" color="medium-emphasis" density="compact" size="x-small" variant="text" @click="showAllMembers = false">收起</v-btn>
+          <v-btn v-else-if="membersTotal > MAX_COLLAPSED" color="medium-emphasis" density="compact" size="x-small" variant="text" @click="showAllMembers = false">{{ t('gp.collapse') }}</v-btn>
         </div>
 
         <div class="wx-member-grid">
@@ -26,8 +26,8 @@
             <div class="wx-member-avatar" :class="{ 'is-me': m.userId === meId, 'is-removable': removeMode && m.userId !== group?.ownerId }">
               <user-avatar :nickname="m.nickname" :src="m.avatar" :size="52" circle />
               <span v-if="removeMode && m.userId !== group?.ownerId" class="wx-remove-badge">−</span>
-              <span v-else-if="m.role === 'owner'" class="wx-owner-badge">群主</span>
-              <span v-else-if="m.role === 'admin'" class="wx-admin-badge">管理员</span>
+              <span v-else-if="m.role === 'owner'" class="wx-owner-badge">{{ t('group.role.owner') }}</span>
+              <span v-else-if="m.role === 'admin'" class="wx-admin-badge">{{ t('group.role.admin') }}</span>
               <span v-else-if="m.title" class="wx-title-badge">{{ m.title }}</span>
             </div>
 

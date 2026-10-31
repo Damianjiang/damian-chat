@@ -9,8 +9,8 @@
           </v-avatar>
 
           <div class="d-flex flex-column">
-            <span class="text-headline-small font-weight-medium">大面聊天</span>
-            <span class="text-body-small text-medium-emphasis">聊天 · 通讯录 · 朋友圈</span>
+            <span class="text-headline-small font-weight-medium">{{ t('login.brand') }}</span>
+            <span class="text-body-small text-medium-emphasis">{{ t('bg.brand.sub') }}</span>
           </div>
         </div>
 
@@ -58,6 +58,7 @@
 
 <script setup lang="ts">
   import { ref } from 'vue'
+  import { t } from '@/lib/i18n'
 
   const emit = defineEmits<{ confirmed: [] }>()
   const blocked = ref(false)
