@@ -162,7 +162,7 @@
 
         <!-- 全员禁言（QQ 式）：开启后普通成员不能发言，群主/管理员不受限 -->
         <v-list-item v-if="canManage">
-          <template #prepend><v-icon icon="mdi-megaphone-off" /></template>
+          <template #prepend><v-icon icon="mdi-volume-off" />   <!-- 图标库无 megaphone-off，volume-off 语义一致 --></template>
           <v-list-item-title>{{ t('group.muteAll') }}</v-list-item-title>
           <v-list-item-subtitle>{{ t('group.muteAll.desc') }}</v-list-item-subtitle>
           <template #append>

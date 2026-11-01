@@ -294,11 +294,11 @@
       .filter(c =>
         (c.user?.nickname ?? '').toLowerCase().includes(k)
         || (c.remark ?? '').toLowerCase().includes(k)
-        || (c.user?.phone ?? '').includes(k))
+        || (c.user?.wxId ?? '').toLowerCase().includes(k))
       .map(c => ({
         id: c.user?.id ?? c.id,
         title: c.remark || c.user?.nickname || '',
-        subtitle: c.user?.phone ? t('contacts.tag.phone', { phone: c.user.phone }) : t('contacts.tag'),
+        subtitle: (c.user?.wxId || c.user?.phone) ? t('contacts.tag.phone', { phone: c.user?.wxId || c.user?.phone }) : t('contacts.tag'),
       }))
     return [...convs, ...ctts]
   })
@@ -323,7 +323,7 @@
     return contacts.items.filter(c =>
       (c.user?.nickname ?? '').toLowerCase().includes(k)
       || (c.remark ?? '').toLowerCase().includes(k)
-      || (c.user?.phone ?? '').includes(k))
+      || (c.user?.wxId ?? '').toLowerCase().includes(k))
   })
 
   function uidOf (c: { user?: { id: string } | null, id: string }) {

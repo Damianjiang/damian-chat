@@ -25,7 +25,7 @@
 
             <div class="flex-grow-1">
               <div class="font-weight-medium">{{ scannedUser.nickname }}</div>
-              <div class="text-body-small text-medium-emphasis">{{ t('scan.account', { s: scannedUser.phone }) }}</div>
+              <div class="text-body-small text-medium-emphasis">{{ t('scan.account', { s: scannedUser.wxId || scannedUser.phone }) }}</div>
             </div>
 
             <v-btn
@@ -66,6 +66,7 @@
   interface ScannedUser {
     id: string
     phone: string
+    wxId?: string
     nickname: string
     avatar: string
     signature?: string

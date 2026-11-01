@@ -56,8 +56,8 @@
 
   const localContacts = computed<ResultItem[]>(() =>
     contacts.items
-      .filter(c => match(c.user?.nickname, c.user?.phone ?? '', c.remark ?? ''))
-      .map(c => ({ id: c.id, title: c.remark || c.user?.nickname || '', subtitle: c.user?.phone })),
+      .filter(c => match(c.user?.nickname, c.user?.wxId ?? '', c.remark ?? ''))
+      .map(c => ({ id: c.id, title: c.remark || c.user?.nickname || '', subtitle: c.user?.wxId || c.user?.phone })),
   )
 
   const localMoments = computed<ResultItem[]>(() =>

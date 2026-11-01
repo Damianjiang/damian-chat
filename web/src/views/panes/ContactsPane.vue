@@ -117,7 +117,7 @@
                   {{ c.remark || c.user?.nickname }}
                   <v-chip v-if="c.blocked" class="ml-2" color="error" size="x-small" variant="flat">{{ t('contacts.blocked.tag') }}</v-chip>
                 </div>
-                <div class="text-body-small text-medium-emphasis">{{ c.user?.phone }}</div>
+                <div class="text-body-small text-medium-emphasis">{{ c.user?.wxId || c.user?.phone }}</div>
               </template>
             </v-list-item>
           </v-list>
@@ -599,9 +599,9 @@
     return contacts.items
       .filter(c =>
         c.user?.nickname?.toLowerCase().includes(k)
-        || (c.user?.phone ?? '').includes(k)
+        || (c.user?.wxId ?? '').toLowerCase().includes(k)
         || (c.remark ?? '').toLowerCase().includes(k))
-      .map(c => ({ id: c.id, title: c.remark || c.user?.nickname || '', subtitle: c.user?.phone }))
+      .map(c => ({ id: c.id, title: c.remark || c.user?.nickname || '', subtitle: c.user?.wxId || c.user?.phone }))
   })
 
   const grouped = computed<Record<string, Contact[]>>(() => {

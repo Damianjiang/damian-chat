@@ -63,12 +63,20 @@
           </template>
         </v-list-item>
 
-        <!-- 手机号：不可修改（账号安全绑定），去掉箭头避免「看起来能点其实不能」的误导 -->
+        <!-- 账号：注册账号（本系统没有手机号概念），不可修改，去掉箭头避免误导 -->
         <v-list-item>
           <v-list-item-title>{{ t('me.phone') }}</v-list-item-title>
 
           <template #append>
             <span class="text-body-medium text-medium-emphasis mr-1">{{ maskedPhone }}</span>
+          </template>
+        </v-list-item>
+
+        <!-- 邮箱：绑定/换绑在「设置 → 账号」里做 -->
+        <v-list-item v-if="auth.user?.email">
+          <v-list-item-title>{{ t('account.email') }}</v-list-item-title>
+          <template #append>
+            <span class="text-body-medium text-medium-emphasis mr-1">{{ auth.user.email }}</span>
           </template>
         </v-list-item>
 

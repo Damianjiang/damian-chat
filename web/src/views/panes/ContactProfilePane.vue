@@ -18,7 +18,7 @@
           />
         </div>
         <div class="text-h5 font-weight-medium mt-3">{{ user?.nickname ?? t('common.loading') }}</div>
-        <div v-if="user?.phone" class="text-body-medium text-medium-emphasis mt-1">{{ user.phone }}</div>
+        <div v-if="user?.wxId || user?.phone" class="text-body-medium text-medium-emphasis mt-1">大面号：{{ user?.wxId || user?.phone }}</div>
       </div>
 
       <!-- 详细资料卡（微信风格：白底圆角、细线分隔、图标+字段） -->

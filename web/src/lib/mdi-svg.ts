@@ -15,7 +15,7 @@ import { defineComponent, h } from 'vue'
 
 // 以下只导入项目实际用到的图标（tree-shaking 最小化 chunk）
 import {
-  mdiAccount, mdiAccountCheck, mdiAccountCheckOutline, mdiAccountMultiple, mdiAccountOff, mdiAccountOffOutline,
+  mdiAccount, mdiAccountAlert, mdiAccountCheck, mdiAccountCheckOutline, mdiAccountMultiple, mdiAccountMultiplePlus, mdiAccountOff, mdiAccountOffOutline,
   mdiAccountOutline, mdiAccountPlus, mdiAccountPlusOutline, mdiAccountRemove,
   mdiAlertCircle, mdiAlertCircleOutline,
   mdiAppleKeyboardCommand, mdiAppleKeyboardControl, mdiAppleKeyboardOption, mdiAppleKeyboardShift,
@@ -47,6 +47,7 @@ import {
   mdiDotsVertical,
   mdiDownload,
   mdiEmoticonCool, mdiEmoticonOutline,
+  mdiEmailOutline,
   mdiExitRun,
   mdiEye, mdiEyeOutline, mdiEyedropper,
   mdiFileDocumentOutline,
@@ -86,7 +87,8 @@ import {
   mdiRefresh, mdiReload,
   mdiReply,
   mdiSend,
-  mdiShieldCheckOutline, mdiShieldOff, mdiShieldPlus,
+  mdiShieldCheckOutline,
+  mdiShieldLockOutline, mdiShieldOff, mdiShieldPlus,
   mdiStar, mdiStarHalfFull, mdiStarOutline,
   mdiSync,
   mdiTagMultipleOutline,
@@ -104,9 +106,11 @@ import {
 /** kebab 名 → @mdi/js 导出的 path d（string，可能含多个 M 命令拼接为一条 path） */
 export const mdiIconPaths: Record<string, string> = {
   'mdi-account': mdiAccount,
+  'mdi-account-alert': mdiAccountAlert,
   'mdi-account-check': mdiAccountCheck,
   'mdi-account-check-outline': mdiAccountCheckOutline,
   'mdi-account-multiple': mdiAccountMultiple,
+  'mdi-account-multiple-plus': mdiAccountMultiplePlus,
   'mdi-account-off': mdiAccountOff,
   'mdi-account-off-outline': mdiAccountOffOutline,
   'mdi-account-outline': mdiAccountOutline,
@@ -166,6 +170,7 @@ export const mdiIconPaths: Record<string, string> = {
   'mdi-download': mdiDownload,
   'mdi-emoticon-cool': mdiEmoticonCool,
   'mdi-emoticon-outline': mdiEmoticonOutline,
+  'mdi-email-outline': mdiEmailOutline,
   'mdi-exit-run': mdiExitRun,
   'mdi-eye': mdiEye,
   'mdi-eye-outline': mdiEyeOutline,
@@ -228,6 +233,7 @@ export const mdiIconPaths: Record<string, string> = {
   'mdi-reply': mdiReply,
   'mdi-send': mdiSend,
   'mdi-shield-check-outline': mdiShieldCheckOutline,
+  'mdi-shield-lock-outline': mdiShieldLockOutline,
   'mdi-shield-off': mdiShieldOff,
   'mdi-shield-plus': mdiShieldPlus,
   'mdi-star': mdiStar,
