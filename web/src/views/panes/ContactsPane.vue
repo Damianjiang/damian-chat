@@ -66,7 +66,7 @@
 
           <v-list-item v-for="r in contacts.requests" :key="r.id" lines="two">
             <template #prepend>
-              <v-avatar :color="avatarColor(r.from?.id ?? r.id)"><span>{{ (r.from?.nickname ?? '?').slice(0, 1) }}</span></v-avatar>
+              <user-avatar :nickname="r.from?.nickname" :size="40" :src="r.from?.avatar" />
             </template>
 
             <template #title>
@@ -106,10 +106,7 @@
               @contextmenu.prevent="onContactMenu(c, $event)"
             >
               <template #prepend>
-                <v-avatar :color="avatarColor(c.id)" :size="36">
-                  <img v-if="c.user?.avatar" :alt="c.user?.nickname" :src="c.user.avatar">
-                  <span v-else>{{ (c.user?.nickname ?? '?').slice(0, 1) }}</span>
-                </v-avatar>
+                <user-avatar :nickname="c.user?.nickname" :size="36" :src="c.user?.avatar" />
               </template>
 
               <template #title>
@@ -180,7 +177,7 @@
         <v-list v-if="contacts.requests.length > 0" class="pa-0" lines="two">
           <v-list-item v-for="r in contacts.requests" :key="r.id">
             <template #prepend>
-              <v-avatar :color="avatarColor(r.from?.id ?? r.id)"><span>{{ (r.from?.nickname ?? '?').slice(0, 1) }}</span></v-avatar>
+              <user-avatar :nickname="r.from?.nickname" :size="40" :src="r.from?.avatar" />
             </template>
             <template #title>{{ r.from?.nickname }}</template>
             <template #subtitle>
@@ -224,10 +221,7 @@
             @click="togglePick(c)"
           >
             <template #prepend>
-              <v-avatar :color="avatarColor(c.id)" :size="36">
-                <img v-if="c.user?.avatar" :alt="c.user?.nickname" :src="c.user.avatar">
-                <span v-else>{{ (c.user?.nickname ?? '?').slice(0, 1) }}</span>
-              </v-avatar>
+              <user-avatar :nickname="c.user?.nickname" :size="36" :src="c.user?.avatar" />
             </template>
             <template #title>{{ c.remark || c.user?.nickname }}</template>
             <template #append>
@@ -307,10 +301,7 @@
         <v-list class="pa-0" lines="two">
           <v-list-item v-for="g in myGroups" :key="g.id" @click="openGroup(g)">
             <template #prepend>
-              <v-avatar :color="avatarColor(g.id)" :size="40">
-                <img v-if="g.avatar" :alt="g.name" :src="g.avatar">
-                <span v-else>{{ g.name.slice(0, 1) }}</span>
-              </v-avatar>
+              <user-avatar :nickname="g.name" :size="40" :src="g.avatar" />
             </template>
             <template #title>
               <div class="d-flex align-center">
@@ -343,6 +334,7 @@
   import { useRouter } from 'vue-router'
   import ContactAlphaIndex from '@/components/ContactAlphaIndex.vue'
   import SearchResultList from '@/components/SearchResultList.vue'
+  import UserAvatar from '@/components/UserAvatar.vue'
   import { avatarColor } from '@/lib/utils'
   import { api } from '@/lib/api'
   import { t } from '@/lib/i18n'

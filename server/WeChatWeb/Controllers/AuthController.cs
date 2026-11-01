@@ -136,7 +136,8 @@ public class AuthController : ControllerBase
         var err = _emailCode.Send(req.Email, Ip, "register");
         if (err != null)
         {
-            _guard.RecordFailure(Ip, (req.Email ?? "").Trim(), _sec);
+            // SMTP 故障属服务端错误，不应把用户输入的任意串计入账号防护；只计 IP
+            _guard.RecordFailure(Ip, "", _sec);
             return BadRequest(new { error = err });
         }
         return Ok(new { ok = true });
@@ -179,16 +180,17 @@ public class AuthController : ControllerBase
             // 否则「账号不存在」明显快于「密码错误」，响应时序可被用来枚举有效账号。
             PasswordHasher.Verify(req.Password ?? "", DummyHash);
         }
+        // 封禁检查在密码验证之前：不给被停用账号的持凭据者确认状态的机会，也不再为其算哈希
+        if (user?.Banned == true)
+        {
+            _log.Write("auth", new { ts = DateTime.UtcNow, result = "banned", account, ip = Ip });
+            return StatusCode(StatusCodes.Status403Forbidden, new { error = "该账号已被管理员停用" });
+        }
         if (user == null || !PasswordHasher.Verify(req.Password ?? "", user.Password))
         {
             _guard.RecordFailure(Ip, account, _sec);
             _log.Write("auth", new { ts = DateTime.UtcNow, result = "fail", account, ip = Ip, ua = Ua });
             return Unauthorized(new { error = "账号或密码错误，请重试" });
-        }
-        if (user.Banned)
-        {
-            _log.Write("auth", new { ts = DateTime.UtcNow, result = "banned", account, ip = Ip });
-            return StatusCode(StatusCodes.Status403Forbidden, new { error = "该账号已被管理员停用" });
         }
 
         _guard.ResetAccount(account);
@@ -232,7 +234,8 @@ public class AuthController : ControllerBase
         // 双重人机验证 ①：图形验证码（原有逻辑，保留）
         if (_sec.EnableCaptcha && !_captcha.Verify(req.CaptchaId, req.Captcha))
         {
-            _guard.RecordFailure(Ip, account, _sec);
+            // 人机验证失败只计 IP：把攻击者的失败记到「账号」上会让任何人恶意锁死受害者登录
+            _guard.RecordFailure(Ip, "", _sec);
             _log.Write("auth", new { ts = DateTime.UtcNow, result = "captcha-fail", account, ip = Ip, ua = Ua });
             return BadRequest(new { error = "图形验证码错误或已过期，请刷新重试" });
         }
@@ -240,14 +243,14 @@ public class AuthController : ControllerBase
         // 双重人机验证 ②：滑块 pass token（管理端可关 EnableSlider）
         if (_sec.EnableSlider && !_slider.ConsumePass(req.PassToken, Ip))
         {
-            _guard.RecordFailure(Ip, account, _sec);
+            _guard.RecordFailure(Ip, "", _sec);
             _log.Write("auth", new { ts = DateTime.UtcNow, result = "slider-missing", account, ip = Ip, ua = Ua });
             return BadRequest(new { error = "请先完成滑块验证" });
         }
 
         if (!_sec.RegisterKeyMatches(req.RegisterKey))
         {
-            _guard.RecordFailure(Ip, account, _sec);
+            _guard.RecordFailure(Ip, "", _sec);   // 注册密钥错误不是密码错误，只计 IP
             _log.Write("auth", new { ts = DateTime.UtcNow, result = "register-key-fail", account, ip = Ip, ua = Ua });
             return StatusCode(StatusCodes.Status403Forbidden, new { error = "注册密钥不正确（管理员可在后台修改）" });
         }
@@ -273,7 +276,7 @@ public class AuthController : ControllerBase
         {
             if (_store.Users.Values.Any(u => u.Phone == account))
             {
-                _guard.RecordFailure(Ip, account, _sec);
+                _guard.RecordFailure(Ip, "", _sec);   // 重复注册失败只计 IP，防恶意锁号
                 return Conflict(new { error = "该账号已被注册" });
             }
             if (email.Length > 0 && _store.Users.Values.Any(u => u.Email == email))

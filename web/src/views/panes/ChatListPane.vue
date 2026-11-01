@@ -86,10 +86,7 @@
         <v-list class="pa-0">
           <v-list-item v-for="s in foldedGroups" :key="s.id">
             <template #prepend>
-              <v-avatar :color="avatarColor(s.id)" :size="40">
-                <img v-if="s.avatar" :alt="s.title" :src="s.avatar">
-                <span v-else>{{ s.title.slice(0, 1) }}</span>
-              </v-avatar>
+              <user-avatar :nickname="s.title" :size="40" :src="s.avatar" />
             </template>
 
             <template #title>
@@ -166,10 +163,7 @@
                   />
                 </template>
 
-                <v-avatar :color="avatarColor(uidOf(c))" :size="36">
-                  <img v-if="c.user?.avatar" :alt="c.user.nickname" :src="c.user.avatar">
-                  <span v-else>{{ (c.user?.nickname ?? '?').slice(0, 1) }}</span>
-                </v-avatar>
+                <user-avatar :nickname="c.user?.nickname" :size="36" :src="c.user?.avatar" />
 
                 <v-list-item-title>{{ c.remark || c.user?.nickname }}</v-list-item-title>
               </v-list-item>
@@ -184,10 +178,7 @@
           <div class="wx-pick-right">
             <v-list bg-color="surface">
               <v-list-item v-for="id in gMembers" :key="id">
-                <v-avatar :color="avatarColor(id)" :size="36">
-                  <img v-if="avatarOf(id)" :alt="nickOf(id)" :src="avatarOf(id)">
-                  <span v-else>{{ nickOf(id).slice(0, 1) }}</span>
-                </v-avatar>
+                <user-avatar :nickname="nickOf(id)" :size="36" :src="avatarOf(id)" />
 
                 <v-list-item-title>{{ nickOf(id) }}</v-list-item-title>
 

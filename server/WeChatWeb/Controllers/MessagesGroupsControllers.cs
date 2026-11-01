@@ -48,10 +48,20 @@ public class MessagesController : ControllerBase
             //（用户从头翻到尾 = 累计 O(n²)，每页下拉都重排整段历史，纯浪费）。
             // 注意：升序列表切出的尾段天然是「老→新」升序，绝不能再 Reverse（会变降序打乱客户端）。
             var list = _store.MessagesOf(conversationId);
+            // 返回浅拷贝快照：这些 Message 是活对象，锁外序列化期间可能被撤回改写
+            //（Content 清空/Recalled 置位），客户端会拿到撕裂的中间态
+            List<Models.Message> Snapshot (List<Models.Message> src) =>
+                src.Select(m =>
+                {
+                    var c = new Models.Message();
+                    foreach (var f in typeof(Models.Message).GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance))
+                        if (f.CanRead && f.CanWrite) f.SetValue(c, f.GetValue(m));
+                    return c;
+                }).ToList();
             if (string.IsNullOrEmpty(beforeId))
             {
                 var tail = Math.Min(take, list.Count);
-                return Ok(list.GetRange(list.Count - tail, tail));
+                return Ok(Snapshot(list.GetRange(list.Count - tail, tail)));
             }
             // 游标定位：Id 索引 O(1) 取到参照消息，再在升序列表上二分找插入点，
             // 切出其左邻 take 条（严格更早，仍为升序），零排序零全表扫描。
@@ -60,7 +70,7 @@ public class MessagesController : ControllerBase
             var idx = list.BinarySearch(before, MessageTimeComparer.Instance);
             if (idx < 0) return Ok(new List<Message>(0));
             var start = Math.Max(0, idx - take);
-            return Ok(list.GetRange(start, idx - start));
+            return Ok(Snapshot(list.GetRange(start, idx - start)));
         }
     }
 
@@ -271,7 +281,8 @@ public class MessagesController : ControllerBase
             if (msg.SenderId != me) return Forbid();
             if (!_store.CanAccessConversation(msg.ConversationId, me)) return NotFound();
             convId = msg.ConversationId;
-            _store.OnMessageUncounted(msg);        // 未读计数 -1（消息不再计入）
+            // 已撤回的消息在撤回时已扣过未读；再删墓碑不能二次 -1（会把别的未读抵消掉）
+            if (!msg.Recalled) _store.OnMessageUncounted(msg);
             _store.Messages.Remove(msg);
             _store.MsgIndexRemove(msg);
             _store.MarkDirty();
@@ -510,6 +521,10 @@ public class GroupsController : ControllerBase
                 // QQ 式「回答问题入群」：答对自动进群；答案错误计入限流（每 用户×群 每小时 5 次，防爆破标准答案）
                 var answer = (req?.Answer ?? "").Trim();
                 var key = me + "|" + id;
+                // 顺手清扫过期条目（窗口 1 小时），防止字典无界增长
+                foreach (var kv in JoinFailHits)
+                    if ((DateTime.UtcNow - kv.Value.WindowStart).TotalHours > 1)
+                        JoinFailHits.TryRemove(kv.Key, out _);
                 var (fails, winStart) = JoinFailHits.GetOrAdd(key, _ => (0, DateTime.UtcNow));
                 var inWindow = DateTime.UtcNow - winStart < TimeSpan.FromHours(1);
                 if (inWindow && fails >= 5)
@@ -582,6 +597,9 @@ public class GroupsController : ControllerBase
             if (actor == null || (actor.Role != "owner" && actor.Role != "admin")) { ok = false; return Forbid(); }
             if (!_store.Users.ContainsKey(userId)) { ok = false; return NotFound(); }
             if (g.Members.Any(m => m.UserId == userId)) { ok = true; } // 已成员则幂等
+            // 只能批准「真实提交过申请」的人：没有申请记录的 userId 一律拒绝
+            //（否则任意 admin 可绕过「好友+申请」两道防线把陌生人拉进群）
+            else if ((g.JoinRequests ??= new()).All(r => r.UserId != userId)) { ok = false; return NotFound(new { error = "该用户没有待审批的入群申请" }); }
             else
             {
                 if (g.Members.Count >= _store.GroupLimits.MaxMembers) { ok = false; return BadRequest(new { error = "群人数已达上限" }); }
@@ -713,8 +731,19 @@ public class GroupsController : ControllerBase
                     noticeBumped = true;
                 }
             }
-            // 免打扰是"我自己的"开关，绝不能改全群共享的 Conversation
-            if (req.Muted.HasValue) actor.Muted = req.Muted.Value;
+            // 免打扰是"我自己的"开关：写 per-user 会话标志（此前误写 GroupMember.Muted，
+            // 与「禁言」共用同一字段 → 开免打扰的成员被自己禁言）。顺手清掉旧版本写入的残留。
+            if (req.Muted.HasValue)
+            {
+                actor.Muted = false;
+                var conv0 = _store.Conversations.Values.FirstOrDefault(c => c.Kind == "group" && c.MemberId == id);
+                if (conv0 != null)
+                {
+                    var uf = _store.ConvFlagsFor(conv0, me);
+                    uf.Muted = req.Muted.Value;
+                    conv0.UserFlags[me] = uf;
+                }
+            }
 
             // 群头像：仅群主/管理员，必须经 /files/upload(kind=avatar) 拿到真实 fileId（防越权引用他人文件）
             if (req.Avatar != null)
@@ -871,6 +900,10 @@ public class GroupsController : ControllerBase
             // 免打扰：改目标本人或群主/管理员；普通成员只能改自己
             if (req.Muted.HasValue)
             {
+                // 权限反转防护：群主不可被任何人禁言；管理员之间互不禁言（只有群主能管管理员）
+                if (m.Role == "owner" || (m.Role == "admin" && actor.Role != "owner"))
+                    return Forbid();
+
                 if (userId != me && actor.Role == "member") return Forbid();
                 m.Muted = req.Muted.Value;
                 changed = true;

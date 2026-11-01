@@ -70,8 +70,13 @@ export const useAuthStore = defineStore('auth', {
       } catch { /* 网络失败也继续本地登出 */ }
       clearTokens()
       this.user = null
-      // 清空本地业务数据：换账号登录不得看到上一个账号的会话/联系人/朋友圈残留
+      // 清空本地业务数据：换账号登录不得看到上一个账号的会话/联系人/朋友圈残留。
+      // 同时清 IDB 消息缓存与模块级防抖定时器（$reset 只清内存 store，
+      // 400ms 内的遗留 IDB 写可能把上一个账号的消息写进新会话缓存）
       useConversationsStore().$reset()
+      try {
+        (await import('@/stores/conversations')).clearConversationCache()
+      } catch { /* 模块未加载则忽略 */ }
       useContactsStore().$reset()
       useMomentsStore().$reset()
       // 浏览器缓存（IDB 聊天记录 + 媒体 blob）也随登出清除：

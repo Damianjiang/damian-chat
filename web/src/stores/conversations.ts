@@ -126,6 +126,9 @@ export const useConversationsStore = defineStore('conversations', {
     noticeConfirmed: {} as Record<string, { last: { nickname: string, at: string }, confirmed: number, total: number }>,
     /** 群公告「版本」计数（groupId → 次数）。群公告被修改/新增时 +1，聊天页据此重拉详情并重置确认态。 */
     noticeVersion: {} as Record<string, number>,
+    /** 该会话是否已做过 IDB 缓存回填（与 messagesByConv 是否存在解耦：
+     *  实时消息会为未打开过的会话创建数组，不能用「数组存在」判断跳过回填）。 */
+    cacheLoaded: {} as Record<string, boolean>,
     /** 「对方正在输入」（会话 id → { userId, at }）。实时 Typing 事件更新，聊天页按超时自动消失。 */
     typingBy: {} as Record<string, { userId: string, at: number }>,
   }),
@@ -186,6 +189,8 @@ export const useConversationsStore = defineStore('conversations', {
         const prev = at(list, idx)
         if (prev) {
           list[idx] = prev.localKey ? { ...message, localKey: prev.localKey } : message
+          // 状态更新（撤回等）同样落 IDB：否则刷新后缓存回填的是撤回前内容（消息"复活"）
+          scheduleMessagePersist(message.conversationId)
         }
       } else if (!settlePending(list, message)) {
         // 不是自己待确认的乐观气泡 → 正常新消息入列
@@ -199,8 +204,11 @@ export const useConversationsStore = defineStore('conversations', {
       }
       const s = this.sessions.find(x => x.id === message.conversationId)
       if (s) {
-        s.lastMessage = message
-        s.lastAt = message.createdAt
+        // 预览只前进不后退：撤回旧消息时会重放该消息，覆盖成旧时间/旧内容是错的
+        if (!s.lastAt || message.createdAt >= s.lastAt) {
+          s.lastMessage = message
+          s.lastAt = message.createdAt
+        }
         // 自己发的消息（多端同步回来的）不算未读
         const meId = useAuthStore().user?.id
         if (message.senderId === meId) {
@@ -226,21 +234,31 @@ export const useConversationsStore = defineStore('conversations', {
     async openConversation (id: string, opts: { silent?: boolean } = {}) {
       if (!opts.silent) {
         this.activeId = id
-        if (!this.messagesByConv[id]) {
-          this.messagesByConv[id] = []
-          // ① 先从浏览器缓存（IDB）回填本地聊天记录，秒开、离线可用
-          const cached = await idbGetMessages(id)
-          if (cached.length > 0) {
-            // 兜底：若缓存里混进了未确认的乐观气泡（旧版本写入的），不回填
-            this.messagesByConv[id] = cached.filter(m => !m.pending && !m.failed).slice(-500)
-            this.historyHasMore[id] = cached.length >= 500
-          }
+        this.messagesByConv[id] ??= []
+        // ① 先从浏览器缓存（IDB）回填本地聊天记录，秒开、离线可用。
+        //    判断用 cacheLoaded 标记而非「数组是否存在」：实时消息会为没打开过的
+        //    会话建数组，仅看数组存在会把缓存历史全丢掉。且回填按 id 合并而非
+        //    整表覆盖 —— await 期间到达的实时消息不能被覆盖丢弃。
+        if (!this.cacheLoaded[id]) {
+          this.cacheLoaded[id] = true
+          try {
+            const cached = await idbGetMessages(id)
+            const fresh = cached.filter(m => !m.pending && !m.failed).slice(-500)
+            if (fresh.length > 0) {
+              const cur = this.messagesByConv[id] ?? []
+              const seen = new Set(cur.map(m => m.id))
+              const merged = [...fresh.filter(m => !seen.has(m.id)), ...cur].slice(-500)
+              this.messagesByConv[id] = merged
+              this.historyHasMore[id] = cached.length >= 500 || (this.historyHasMore[id] ?? false)
+            }
+          } catch { /* 缓存读失败不阻塞打开会话 */ }
         }
         // ★ 关键修复：无论内存里是否已有该会话消息，切到它时都向服务端补拉最新一页。
-        //   此前 if(!messagesByConv[id]) 包住 loadHistory —— 只要之前实时消息/翻历史建过
-        //   数组，切会话就不再补拉，导致「切到别的会话，断线/后台期间错过的消息全都收不到」。
         //   loadHistory 自带 id 去重（已收到的不重复入列），是幂等的安全补拉。
-        await this.loadHistory(id)
+        //   失败不阻塞后续已读同步（弱网 20s 超时时不能让红点永远清不掉）。
+        try {
+          await this.loadHistory(id)
+        } catch { /* 补拉失败仅影响本页历史 */ }
       }
       const s = this.sessions.find(x => x.id === id)
       if (s && s.unread > 0) {
@@ -282,7 +300,9 @@ export const useConversationsStore = defineStore('conversations', {
           merged = merged.slice(-cap)
         }
         this.messagesByConv[id] = merged
-        this.historyHasMore[id] = page.length === 30
+        // page<30 只在"确实翻到底"时才置 false：重连/重开补拉拉回最后一页不足 30 条，
+        // 但用户此前已翻出更早历史（内存里有）时不能把「加载更早」按钮弄丢
+        this.historyHasMore[id] = page.length === 30 || (this.historyHasMore[id] ?? false)
         // 服务端拉到的聊天记录也落到浏览器缓存（1 天窗口内）
         scheduleMessagePersist(id)
       } finally {
@@ -503,6 +523,7 @@ export const useConversationsStore = defineStore('conversations', {
             }
             const merged = [...fresh, ...existing].slice(-500)
             this.messagesByConv[conv.id] = merged
+            this.cacheLoaded[conv.id] = true
             await idbPutMessages(conv.id, merged)
           } catch { /* 单会话失败不影响整体 */ }
         }

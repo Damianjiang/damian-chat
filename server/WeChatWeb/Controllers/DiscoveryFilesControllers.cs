@@ -179,7 +179,8 @@ public class FilesController : ControllerBase
         // 只会人为拖慢响应（100MB @10MB/s ≈ 10s 纯等待，1GB ≈ 100s）→ 客户端"卡在 100%"。
         // 网络公平性由 Kestrel 请求体大小上限保障，本地磁盘 I/O 无需额外限速。
         using var uploadStream = file.OpenReadStream();
-        var (id, dedup) = await _files.SaveAsync(uploadStream, ext, HttpContext.GetUserId(), safeName, HttpContext.RequestAborted);
+        var uploaderId = HttpContext.GetUserId();
+        var (id, dedup) = await _files.SaveAsync(uploadStream, ext, uploaderId, safeName, HttpContext.RequestAborted);
 
         // 展示用文件名先做敏感词过滤（掩码而非拒收），再写回元数据
         var displayName = _sw.Filter(safeName) ?? safeName;
@@ -188,7 +189,7 @@ public class FilesController : ControllerBase
         // 安全不靠"拒收文件"，而靠下载侧（路径穿越已挡 + 登录鉴权 + attachment + nosniff + 文件从不被执行）。
         lock (_store)
         {
-            if (_store.Files.TryGetValue(id, out var m2)) m2.FileName = displayName;
+            if (_store.Files.TryGetValue(id, out var m2) && m2.UploaderId == uploaderId) m2.FileName = displayName;   // 共享 meta 只有本人命中才可改名
         }
         _files.PersistIndex();
 

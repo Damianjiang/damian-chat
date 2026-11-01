@@ -620,6 +620,9 @@ public sealed class DataStore
             // 全量重建会话消息索引 + 文件引用索引，保证与保留集严格一致
             _msgIndex.Clear();
             _fileRefs.Clear();
+            // _msgById 同步重建：否则被清理的消息仍可被 GetMessageById 取到
+            //（对已过期消息还能撤回/删除 → 未读计数被错误 -1），且字典无界增长
+            _msgById.Clear();
             foreach (var m in keep) MsgIndexAdd(m);
         }
         // 落盘放到全局锁外：SaveNow 会做全库序列化，持锁期间做会把所有请求卡在这把锁上

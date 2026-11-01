@@ -93,18 +93,15 @@ public class UsersController : ControllerBase
             return BadRequest(new { error = "大面号需 6-20 位，小写字母开头，可含数字/下划线/连字符" });
 
         var cooldown = Math.Max(0, _sec.WxIdChangeCooldownDays);
-        if (cooldown > 0)
+        lock (_store)
         {
+            // 冷却判断放进锁内：并发请求都读旧 WxIdChangedAt 会在一次冷却窗口内改两次号
             var last = user.WxIdChangedAt == DateTime.MinValue ? (DateTime?)null : user.WxIdChangedAt;
-            if (last.HasValue && (DateTime.UtcNow - last.Value).TotalDays < cooldown)
+            if (cooldown > 0 && last.HasValue && (DateTime.UtcNow - last.Value).TotalDays < cooldown)
             {
                 var next = last.Value.AddDays(cooldown);
                 return BadRequest(new { error = $"修改太频繁，{next:yyyy-MM-dd} 后才能再次修改", nextAllowedAt = next });
             }
-        }
-
-        lock (_store)
-        {
             if (_store.Users.Values.Any(u => u.WxId == wxId))
                 return Conflict(new { error = "该大面号已被使用" });
             user.WxId = wxId;
@@ -313,7 +310,8 @@ public class ContactsController : ControllerBase
                 r.Id,
                 r.Message,
                 r.CreatedAt,
-                From = _store.Users.TryGetValue(r.FromUserId, out var u) ? UsersController.PublicProfile(u, true) : null,
+                // 申请未接受前按「陌生人」投影：不下发 phone/wxId（发申请 ≠ 同意公开资料）
+                From = _store.Users.TryGetValue(r.FromUserId, out var u) ? UsersController.PublicProfile(u, false) : null,
             }));
         }
     }

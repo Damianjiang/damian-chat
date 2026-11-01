@@ -1082,8 +1082,12 @@
       }
     })
   })
+  // 切会话竞态守卫：A→B 快速导航时两个 watcher 并发执行，
+  // 若 A 的 openConversation 后完成会把 activeId 覆盖回 A —— 用令牌让过期运行直接退出
+  let convSwitchSeq = 0
   watch(() => route.params.id, async () => {
     if (!convId.value) return
+    const seq = ++convSwitchSeq
     quoteDraft.value = null
     showMembers.value = false
     noticeConfirmedMe.value = false
@@ -1098,12 +1102,13 @@
     await store.loadSessions().catch(() => {})
     await loadGroup()
     await loadNames()
+    if (seq !== convSwitchSeq) return   // 期间又切走了：本次是过期运行，放弃收尾
     try {
       await store.openConversation(convId.value)
     } finally {
-      initializing.value = false // 失败也要收掉骨架，否则永远转圈
+      if (seq === convSwitchSeq) initializing.value = false // 失败也要收掉骨架，否则永远转圈
     }
-    scrollBottom()
+    if (seq === convSwitchSeq) scrollBottom()
   })
 
   onMounted(async () => {

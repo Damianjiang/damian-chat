@@ -205,10 +205,7 @@
       <v-card class="text-center pa-4">
         <div class="text-title-large mb-3">{{ t('profile.myQr') }}</div>
 
-        <v-avatar class="mb-3" :color="avatarColor(meId)" size="64">
-          <img v-if="auth.user?.avatar" alt="" :src="auth.user.avatar">
-          <span v-else>{{ (auth.user?.nickname ?? t('msg.pat.me')).slice(0, 1) }}</span>
-        </v-avatar>
+        <user-avatar :nickname="auth.user?.nickname" :size="64" :src="auth.user?.avatar" />
 
         <div class="font-weight-medium mb-3">{{ auth.user?.nickname }}</div>
 

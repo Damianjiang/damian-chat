@@ -122,7 +122,11 @@ public sealed class ChatHub : Hub
         _store.MarkDisconnected(Context.ConnectionId);
         if (!string.IsNullOrEmpty(user))
         {
-            var stillOnline = _store.Connections.Values.Any(c => c.UserId == user);
+            bool stillOnline;
+            lock (_store)
+            {
+                stillOnline = _store.Connections.Values.Any(c => c.UserId == user);
+            }
             if (!stillOnline)
                 await SendPresenceToRelated(user, false);
         }

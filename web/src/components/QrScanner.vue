@@ -18,10 +18,7 @@
         <!-- 扫到用户名片 -->
         <v-sheet v-if="scannedUser" border class="mt-3 pa-3 rounded">
           <div class="d-flex align-center">
-            <v-avatar class="mr-3" color="primary" size="44">
-              <v-icon v-if="!scannedUser.avatar" icon="mdi-account" />
-              <v-img v-else :src="scannedUser.avatar" />
-            </v-avatar>
+            <user-avatar class="mr-3" :nickname="scannedUser.nickname" :size="44" :src="scannedUser.avatar" />
 
             <div class="flex-grow-1">
               <div class="font-weight-medium">{{ scannedUser.nickname }}</div>
@@ -60,6 +57,7 @@
 
   import { api } from '@/lib/api'
   import { t } from '@/lib/i18n'
+  import UserAvatar from '@/components/UserAvatar.vue'
   import { useAuthStore } from '@/stores/auth'
   import { useContactsStore } from '@/stores/contacts'
 

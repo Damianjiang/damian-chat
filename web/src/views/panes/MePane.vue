@@ -65,21 +65,20 @@
 
     <!-- 我的二维码名片 -->
     <v-dialog v-model="qrDialog" max-width="340">
-      <v-card class="text-center">
-        <v-card-title>{{ t('me.qr.title') }}</v-card-title>
+      <v-card class="text-center pa-4">
+        <div class="text-title-large font-weight-medium mb-4">{{ t('me.qr.title') }}</div>
 
-        <v-card-text>
-          <user-avatar class="mb-3" :nickname="auth.user?.nickname" :size="64" :src="auth.user?.avatar" />
-
+        <div class="d-flex flex-column align-center">
+          <user-avatar class="mb-2" :nickname="auth.user?.nickname" :size="56" :src="auth.user?.avatar" />
           <div class="font-weight-medium mb-3">{{ auth.user?.nickname }}</div>
 
-          <div class="d-inline-block pa-3 rounded-lg" style="background: #fff">
+          <div class="d-flex align-center justify-center rounded-lg" style="background: #fff; width: 224px; height: 224px">
             <img v-if="myQr" :alt="t('me.qr.alt')" :src="myQr" style="width: 200px; height: 200px">
             <v-progress-circular v-else color="primary" indeterminate />
           </div>
 
           <div class="text-body-small text-medium-emphasis mt-3">{{ t('me.qr.hint') }}</div>
-        </v-card-text>
+        </div>
 
         <v-card-actions>
           <v-spacer />

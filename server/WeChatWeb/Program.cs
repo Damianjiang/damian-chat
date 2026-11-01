@@ -334,8 +334,10 @@ if (httpsEnabled)
 app.UseRateLimiter();
 
 app.UseMiddleware<AuthRateLimitMiddleware>();
-app.UseMiddleware<ApiRateLimitMiddleware>();
 app.UseAuthentication();
+// ApiRateLimit 的「按用户（JWT sub）限流」依赖 context.User —— 必须在认证之后，
+// 否则用户桶永远取不到 claim，账号维度限流形同虚设（被盗 token 换 IP 即绕过）
+app.UseMiddleware<ApiRateLimitMiddleware>();
 // 封号/删号即时失效：已认证的每个请求（含 /hubs）按 sub 反查 DataStore，
 // 用户不存在或已封禁即 401（BE-SEC-047 / BIZ-SEC-023）
 app.UseMiddleware<UserInvalidationMiddleware>();

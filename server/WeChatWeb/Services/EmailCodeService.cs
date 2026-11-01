@@ -81,20 +81,26 @@ public sealed class EmailCodeService
     public string? Verify (string email, string code)
     {
         var e = Norm(email);
-        if (_codes.TryGetValue(e, out var entry))
+        // 读-改-写失败计数必须串行：并发提交错误码会互相覆盖 Fails，5 次锁定形同虚设
+        lock (_verifyLock)
         {
-            if (entry.ExpiresAt < DateTime.UtcNow) { _codes.TryRemove(e, out _); return "验证码已过期，请重新发送"; }
-            if (entry.Code != (code ?? "").Trim())
+            if (_codes.TryGetValue(e, out var entry))
             {
-                var nf = entry with { Fails = entry.Fails + 1 };
-                if (nf.Fails >= 5) _codes.TryRemove(e, out _); else _codes[e] = nf;
-                return "验证码错误";
+                if (entry.ExpiresAt < DateTime.UtcNow) { _codes.TryRemove(e, out _); return "验证码已过期，请重新发送"; }
+                if (entry.Code != (code ?? "").Trim())
+                {
+                    var nf = entry with { Fails = entry.Fails + 1 };
+                    if (nf.Fails >= 5) _codes.TryRemove(e, out _); else _codes[e] = nf;
+                    return "验证码错误";
+                }
+                _codes.TryRemove(e, out _);
+                return null;
             }
-            _codes.TryRemove(e, out _);
-            return null;
+            return "请先获取验证码";
         }
-        return "请先获取验证码";
     }
+
+    private readonly object _verifyLock = new();
 
     /// <summary>瞬态保养：清过期码/发送节流记录。返回清理条数。</summary>
     public (int codes, int throttles) Prune ()

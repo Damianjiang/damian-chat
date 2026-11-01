@@ -25,6 +25,7 @@ public static class SystemMessages
                 Content = text,
                 CreatedAt = DateTime.UtcNow,
             };
+            if (!store.Conversations.ContainsKey(conversationId)) return;   // 群刚解散：不再写孤儿消息
             store.Messages.Add(msg);
             store.MsgIndexAdd(msg);   // 会话消息索引同步（漏掉会导致 History/未读看不到系统消息）
             store.OnNewMessage(msg);  // 系统消息同样计入未读（与服务端硬校验的语义一致）
