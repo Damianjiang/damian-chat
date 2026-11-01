@@ -177,6 +177,10 @@ internal sealed class MainForm : Form
     private TabPage? _logTab;
     private TabControl? _tabs;
 
+    /* ---- 页签切换自动加载数据 ---- */
+    private TabPage? _overviewTab, _securityTab, _usersTab, _fbTab, _honeyTab, _bgsTab, _loginTab;
+    private bool _tabLoading;
+
     /* ---- 文件与群限制（GUI 可写，后端即时生效） ---- */
     private readonly NumericUpDown _nudMaxFileMb = new() { Minimum = 1, Maximum = 1024, Width = 70 };   // 最大 1GB（与后端 Kestrel/存储上限对齐）
     private readonly NumericUpDown _nudSpeedMb = new() { Minimum = 1, Maximum = 200, Width = 70 };
@@ -360,6 +364,13 @@ internal sealed class MainForm : Form
         _timer.Tick += (_, _) =>
         {
             RefreshStatus();
+            // 概览页在线用户同样定时刷新（与日志页同策略：活动页才刷）
+            if (_running
+                && _overviewTab != null && _tabs != null
+                && ReferenceEquals(_tabs.SelectedTab, _overviewTab))
+            {
+                LoadOnlineAsync().ContinueWith(_ => { }, TaskScheduler.Default);
+            }
             // 日志页自动刷新：服务运行中 + 日志 tab 处于活动页 + 无手动刷新进行中
             if (_running && !_logBusy
                 && _logTab != null && _tabs != null
@@ -385,7 +396,7 @@ internal sealed class MainForm : Form
             _suspendAutoRun = false;
             RunAsync(async () =>
             {
-                await LoadSecurityAsync();
+                await LoadOnlineAsync();
                 if (_running)
                 {
                     await LoadUsersAsync();
@@ -431,7 +442,8 @@ internal sealed class MainForm : Form
         var tabs = _tabs;
 
         /* 概览 */
-        var overview = new TabPage("概览");
+        var overview = new TabPage("概览") { AutoScroll = true };
+        _overviewTab = overview;
         var top = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(8), WrapContents = true };
         top.Controls.AddRange(new Control[] { _lblStatus, _lblDetail });
 
@@ -471,9 +483,11 @@ internal sealed class MainForm : Form
         overview.Controls.Add(top);
 
         /* 安全 */
-        var security = new TabPage("安全设置");
-        var secBox = new GroupBox { Text = "安全（运行中走管理 API 即时生效；停止时写 security.json）", Dock = DockStyle.Fill, Padding = new Padding(8) };
-        var secLayout = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new Padding(0) };
+        var security = new TabPage("安全设置") { AutoScroll = true };
+        _securityTab = security;
+        var secBox = new GroupBox { Text = "安全（运行中走管理 API 即时生效；停止时写 security.json）", Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(8) };
+        // 窄窗口自适应：TopDown 流式布局 + AutoScroll，放不下的行出滚动条而不是被裁掉
+        var secLayout = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new Padding(0), AutoScroll = true };
 
         var row1 = new FlowLayoutPanel { AutoSize = true, WrapContents = true };
         _cmbRegMode.Items.AddRange(new object[] { "direct（账号注册：大面号=注册账号）", "email（邮箱注册：大面号随机生成）" });
@@ -584,7 +598,8 @@ internal sealed class MainForm : Form
         security.Controls.Add(secBox);
 
         /* 用户 */
-        var usersTab = new TabPage("用户管理");
+        var usersTab = new TabPage("用户管理") { AutoScroll = true };
+        _usersTab = usersTab;
         var userTop = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(8), WrapContents = true };
         userTop.Controls.AddRange(new Control[] { _btnCreateUser, _btnUsersRefresh, _btnBanToggle, _btnResetPwd, _btnDeleteUser });
         _users.Dock = DockStyle.Fill;
@@ -606,7 +621,8 @@ internal sealed class MainForm : Form
         logTab.Controls.Add(logTop);
 
         /* 用户反馈 */
-        var fbTab = new TabPage("用户反馈");
+        var fbTab = new TabPage("用户反馈") { AutoScroll = true };
+        _fbTab = fbTab;
         _feedback.Columns.Add("时间", 150);
         _feedback.Columns.Add("用户", 150);
         _feedback.Columns.Add("反馈内容", 320);
@@ -623,7 +639,8 @@ internal sealed class MainForm : Form
         fbTab.Controls.Add(fbTop);
 
         /* 蜜罐（开关 + 事件日志 + 金丝雀） */
-        var honeyTab = new TabPage("蜜罐");
+        var honeyTab = new TabPage("蜜罐") { AutoScroll = true };
+        _honeyTab = honeyTab;
         _honeyEvents.Columns.Add("时间", 150);
         _honeyEvents.Columns.Add("来源IP", 130);
         _honeyEvents.Columns.Add("方法", 44);
@@ -649,14 +666,15 @@ internal sealed class MainForm : Form
         });
         var honeyCanaryBox = new GroupBox { Text = "金丝雀（honeytoken，可溯源）", Dock = DockStyle.Fill, Padding = new Padding(8) };
         honeyCanaryBox.Controls.Add(_honeyCanaries);
-        var honeyCanaryPanel = new Panel { Dock = DockStyle.Right, Width = 620, Padding = new Padding(4) };
+        var honeyCanaryPanel = new Panel { Dock = DockStyle.Right, Width = 460, Padding = new Padding(4) };
         honeyCanaryPanel.Controls.Add(honeyCanaryBox);
         honeyTab.Controls.Add(_honeyEvents);
         honeyTab.Controls.Add(honeyCanaryPanel);
         honeyTab.Controls.Add(honeyTop);
 
         /* 滑块图库 */
-        var bgsTab = new TabPage("滑块图库");
+        var bgsTab = new TabPage("滑块图库") { AutoScroll = true };
+        _bgsTab = bgsTab;
         _bgs.Columns.Add("文件名", 190);
         _bgs.Columns.Add("大小", 80);
         _bgs.Columns.Add("修改时间", 150);
@@ -671,7 +689,8 @@ internal sealed class MainForm : Form
         bgsTab.Controls.Add(bgTop);
 
         /* 登录背景 */
-        var loginTab = new TabPage("登录背景");
+        var loginTab = new TabPage("登录背景") { AutoScroll = true };
+        _loginTab = loginTab;
         _cmbLoginMode.Items.AddRange(new object[] { "波纹（默认·动）", "纯色", "图片" });
         _cmbLoginMode.SelectedIndex = 0;
         var loginTop = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(8), WrapContents = true };
@@ -710,10 +729,59 @@ internal sealed class MainForm : Form
 
         tabs.TabPages.AddRange(new[] { overview, security, usersTab, fbTab, honeyTab, bgsTab, loginTab, logTab });
 
+        // 页签切换即自动读取该页数据（此前只有日志页有自动刷新，切到别的页都是旧数据，
+        // 尤其安全设置页必须手动点「读取」才能看到后台当前值）
+        tabs.SelectedIndexChanged += (_, _) => RunAsync(OnTabSelectedAsync);
+
         _status.Items.Add(_msg);
 
         Controls.Add(tabs);
         Controls.Add(_status);
+    }
+
+    /* ---------------- 页签切换：自动加载对应页数据 ---------------- */
+    private async Task OnTabSelectedAsync ()
+    {
+        if (_tabs == null || _tabLoading) return;
+        _tabLoading = true;
+        try
+        {
+            var tab = _tabs.SelectedTab;
+            if (ReferenceEquals(tab, _overviewTab))
+            {
+                await LoadOnlineAsync();
+            }
+            else if (ReferenceEquals(tab, _securityTab))
+            {
+                await LoadSecurityAsync();
+                if (_running) await LoadLimitsAsync();
+            }
+            else if (ReferenceEquals(tab, _usersTab) && _running)
+            {
+                await LoadUsersAsync();
+            }
+            else if (ReferenceEquals(tab, _fbTab))
+            {
+                await LoadFeedbackAsync();
+            }
+            else if (ReferenceEquals(tab, _honeyTab))
+            {
+                await LoadHoneyAsync();
+            }
+            else if (ReferenceEquals(tab, _bgsTab))
+            {
+                await LoadSliderBgsAsync();
+            }
+            else if (ReferenceEquals(tab, _loginTab))
+            {
+                await LoadLoginBgAsync();
+            }
+        }
+        catch { /* 单页加载失败不打断切换 */ }
+        finally
+        {
+            _tabLoading = false;
+        }
     }
 
     /* ---------------- 托盘 ---------------- */
