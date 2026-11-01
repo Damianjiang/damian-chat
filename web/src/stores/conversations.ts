@@ -367,9 +367,11 @@ export const useConversationsStore = defineStore('conversations', {
       try {
         const res = await api.post('/messages', body)
         const created = res.data as Message
-        // 回声可能已经抢先对账掉了这条；无论哪种，都以真实消息为准就地替换
-        const i = list.findIndex(m => m.localKey === localKey)
-        replaceAt(list, i, { ...created, localKey })
+        // await 期间会话数组可能被 loadHistory/openConversation 整体替换：
+        // 必须重新解析「活数组」，否则写进的是脱离 store 的旧数组 → 气泡永久转圈
+        const live = this.messagesByConv[conv.id] ?? list
+        const i = live.findIndex(m => m.localKey === localKey)
+        replaceAt(live, i, { ...created, localKey })
         const s = this.sessions.find(x => x.id === conv.id)
         if (s) {
           s.lastMessage = created
@@ -379,10 +381,11 @@ export const useConversationsStore = defineStore('conversations', {
         scheduleMessagePersist(conv.id)
         return created
       } catch (error) {
-        const i = list.findIndex(m => m.localKey === localKey)
-        const cur = at(list, i)
+        const live = this.messagesByConv[conv.id] ?? list
+        const i = live.findIndex(m => m.localKey === localKey)
+        const cur = at(live, i)
         if (cur) {
-          replaceAt(list, i, { ...cur, pending: false, failed: true })
+          replaceAt(live, i, { ...cur, pending: false, failed: true })
         }
         throw error
       }
@@ -413,14 +416,16 @@ export const useConversationsStore = defineStore('conversations', {
           patTarget: m.patTarget,
         })
         const created = res.data as Message
-        const j = list.findIndex(x => x.localKey === localKey)
-        replaceAt(list, j, { ...created, localKey })
+        const live = this.messagesByConv[convId] ?? list
+        const j = live.findIndex(x => x.localKey === localKey)
+        replaceAt(live, j, { ...created, localKey })
         scheduleMessagePersist(convId)
       } catch {
-        const j = list.findIndex(x => x.localKey === localKey)
-        const cur = at(list, j)
+        const live = this.messagesByConv[convId] ?? list
+        const j = live.findIndex(x => x.localKey === localKey)
+        const cur = at(live, j)
         if (cur) {
-          replaceAt(list, j, { ...cur, pending: false, failed: true })
+          replaceAt(live, j, { ...cur, pending: false, failed: true })
         }
       }
     },

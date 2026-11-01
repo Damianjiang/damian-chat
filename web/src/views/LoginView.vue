@@ -553,6 +553,7 @@
   }
 
   function submit () {
+    if (loading.value) return   // 防重入：慢网络下 Enter 连按会双发登录/注册
     if (tab.value === 'login') {
       if (!validLogin.value) return
     } else if (!validRegister.value) {
@@ -565,6 +566,7 @@
 
   /** 滑块通过：拿到一次性 passToken，立即提交原本的操作 */
   function onSliderPass (token: string) {
+    if (loading.value) return   // 防重入：滑块二次通过时不再双发
     passToken.value = token
     if (pendingTab.value === 'login') doLogin()
     else doRegister()

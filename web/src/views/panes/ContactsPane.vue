@@ -79,8 +79,8 @@
             </template>
 
             <template #append>
-              <v-btn color="primary" size="x-small" @click="answerRequest(r.id, true)">{{ t('contacts.accept') }}</v-btn>
-              <v-btn size="x-small" variant="text" @click="answerRequest(r.id, false)">{{ t('contacts.reject') }}</v-btn>
+              <v-btn color="primary" size="x-small" :disabled="contacts.acceptingId === r.id" @click="answerRequest(r.id, true)">{{ t('contacts.accept') }}</v-btn>
+              <v-btn size="x-small" variant="text" :disabled="contacts.acceptingId === r.id" @click="answerRequest(r.id, false)">{{ t('contacts.reject') }}</v-btn>
             </template>
           </v-list-item>
         </v-list>
@@ -184,8 +184,8 @@
               <span class="text-body-small text-medium-emphasis">{{ r.message || t('contacts.request.noMsg') }}</span>
             </template>
             <template #append>
-              <v-btn color="primary" size="x-small" @click="answerRequest(r.id, true); requestsSheet = false">{{ t('contacts.accept') }}</v-btn>
-              <v-btn size="x-small" variant="text" @click="answerRequest(r.id, false); requestsSheet = false">{{ t('contacts.reject') }}</v-btn>
+              <v-btn color="primary" size="x-small" :disabled="contacts.acceptingId === r.id" @click="answerRequest(r.id, true); requestsSheet = false">{{ t('contacts.accept') }}</v-btn>
+              <v-btn size="x-small" variant="text" :disabled="contacts.acceptingId === r.id" @click="answerRequest(r.id, false); requestsSheet = false">{{ t('contacts.reject') }}</v-btn>
             </template>
           </v-list-item>
         </v-list>
@@ -381,6 +381,13 @@
   const newGroupName = ref('')
   const picked = ref<string[]>([])
   const creating = ref(false)
+  // 重开弹层清空上次勾选：残留会把不相关好友拉进新群
+  watch(createSheet, v => {
+    if (v) {
+      picked.value = []
+      newGroupName.value = ''
+    }
+  })
   function togglePick (c: Contact) {
     const id = c.user?.id ?? ''
     if (!id) return
@@ -575,7 +582,8 @@
   /** 群聊未读消息总数：所有群会话(kind==='group')的 unread 求和。
    *  红点语义 = 消息数（不是群数量）；实时消息进来会实时更新 sessions[].unread。 */
   const groupUnread = computed(() =>
-    conversations.sessions.filter(s => s.kind === 'group').reduce((sum, s) => sum + (s.unread || 0), 0))
+    // 静音群不计入角标（与聊天列表的红点弱化语义一致）
+    conversations.sessions.filter(s => s.kind === 'group' && !s.muted).reduce((sum, s) => sum + (s.unread || 0), 0))
 
   /** 我参加的所有群（数据源 contacts.groups，onMounted 已 loadGroups）。 */
   const myGroups = computed(() => contacts.groups)

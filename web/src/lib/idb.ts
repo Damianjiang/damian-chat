@@ -184,9 +184,11 @@ export async function idbPutMedia (fileId: string, blob: Blob, ext?: string, con
             all.onsuccess = () => res(all.result as MediaRecord[])
             all.onerror = () => rej(all.error)
           })
-          bytes = cur.reduce((s, r) => s + (r.blob?.size ?? 0), 0) + blob.size
-          if (countReq.result + 1 > MEDIA_MAX_COUNT) {
-            toRemove = countReq.result + 1 - MEDIA_MAX_COUNT
+          // cur 是同事务 put 之后取的 getAll，已包含刚写入的记录：
+          // 计数/字节都不能再 +1/+blob.size（双计会每次插入多淘汰 1 条）
+          bytes = cur.reduce((s, r) => s + (r.blob?.size ?? 0), 0)
+          if (countReq.result > MEDIA_MAX_COUNT) {
+            toRemove = countReq.result - MEDIA_MAX_COUNT
           }
           if (bytes > MEDIA_MAX_BYTES) {
             const sorted = cur.slice().sort((a, b) => a.at - b.at)

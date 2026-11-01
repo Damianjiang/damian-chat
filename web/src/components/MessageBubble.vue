@@ -508,7 +508,8 @@
       })
     } else {
       const c = props.message.content ?? ''
-      voiceUrl.value = /^https?:\/\//.test(c) ? c : ''
+      // 仅接受本站文件路径：外链会让收方播放时向第三方服务器泄露 IP/UA
+      voiceUrl.value = c.startsWith('/api/files/') || c.startsWith('/files/') ? c : ''
     }
   })
 

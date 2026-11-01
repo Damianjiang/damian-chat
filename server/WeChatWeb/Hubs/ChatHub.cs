@@ -111,8 +111,15 @@ public sealed class ChatHub : Hub
 
         if (!string.IsNullOrEmpty(user))
         {
-            // 登记连接时带上 HubCallerContext 引用：封号/删号可远程 Abort 该连接（即时踢线）
+            // 检查+登记放进同一把锁（此前两段加锁之间可被并发握手穿透上限）：
+            // 先登记，超限则立即摘除并断开 —— 自愈，不存在驻留超额连接
             _store.MarkConnected(Context.ConnectionId, user, Context, CurrentSid);
+            if (!_store.RegisterConnectionWithinCaps(Context.ConnectionId, user, _maxConnections, _maxPerUser))
+            {
+                _log.Write("auth", new { ts = DateTime.UtcNow, result = "ws-cap-exceeded", user });
+                Context.Abort();
+                return;
+            }
             await SendPresenceToRelated(user, true);
         }
         await base.OnConnectedAsync();

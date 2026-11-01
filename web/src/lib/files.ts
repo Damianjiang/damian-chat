@@ -11,6 +11,8 @@ import { idbClearMedia, idbGetMedia, idbPutMedia } from '@/lib/idb'
  *      不拼用户路径，无路径穿越面；本地 blob 只影响当前用户自己的渲染。
  */
 const blobCache = new Map<string, string>() // fileId → objectURL（内存热层）
+/** 缓存代际：登出/清缓存时 +1，在途下载完成后发现代际变化即丢弃，防跨账号缓存回写 */
+let cacheEpoch = 0
 
 /** 从 IDB 取缓存 blob → objectURL；命中则返回，未命中返回空。 */
 async function cachedMediaUrl (fileId: string): Promise<string> {
@@ -29,6 +31,7 @@ async function cachedMediaUrl (fileId: string): Promise<string> {
 
 /** 清理媒体缓存（设清缓存勾选「图片视频语音」时调用）。 */
 export async function clearMediaCache (): Promise<void> {
+  cacheEpoch++   // 在途下载完成后发现代际变化即丢弃，不再回写
   // 先 revoke 热层 objectURL，防泄漏
   for (const url of blobCache.values()) {
     try {
@@ -82,11 +85,14 @@ export async function fileUrl (id?: string | null): Promise<string> {
     return inflight
   }
 
+  const myEpoch = cacheEpoch
   const task = (async () => {
     try {
       // timeout:0 —— 大文件（视频/文档，1GB 内）下载可能远超 20s，
       // 旧的全局 20s 超时会把"1GB 以内"的正常文件误判成失败（"上传/下载失败"）。
       const res = await api.get(`/files/${id}`, { responseType: 'blob', timeout: 0 })
+      // 下载期间登出/清缓存（cacheEpoch 变化）→ 丢弃结果，不回写缓存（防跨账号媒体残留）
+      if (myEpoch !== cacheEpoch) return ''
       const blob = res.data as Blob
       if (!blob || blob.size === 0) {
         return ''

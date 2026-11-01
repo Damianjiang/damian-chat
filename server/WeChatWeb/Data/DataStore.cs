@@ -229,9 +229,10 @@ public sealed class DataStore
             return;
         }
 
-        var snap = new StoreSnapshot();
+        byte[] jsonBytes;
         lock (this)
         {
+            var snap = new StoreSnapshot();
             snap.Users = Users.Values.ToList();
             snap.Contacts = Contacts.ToDictionary(kv => kv.Key, kv => kv.Value);
             snap.Conversations = Conversations.ToDictionary(kv => kv.Key, kv => kv.Value);
@@ -242,13 +243,15 @@ public sealed class DataStore
             snap.Favorites = Favorites.ToList();
             snap.Files = Files.Values.ToList();
             snap.LoginSessions = LoginSessions.ToDictionary(kv => kv.Key, kv => kv.Value);
+            // 锁内序列化成字节：快照里全是共享活对象（Conversation 字典/Group.Members/列表），
+            // 锁外序列化遇并发写会抛 "Collection was modified" 且被 catch 吞掉 → 整批落盘丢失
+            jsonBytes = JsonSerializer.SerializeToUtf8Bytes(snap, Opts);
         }
         try
         {
             Directory.CreateDirectory(DataDir());
-            var json = JsonSerializer.Serialize(snap, Opts);
             var tmp = StorePath + ".tmp";
-            File.WriteAllText(tmp, json);
+            File.WriteAllBytes(tmp, jsonBytes);
             File.Move(tmp, StorePath, overwrite: true);
             // 敏感数据文件（含密码哈希）落盘即收紧为仅当前用户可读写。
             // 60s 节流：落盘很频繁（750ms 合并窗口），避免每写一次都调 icacls/chmod 拖慢热路径。
@@ -259,7 +262,11 @@ public sealed class DataStore
                 SensitiveFile.RestrictToOwner(StorePath);
             }
         }
-        catch { /* 只读/磁盘满：内存数据仍可用，不阻塞主流程 */ }
+        catch (Exception ex)
+        {
+            // 落盘失败绝不能静默：连续失败 = 重启丢数据。内存数据仍可用，但必须留痕排查。
+            Console.Error.WriteLine($"[DataStore] 严重：store.json 落盘失败（{ex.GetType().Name}: {ex.Message}），本次变更未持久化");
+        }
     }
 
     /// <summary>合并窗口落盘：750ms 内的多次脏标记合并为一次写盘（刷屏不逐条写）。</summary>
@@ -532,8 +539,10 @@ public sealed class DataStore
             }
             else if (g.OwnerId == userId)
             {
-                // 群主离开 → 移交给仍在群内的第一个成员
-                var next = g.Members[0];
+                // 群主离开 → 移交给仍在群内的第一个「未被封禁」成员：
+                // 交给封禁成员会让群永远无人可管（其无法登录，公告/踢人/解散全部不可操作）
+                var next = g.Members.FirstOrDefault(x =>
+                    Users.TryGetValue(x.UserId, out var mu) && !mu.Banned) ?? g.Members[0];
                 g.OwnerId = next.UserId;
                 next.Role = "owner";
             }
@@ -553,7 +562,9 @@ public sealed class DataStore
         // ⑦ 它的收藏
         s.RemovedFavorites = Favorites.RemoveAll(f => f.UserId == userId);
 
-        // ⑧ 瞬态：刷新令牌 + 在线连接立即失效
+        // ⑧ 瞬态：刷新令牌 + 设备会话 + 在线连接立即失效
+        //    （不清 LoginSessions 的话，已删用户的 IP/UA/refresh 值随快照永久落盘 —— 隐私残留）
+        EndAllSessions(userId);
         var myTokenKeys = RefreshTokens.Where(kv => kv.Value.UserId == userId).Select(kv => kv.Key).ToList();
         s.RemovedRefreshTokens = myTokenKeys.Count;
         foreach (var key in myTokenKeys) RefreshTokens.Remove(key);
@@ -723,6 +734,8 @@ public sealed class DataStore
     /// <summary>清会话消息 + 索引 + 文件引用的核心逻辑（纯逻辑，不落盘）。调用方需持有 lock(store)。</summary>
     private void ClearConversationMessagesLocked (string conversationId)
     {
+        foreach (var m in Messages)
+            if (m.ConversationId == conversationId) _msgById.Remove(m.Id);   // 否则"已清空"的消息仍可被按 Id 命中
         Messages.RemoveAll(m => m.ConversationId == conversationId);
         _msgIndex.Remove(conversationId);
         foreach (var set in _fileRefs.Values)
@@ -941,6 +954,24 @@ public sealed class DataStore
     /// 登记/更新一条在线连接。可选带上 <paramref name="ctx"/>（HubCallerContext）：
     /// 封号/删号时经 <c>KickConnections</c> 对其 <c>AbortAsync</c> 即时踢线。
     /// </summary>
+    /// <summary>
+    /// 连接上限的原子校验：在全局锁内登记后检查全局/单用户上限，超限摘除并返回 false。
+    /// （此前"先锁内检查、后另锁登记"两段不原子，并发握手可穿透上限）
+    /// </summary>
+    public bool RegisterConnectionWithinCaps (string connectionId, string userId, int maxTotal, int maxPerUser)
+    {
+        lock (this)
+        {
+            if (!Connections.TryGetValue(connectionId, out var self)) return false;   // 已被并发摘除
+            if (Connections.Count > maxTotal || Connections.Values.Count(c => c.UserId == userId) > maxPerUser)
+            {
+                Connections.Remove(connectionId);
+                return false;
+            }
+            return true;
+        }
+    }
+
     public void MarkConnected (string connectionId, string userId, HubCallerContext? ctx = null, string? sid = null)
     {
         lock (this)
@@ -982,14 +1013,20 @@ public sealed class DataStore
         int kicked = 0;
         lock (this)
         {
+            List<HubCallerContext?> aborts = new();
             foreach (var kv in Connections.ToList())
             {
                 if (kv.Value.UserId == userId)
                 {
                     Connections.Remove(kv.Key);
+                    // 只摘表 = 已建立的 WS 永不断开（SignalR 心跳保活），
+                    // 被封用户仍可刷 Typing 等事件 —— 必须真正 Abort
+                    if (kv.Value.CallerContext != null) aborts.Add(kv.Value.CallerContext);
                     kicked++;
                 }
             }
+            foreach (var ctx in aborts)
+                try { ctx?.Abort(); } catch { /* 已断开 */ }
         }
         return kicked;
     }

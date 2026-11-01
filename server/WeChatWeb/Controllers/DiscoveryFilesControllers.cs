@@ -208,7 +208,30 @@ public class FilesController : ControllerBase
         // 安全不靠"拒收文件"，而靠下载侧（路径穿越已挡 + 登录鉴权 + attachment + nosniff + 文件从不被执行）。
         lock (_store)
         {
-            if (_store.Files.TryGetValue(id, out var m2) && m2.UploaderId == uploaderId) m2.FileName = displayName;   // 共享 meta 只有本人命中才可改名
+            if (_store.Files.TryGetValue(id, out var m2) && m2.UploaderId == uploaderId)
+            {
+                m2.FileName = displayName;   // 共享 meta 只有本人命中才可改名
+            }
+            else if (dedup && _store.Files.TryGetValue(id, out var orig))
+            {
+                // 去重命中了「别人」的文件：原 meta 的 UploaderId 是别人，直接返回会让
+                // 本人发消息/下载全部 403/404（付了流量拿到废 id）。为本人建一条指向
+                // 同一字节的新元数据（同盘多元数据，不重复占空间），归属清晰互不影响。
+                var mine = new Models.FileMeta
+                {
+                    Id = Guid.NewGuid().ToString("N"),
+                    FileName = displayName,
+                    Size = orig.Size,
+                    ContentType = orig.ContentType,
+                    Path = orig.Path,
+                    Hash = orig.Hash,
+                    UploaderId = uploaderId,
+                    Kind = orig.Kind,
+                    CreatedAt = DateTime.UtcNow,
+                };
+                _store.Files[mine.Id] = mine;
+                id = mine.Id;
+            }
         }
         _files.PersistIndex();
 
@@ -282,11 +305,18 @@ public class FilesController : ControllerBase
         //  ② 被某条「我可见」的朋友圈引用 → 对我可读（否则朋友圈图片全破图）。
         if (!CanReadFile(meta, me))
         {
-            bool avatarRef = _store.Users.Values.Any(u => u.Avatar == id)
-                || _store.Groups.Values.Any(g => g.Avatar == id);
-            bool momentRef = _store.Moments.Any(m =>
-                (m.Images?.Contains(id) ?? false) && MomentVisibleTo(m, me));
-            if (!avatarRef && !momentRef) return NotFound();
+            // 引用豁免检查必须持全局锁（全库约定）：否则与注册/删号/发朋友圈并发时
+            // 枚举 Users/Groups/Moments 会抛 "Collection was modified" → 500
+            bool exempt;
+            lock (_store)
+            {
+                bool avatarRef = _store.Users.Values.Any(u => u.Avatar == id)
+                    || _store.Groups.Values.Any(g => g.Avatar == id);
+                bool momentRef = _store.Moments.Any(m =>
+                    (m.Images?.Contains(id) ?? false) && MomentVisibleTo(m, me));
+                exempt = avatarRef || momentRef;
+            }
+            if (!exempt) return NotFound();
         }
 
         return StreamFile(meta);

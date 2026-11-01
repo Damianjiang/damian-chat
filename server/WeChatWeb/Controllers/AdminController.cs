@@ -498,6 +498,11 @@ public class AdminController : ControllerBase
         {
             if (!_store.Users.TryGetValue(id, out var u)) return NotFound();
             u.Password = PasswordHasher.Hash(pwd);
+            // 重置密码必须即时失效旧 token：不写 PasswordChangedAt 的话，
+            // 被盗的 access token 还能用满 2 小时（找回密码这一安全动作形同虚设）
+            var nowUtc = DateTime.UtcNow;
+            u.PasswordChangedAt = new DateTime(nowUtc.Ticks - nowUtc.Ticks % TimeSpan.TicksPerSecond, DateTimeKind.Utc);
+            _store.EndAllSessions(id);
             foreach (var kv in _store.RefreshTokens.Where(kv => kv.Value.UserId == id).ToList())
                 _store.RefreshTokens.Remove(kv.Key);
         }
@@ -520,8 +525,19 @@ public class AdminController : ControllerBase
             u.Banned = req.Banned;
             if (req.Banned)
             {
+                _store.EndAllSessions(id);
                 foreach (var kv in _store.RefreshTokens.Where(kv => kv.Value.UserId == id).ToList())
                     _store.RefreshTokens.Remove(kv.Key);
+            }
+            else
+            {
+                // 解封同样全端下线：封禁前签发的旧 access/refresh token 一律不复活
+                //（sid 会话校验是实测可靠的失效路径；PasswordChangedAt 兜底）
+                _store.EndAllSessions(id);
+                foreach (var kv in _store.RefreshTokens.Where(kv => kv.Value.UserId == id).ToList())
+                    _store.RefreshTokens.Remove(kv.Key);
+                var nowUtc2 = DateTime.UtcNow;
+                u.PasswordChangedAt = new DateTime(nowUtc2.Ticks - nowUtc2.Ticks % TimeSpan.TicksPerSecond, DateTimeKind.Utc);
             }
         }
         // 踢线在锁外做（连接中止是 IO 类操作）：封号即断开其全部实时通道，

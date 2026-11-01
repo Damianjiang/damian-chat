@@ -84,6 +84,14 @@ api.interceptors.response.use(
         // 网络抖动/超时不该把用户登出 —— 保留 access，下次请求再重试刷新
         if (refreshError?.response && [401, 403].includes(refreshError.response.status)) {
           clearTokens()
+          // 跨账号隔离：上个账号的 IDB 消息/媒体缓存必须清掉，否则换账号登录后
+          // files.ts 的本地缓存会绕过服务端权限校验直接回放旧账号的图片
+          try {
+            const files = await import('@/lib/files')
+            const idb = await import('@/lib/idb')
+            await files.clearMediaCache()
+            await idb.idbClearMessages()
+          } catch { /* 清理失败不阻塞跳转 */ }
           if (window.location.pathname !== '/login') {
             window.location.href = '/login'
           }

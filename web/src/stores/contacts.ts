@@ -11,6 +11,8 @@ export const useContactsStore = defineStore('contacts', {
     items: [] as Contact[],
     indexData: {} as Record<string, { nickname: string, id: string, firstLetter: string, remark: string | null, avatar: string }[]>,
     requests: [] as FriendRequest[],
+    /** 防双击：正在处理的好友申请 id（accept 双击会 404 且弹误导错误） */
+    acceptingId: '',
     /** 实时收到的最新好友申请（FriendRequested 推送）：供界面弹「某某请求加你为朋友」提示。 */
     latestRequest: null as { id: string, from: { id: string, nickname: string }, message: string } | null,
     groups: [] as Group[],
@@ -38,7 +40,14 @@ export const useContactsStore = defineStore('contacts', {
       this.latestRequest = payload
     },
     async acceptRequest (id: string) {
-      await api.post(`/contacts/requests/${id}/accept`)
+      // 防双击：第二次 POST 会 404 并弹误导性错误（第一次其实已成功）
+      if (this.acceptingId === id) return
+      this.acceptingId = id
+      try {
+        await api.post(`/contacts/requests/${id}/accept`)
+      } finally {
+        this.acceptingId = ''
+      }
       this.requests = this.requests.filter(r => r.id !== id)
       await this.load()
       await this.loadIndex()

@@ -292,6 +292,10 @@ public sealed class SliderCaptchaService
             _passes.Remove(kv.Key);
         foreach (var kv in _verifyFails.Where(kv => kv.Value.Count == 0).ToList())
             _verifyFails.Remove(kv.Key);
+        // 失败队列整体过期的 IP 一并回收：否则轮换 IP 各灌 1 次失败即长期驻留（内存缓慢耗尽）
+        foreach (var kv in _verifyFails.Where(kv =>
+            kv.Value.Count > 0 && (now - kv.Value.Peek()).TotalMinutes > 20).ToList())
+            _verifyFails.Remove(kv.Key);
     }
 
     /// <summary>

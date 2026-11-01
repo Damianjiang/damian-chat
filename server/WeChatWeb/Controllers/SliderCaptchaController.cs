@@ -47,6 +47,12 @@ public class SliderCaptchaController : ControllerBase
     [EnableRateLimiting("captcha")]
     public IActionResult Verify ([FromBody] VerifyRequest req)
     {
+        if (_slider.IsLockedOut(Ip))
+        {
+            // 与 init 的 429 对齐：否则攻击者可凭 400/200 差异精确探测 15 分钟锁窗口的结束时刻
+            return StatusCode(StatusCodes.Status429TooManyRequests,
+                new { ret = new { code = 429, msg = "失败次数过多，请 15 分钟后再试" }, data = (object?)null });
+        }
         var token = _slider.Complete(req.Key, Ip, req.DragX, req.MoveCount, req.DragMs);
         if (token is null)
         {
