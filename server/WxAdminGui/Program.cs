@@ -94,7 +94,7 @@ internal sealed class SecurityCfg
     public int FwBanMinutes { get; set; } = 30;
     public int FloodMessagesPerMinute { get; set; } = 60;
     public string RegisterMode { get; set; } = "direct";
-    public int WxIdChangeCooldownDays { get; set; } = 365;
+    public int WxIdChangeCooldownDays { get; set; } = 7;
     public string SmtpHost { get; set; } = "";
     public int SmtpPort { get; set; } = 465;
     public string SmtpUser { get; set; } = "";
@@ -147,7 +147,7 @@ internal sealed class MainForm : Form
     private readonly TextBox _txtRegKey = new() { Width = 220 };
     // 注册模式（direct=账号注册 / email=邮箱注册）+ 大面号修改冷却 + SMTP（邮箱注册验证码）
     private readonly ComboBox _cmbRegMode = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 160 };
-    private readonly NumericUpDown _nudWxIdCooldown = new() { Minimum = 0, Maximum = 3650, Width = 70, Value = 365 };
+    private readonly NumericUpDown _nudWxIdCooldown = new() { Minimum = 0, Maximum = 3650, Width = 70, Value = 7 };
     private readonly TextBox _txtSmtpHost = new() { Width = 150 };
     private readonly NumericUpDown _nudSmtpPort = new() { Minimum = 1, Maximum = 65535, Width = 70, Value = 465 };
     private readonly TextBox _txtSmtpUser = new() { Width = 150 };
@@ -504,7 +504,7 @@ internal sealed class MainForm : Form
         {
             new Label { Text = "注册方式：", AutoSize = true, Padding = new Padding(0, 6, 0, 0) }, _cmbRegMode,
             new Label { Text = "大面号可修改间隔：", AutoSize = true, Padding = new Padding(12, 6, 0, 0) }, _nudWxIdCooldown,
-            new Label { Text = "天（0=不限；微信为 365）", AutoSize = true, Padding = new Padding(4, 6, 0, 0) },
+            new Label { Text = "天（0=不限；默认 7）", AutoSize = true, Padding = new Padding(4, 6, 0, 0) },
         });
         var smtpRow1 = new FlowLayoutPanel { AutoSize = true, WrapContents = true };
         smtpRow1.Controls.AddRange(new Control[]
@@ -1527,7 +1527,7 @@ internal sealed class MainForm : Form
         public int FwBanMinutes { get; set; } = 30;
         public int FloodMessagesPerMinute { get; set; } = 60;
         public string RegisterMode { get; set; } = "direct";
-        public int WxIdChangeCooldownDays { get; set; } = 365;
+        public int WxIdChangeCooldownDays { get; set; } = 7;
         public string SmtpHost { get; set; } = "";
         public int SmtpPort { get; set; } = 465;
         public string SmtpUser { get; set; } = "";

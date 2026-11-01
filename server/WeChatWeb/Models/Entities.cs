@@ -46,6 +46,14 @@ public class Contact
     public bool Blocked { get; set; }
 }
 
+/// <summary>单个用户的会话视图标志（置顶/免打扰/折叠，按用户隔离）。</summary>
+public sealed class UserConvFlags
+{
+    public bool Pinned { get; set; }
+    public bool Muted { get; set; }
+    public bool Folded { get; set; }
+}
+
 public class Conversation
 {
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
@@ -59,6 +67,14 @@ public class Conversation
     public bool Muted { get; set; }
     /// <summary>会话是否被「我」折叠（隐藏在主列表，集中在"折叠群聊"里显示）。</summary>
     public bool Folded { get; set; }
+
+    /// <summary>
+    /// 每用户各自的会话标志（置顶/免打扰/折叠）。此前这些标志存在共享的 Conversation 上，
+    /// 私聊一方设置置顶会直接覆盖另一方的视图（越权写他人视图）—— 现在私聊一律写这里；
+    /// 群聊保持共享（群主/管理员统一管理，微信同款）。
+    /// 读取顺序：UserFlags 有 → 用之；没有 → 回退旧共享字段（兼容老数据）。
+    /// </summary>
+    public Dictionary<string, UserConvFlags> UserFlags { get; set; } = new();
 
     /// <summary>
     /// 每个用户各自的已读时间（userId -> 最后阅读的消息时间）。

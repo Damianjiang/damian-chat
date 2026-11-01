@@ -550,13 +550,14 @@ public class ConversationsController : ControllerBase
                     // 私聊：标题/头像取"对方"（共享会话里另一成员）
                     var otherId = c.Kind == "private" ? (c.Members.FirstOrDefault(x => x != me) ?? c.MemberId) : c.MemberId;
                     var isGroup = c.Kind == "group";
+                    var uf = _store.ConvFlagsFor(c, me);
                     return new
                     {
                         c.Id,
                         kind = c.Kind,
-                        c.Pinned,
-                        c.Muted,
-                        c.Folded,
+                        Pinned = uf.Pinned,
+                        Muted = uf.Muted,
+                        Folded = uf.Folded,
                         Unread = _store.UnreadFor(c.Id, me),
                         c.LastAt,
                         MemberId = otherId,
@@ -670,15 +671,28 @@ public class ConversationsController : ControllerBase
             bool flagWrite = req.Pinned.HasValue || req.Muted.HasValue || req.Folded.HasValue;
             if (flagWrite && conv.Kind == "group")
             {
+                // 群聊标志是全体共享的（群主/管理员统一管理，微信同款）：普通成员改一次会连累全群
                 var role = _store.Groups.TryGetValue(conv.MemberId, out var gg)
                     ? gg.Members.FirstOrDefault(x => x.UserId == me)?.Role
                     : null;
                 if (role is not ("owner" or "admin"))
                     return Forbid();
             }
-            if (req.Pinned.HasValue) conv.Pinned = req.Pinned.Value;
-            if (req.Muted.HasValue) conv.Muted = req.Muted.Value;
-            if (req.Folded.HasValue) conv.Folded = req.Folded.Value;
+            if (flagWrite && conv.Kind == "private")
+            {
+                // 私聊标志按用户隔离：一方置顶/免打扰/折叠不再覆盖另一方的视图（越权写修复）
+                var uf = _store.ConvFlagsFor(conv, me);
+                if (req.Pinned.HasValue) uf.Pinned = req.Pinned.Value;
+                if (req.Muted.HasValue) uf.Muted = req.Muted.Value;
+                if (req.Folded.HasValue) uf.Folded = req.Folded.Value;
+                conv.UserFlags[me] = uf;
+            }
+            else
+            {
+                if (req.Pinned.HasValue) conv.Pinned = req.Pinned.Value;
+                if (req.Muted.HasValue) conv.Muted = req.Muted.Value;
+                if (req.Folded.HasValue) conv.Folded = req.Folded.Value;
+            }
             // 已读：记录该用户的已读时间并广播给会话内其他人（多端红点同步）
             if (req.Read == true)
             {
@@ -686,7 +700,8 @@ public class ConversationsController : ControllerBase
                 _ = BroadcastReadAsync(id, me);
             }
             _store.MarkDirty();
-            return Ok(new { id, Pinned = conv.Pinned, Muted = conv.Muted, Folded = conv.Folded, Unread = _store.UnreadFor(id, me) });
+            var uf2 = _store.ConvFlagsFor(conv, me);
+            return Ok(new { id, Pinned = uf2.Pinned, Muted = uf2.Muted, Folded = uf2.Folded, Unread = _store.UnreadFor(id, me) });
         }
     }
 }

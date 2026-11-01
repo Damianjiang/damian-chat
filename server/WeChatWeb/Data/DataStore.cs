@@ -500,6 +500,17 @@ public sealed class DataStore
     }
 
     /// <summary>已读：记录该用户在此会话的已读时间戳。调用方需持有 lock(store)。</summary>
+    /// <summary>
+    /// 某用户在该会话的视图标志：UserFlags 有记录 → 用之（新写入一律走这里）；
+    /// 没有 → 回退共享字段（UserFlags 引入前的旧数据/群聊共享标志）。
+    /// 调用方需持有 lock(store)。
+    /// </summary>
+    public Models.UserConvFlags ConvFlagsFor (Models.Conversation conv, string userId)
+    {
+        if (conv.UserFlags.TryGetValue(userId, out var f)) return f;
+        return new Models.UserConvFlags { Pinned = conv.Pinned, Muted = conv.Muted, Folded = conv.Folded };
+    }
+
     public void MarkRead (string conversationId, string userId)
     {
         if (Conversations.TryGetValue(conversationId, out var conv))

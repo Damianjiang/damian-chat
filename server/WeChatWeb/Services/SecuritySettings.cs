@@ -49,8 +49,8 @@ public sealed class SecuritySettings
     /// </summary>
     public string RegisterMode { get; set; } = "direct";
 
-    /// <summary>大面号修改冷却天数（微信为 365 天一次）。0 = 不限次数。</summary>
-    public int WxIdChangeCooldownDays { get; set; } = 365;
+    /// <summary>大面号修改冷却天数（默认 7 天一次）。0 = 不限次数。</summary>
+    public int WxIdChangeCooldownDays { get; set; } = 7;
 
     // ============ SMTP（邮箱注册验证码 / 绑定邮箱） ============
     public string SmtpHost { get; set; } = "";
