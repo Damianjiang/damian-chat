@@ -11,6 +11,8 @@ export const useContactsStore = defineStore('contacts', {
     items: [] as Contact[],
     indexData: {} as Record<string, { nickname: string, id: string, firstLetter: string, remark: string | null, avatar: string }[]>,
     requests: [] as FriendRequest[],
+    /** 实时收到的最新好友申请（FriendRequested 推送）：供界面弹「某某请求加你为朋友」提示。 */
+    latestRequest: null as { id: string, from: { id: string, nickname: string }, message: string } | null,
     groups: [] as Group[],
     keyword: '',
   }),
@@ -30,6 +32,10 @@ export const useContactsStore = defineStore('contacts', {
     async loadRequests () {
       const res = await api.get('/contacts/requests')
       this.requests = res.data
+    },
+    /** 实时收到好友申请（FriendRequested 推送）：记录最新一条，界面据此弹提示。 */
+    applyIncomingRequest (payload: { id: string, from: { id: string, nickname: string }, message: string }) {
+      this.latestRequest = payload
     },
     async acceptRequest (id: string) {
       await api.post(`/contacts/requests/${id}/accept`)

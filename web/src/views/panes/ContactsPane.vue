@@ -4,8 +4,16 @@
       <div class="wx-pane-titlebar">
         <span class="wx-pane-title">{{ t('nav.contacts') }}</span>
 
+        <!-- 手动刷新：新申请/群变化即拉即得（另配合 FriendRequested 实时推送自动刷新） -->
         <v-btn
           class="ml-auto"
+          icon="mdi-refresh"
+          size="small"
+          variant="text"
+          :disabled="refreshing"
+          @click="refreshAll"
+        />
+        <v-btn
           icon="mdi-account-plus"
           size="small"
           variant="text"
@@ -22,6 +30,29 @@
         prepend-inner-icon="mdi-magnify"
         variant="solo"
       />
+
+      <!-- 微信式功能入口行：新的朋友 / 发起群聊 / 添加朋友（不用再翻进群设置找入口） -->
+      <div class="wx-quick-entries">
+        <button class="wx-quick-entry" type="button" @click="requestsSheet = true">
+          <span class="wx-quick-icon" style="background:#F7B500">
+            <v-icon color="white" icon="mdi-account-alert" size="22" />
+            <span v-if="contacts.requests.length > 0" class="wx-quick-badge">{{ contacts.requests.length }}</span>
+          </span>
+          <span class="wx-quick-label">{{ t('contacts.entry.requests') }}</span>
+        </button>
+        <button class="wx-quick-entry" type="button" @click="createSheet = true">
+          <span class="wx-quick-icon" style="background:#10AEFF">
+            <v-icon color="white" icon="mdi-account-multiple-plus" size="22" />
+          </span>
+          <span class="wx-quick-label">{{ t('contacts.entry.createGroup') }}</span>
+        </button>
+        <button class="wx-quick-entry" type="button" @click="addSheet = true">
+          <span class="wx-quick-icon" style="background:#07C160">
+            <v-icon color="white" icon="mdi-account-plus" size="22" />
+          </span>
+          <span class="wx-quick-label">{{ t('contacts.entry.addFriend') }}</span>
+        </button>
+      </div>
     </div>
 
     <div ref="listRef" class="flex-grow-1 overflow-y-auto position-relative wx-scroll">
@@ -33,13 +64,18 @@
         <v-list v-if="contacts.requests.length > 0" class="wx-entry-list wx-stagger">
           <v-list-subheader>{{ t('contacts.new') }}</v-list-subheader>
 
-          <v-list-item v-for="r in contacts.requests" :key="r.id">
+          <v-list-item v-for="r in contacts.requests" :key="r.id" lines="two">
             <template #prepend>
               <v-avatar :color="avatarColor(r.from?.id ?? r.id)"><span>{{ (r.from?.nickname ?? '?').slice(0, 1) }}</span></v-avatar>
             </template>
 
             <template #title>
-              {{ r.from?.nickname }}<span class="text-body-small ml-2 text-medium-emphasis">{{ r.message }}</span>
+              {{ r.from?.nickname }}
+            </template>
+
+            <!-- 申请留言单独一行完整展示（原来挤在昵称后面，长留言看不全） -->
+            <template #subtitle>
+              <span class="text-body-small text-medium-emphasis">{{ r.message || t('contacts.request.noMsg') }}</span>
             </template>
 
             <template #append>
@@ -129,6 +165,83 @@
         <div class="d-flex justify-end gap-2 mt-2">
           <v-btn variant="text" @click="addSheet = false">{{ t('common.cancel') }}</v-btn>
           <v-btn color="primary" :disabled="!newPhone" @click="submitAdd">{{ t('contacts.add.send') }}</v-btn>
+        </div>
+      </v-card>
+    </v-bottom-sheet>
+
+    <!-- 新的朋友：完整展示申请（头像/昵称/留言 + 通过/拒绝），与列表顶部同步数据 -->
+    <v-bottom-sheet v-model="requestsSheet" max-width="440" scrollable>
+      <v-card class="pa-2">
+        <div class="d-flex align-center pa-2">
+          <span class="text-body-large font-weight-medium">{{ t('contacts.entry.requests') }}</span>
+          <v-btn class="ml-auto" icon="mdi-refresh" size="small" variant="text" @click="contacts.loadRequests()" />
+        </div>
+
+        <v-list v-if="contacts.requests.length > 0" class="pa-0" lines="two">
+          <v-list-item v-for="r in contacts.requests" :key="r.id">
+            <template #prepend>
+              <v-avatar :color="avatarColor(r.from?.id ?? r.id)"><span>{{ (r.from?.nickname ?? '?').slice(0, 1) }}</span></v-avatar>
+            </template>
+            <template #title>{{ r.from?.nickname }}</template>
+            <template #subtitle>
+              <span class="text-body-small text-medium-emphasis">{{ r.message || t('contacts.request.noMsg') }}</span>
+            </template>
+            <template #append>
+              <v-btn color="primary" size="x-small" @click="answerRequest(r.id, true); requestsSheet = false">{{ t('contacts.accept') }}</v-btn>
+              <v-btn size="x-small" variant="text" @click="answerRequest(r.id, false); requestsSheet = false">{{ t('contacts.reject') }}</v-btn>
+            </template>
+          </v-list-item>
+        </v-list>
+        <v-empty-state v-else class="pa-6" icon="mdi-account-check" :title="t('contacts.requests.empty')" />
+
+        <div class="d-flex justify-end ga-2 pa-2">
+          <v-btn variant="text" @click="requestsSheet = false">{{ t('common.close') }}</v-btn>
+        </div>
+      </v-card>
+    </v-bottom-sheet>
+
+    <!-- 发起群聊：从通讯录直接选好友建群（原来要绕到聊天页 → 添加群聊，入口太深） -->
+    <v-bottom-sheet v-model="createSheet" max-width="440" scrollable>
+      <v-card class="pa-2">
+        <div class="text-body-large font-weight-medium pa-2">{{ t('contacts.entry.createGroup') }}</div>
+
+        <v-text-field
+          v-model="newGroupName"
+          class="pa-2"
+          density="compact"
+          hide-details
+          :label="t('contacts.group.name')"
+          variant="solo"
+        />
+
+        <div class="text-body-small text-medium-emphasis pa-2">{{ t('contacts.group.pick', { n: picked.length }) }}</div>
+
+        <v-list class="pa-0" max-height="320" lines="two">
+          <v-list-item
+            v-for="c in contacts.items"
+            :key="c.id"
+            :active="picked.includes(c.user?.id ?? '')"
+            @click="togglePick(c)"
+          >
+            <template #prepend>
+              <v-avatar :color="avatarColor(c.id)" :size="36">
+                <img v-if="c.user?.avatar" :alt="c.user?.nickname" :src="c.user.avatar">
+                <span v-else>{{ (c.user?.nickname ?? '?').slice(0, 1) }}</span>
+              </v-avatar>
+            </template>
+            <template #title>{{ c.remark || c.user?.nickname }}</template>
+            <template #append>
+              <v-icon :icon="picked.includes(c.user?.id ?? '') ? 'mdi-checkbox-marked' : 'mdi-checkbox-blank-outline'" />
+            </template>
+          </v-list-item>
+          <v-list-item v-if="contacts.items.length === 0" disabled>
+            <v-list-item-title class="text-medium-emphasis">{{ t('contacts.group.noFriends') }}</v-list-item-title>
+          </v-list-item>
+        </v-list>
+
+        <div class="d-flex justify-end ga-2 pa-2">
+          <v-btn variant="text" @click="createSheet = false">{{ t('common.cancel') }}</v-btn>
+          <v-btn color="primary" :disabled="picked.length === 0 || creating" @click="submitCreateGroup">{{ t('common.confirm') }}</v-btn>
         </div>
       </v-card>
     </v-bottom-sheet>
@@ -226,7 +339,7 @@
 
 <script setup lang="ts">
   import type { Contact, Group } from '@/types'
-  import { computed, onMounted, ref } from 'vue'
+  import { computed, onMounted, ref, watch } from 'vue'
   import { useRouter } from 'vue-router'
   import ContactAlphaIndex from '@/components/ContactAlphaIndex.vue'
   import SearchResultList from '@/components/SearchResultList.vue'
@@ -249,6 +362,64 @@
   const newMsg = ref('')
   const snack = ref(false)
   const snackMsg = ref('')
+
+  /* 手动刷新：联系人 / 好友申请 / 群列表 / 会话全部重拉（FriendRequested 推送之外的兜底） */
+  const refreshing = ref(false)
+  async function refreshAll () {
+    refreshing.value = true
+    try {
+      await Promise.allSettled([
+        contacts.load(),
+        contacts.loadRequests(),
+        contacts.loadGroups(),
+        conversations.loadSessions(),
+      ])
+      snackMsg.value = t('common.refreshed')
+      snack.value = true
+    } finally {
+      refreshing.value = false
+    }
+  }
+
+  /* 「新的朋友」弹层：完整展示申请 + 留言，接收实时推送后数据同步 */
+  const requestsSheet = ref(false)
+
+  /* 发起群聊（通讯录直选好友建群） */
+  const createSheet = ref(false)
+  const newGroupName = ref('')
+  const picked = ref<string[]>([])
+  const creating = ref(false)
+  function togglePick (c: Contact) {
+    const id = c.user?.id ?? ''
+    if (!id) return
+    const i = picked.value.indexOf(id)
+    if (i === -1) picked.value.push(id)
+    else picked.value.splice(i, 1)
+  }
+  async function submitCreateGroup () {
+    if (picked.value.length === 0 || creating.value) return
+    creating.value = true
+    try {
+      const g = await contacts.createGroup(newGroupName.value || t('group.defaultName'), picked.value)
+      createSheet.value = false
+      newGroupName.value = ''
+      picked.value = []
+      await contacts.loadGroups().catch(() => {})
+      router.push({ name: 'group', params: { id: g.id } })
+    } catch (error: any) {
+      snackMsg.value = error?.response?.data?.error ?? t('common.op.fail')
+      snack.value = true
+    } finally {
+      creating.value = false
+    }
+  }
+
+  /* 实时好友申请提示：收到 FriendRequested 推送 → 弹 snackbar（列表同时已自动刷新） */
+  watch(() => contacts.latestRequest, (r) => {
+    if (!r) return
+    snackMsg.value = t('contacts.request.incoming', { name: r.from?.nickname ?? t('contacts.peer'), msg: r.message || t('contacts.request.noMsg') })
+    snack.value = true
+  })
 
   /* 「群聊」入口 → 我的群聊列表弹窗（真实数据：我参加的所有群，点群直接进） */
   const groupsSheet = ref(false)
@@ -533,5 +704,54 @@
 
 .wx-entry-list {
   border-bottom: 1px solid rgb(var(--v-theme-wechat-divider));
+}
+
+/* 微信式功能入口行：三列等宽，彩色圆角图标 + 小字标签 */
+.wx-quick-entries {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  padding: 4px 0 2px;
+}
+.wx-quick-entry {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 8px;
+}
+.wx-quick-entry:active {
+  background: rgba(127, 127, 127, 0.12);
+}
+.wx-quick-icon {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+}
+.wx-quick-badge {
+  position: absolute;
+  top: -6px;
+  right: -8px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: rgb(var(--v-theme-wechat-unread));
+  color: #fff;
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
+}
+.wx-quick-label {
+  font-size: 12px;
+  color: rgb(var(--v-theme-wechat-text-secondary));
 }
 </style>

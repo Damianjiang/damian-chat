@@ -1,6 +1,8 @@
 <template>
   <v-sheet class="wx-panes" flat>
-    <div class="wx-pane-header pa-2">
+    <div class="wx-pane-header pa-2 d-flex align-center ga-1">
+      <!-- 返回按钮：搜索是独立 section（不在底部导航里），没有它用户进去出不来 -->
+      <v-btn icon="mdi-arrow-left" variant="text" @click="goBack" />
       <v-text-field
         v-model="q"
         autofocus
@@ -45,6 +47,12 @@
 
   const q = ref('')
   const searched = ref(false)
+
+  /** 返回上一个界面：优先回「发现」页（搜索入口所在），浏览器历史为空时兜底。 */
+  function goBack () {
+    if (window.history.length > 1) router.back()
+    else void router.replace('/discovery')
+  }
 
   const localContacts = computed<ResultItem[]>(() =>
     contacts.items

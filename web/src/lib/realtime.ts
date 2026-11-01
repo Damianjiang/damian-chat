@@ -7,6 +7,7 @@ import { createChatConnection, stopChatConnection } from '@/lib/signalr'
 import { useAuthStore } from '@/stores/auth'
 import { useConversationsStore } from '@/stores/conversations'
 import { usePollsStore } from '@/stores/polls'
+import { useContactsStore } from '@/stores/contacts'
 let started = false
 
 /** 群公告「已确认」进度（groupId → { 确认者名/时间, 已确认数, 总数 }），挂到 store 让群聊页即时更新。 */
@@ -55,6 +56,13 @@ export function initRealtime () {
     onPollUpdated: (conversationId, poll) => {
       // 群投票有变化（他人投票/截止）：打开的投票卡片实时刷新
       usePollsStore().applyUpdated(conversationId, poll)
+    },
+    onFriendRequested: payload => {
+      // 收到好友申请：立刻刷新「新的朋友」列表（原来只能手动刷新/重进页面才能看到）
+      const contacts = useContactsStore()
+      contacts.loadRequests().catch(() => {})
+      // 挂到 store 让通讯录页/底部导航弹提示（有新申请未处理）
+      contacts.applyIncomingRequest(payload)
     },
     onCatchup: async () => {
       // 离线消息补偿：重连后拉取会话列表与当前打开会话的历史

@@ -30,6 +30,8 @@ export interface ChatHubEvents {
   onTyping?: (conversationId: string, userId: string, at: string) => void
   /** 群投票有变化（有人投票/被截止）：打开的投票卡片实时刷新。 */
   onPollUpdated?: (conversationId: string, poll: Poll) => void
+  /** 收到好友申请（实时推送）：接收端立刻刷新「新的朋友」并提示，不再等手动刷新。 */
+  onFriendRequested?: (payload: { id: string, from: { id: string, nickname: string }, message: string }) => void
 }
 
 let connection: HubConnection | null = null
@@ -56,6 +58,7 @@ function build (events: ChatHubEvents): HubConnection {
   conn.on('NoticeUpdated', (groupId, payload) => events.onNoticeUpdated(groupId, payload))
   conn.on('Typing', (conversationId, userId, at) => events.onTyping?.(conversationId, userId, at))
   conn.on('PollUpdated', (conversationId, poll) => events.onPollUpdated?.(conversationId, poll as Poll))
+  conn.on('FriendRequested', payload => events.onFriendRequested?.(payload as { id: string, from: { id: string, nickname: string }, message: string }))
 
   // 自动重连（普通闪断）成功恢复后，同样要补偿离线窗口内错过的消息：
   // 此前只有「手动 start 重试」路径会回调 onCatchup，自动重连路径从不补偿，

@@ -254,7 +254,12 @@ public class UsersController : ControllerBase
 public class ContactsController : ControllerBase
 {
     private readonly DataStore _store;
-    public ContactsController(DataStore store) => _store = store;
+    private readonly Microsoft.AspNetCore.SignalR.IHubContext<WeChatWeb.Hubs.ChatHub> _hub;
+    public ContactsController(DataStore store, Microsoft.AspNetCore.SignalR.IHubContext<WeChatWeb.Hubs.ChatHub> hub)
+    {
+        _store = store;
+        _hub = hub;
+    }
 
     [HttpGet("contacts")]
     public IActionResult List([FromQuery] string? keyword)
@@ -347,9 +352,11 @@ public class ContactsController : ControllerBase
 
     /// <summary>按手机号 / 大面号（WxId）或用户 Id 发起好友申请；演示机器人自动通过。</summary>
     [HttpPost("contacts")]
-    public IActionResult Add([FromBody] AddContact req)
+    public async Task<IActionResult> Add ([FromBody] AddContact req)
     {
         var me = HttpContext.GetUserId();
+        User? target;
+        FriendRequest fr;
         lock (_store)
         {
             var phone = (req.Phone ?? "").Trim();
@@ -358,7 +365,6 @@ public class ContactsController : ControllerBase
             //  · 随机生成的大面号（WxIdCustom=false）搜不到 —— 与微信随机 wxid 一致，防批量加人；
             //  · 自定义大面号可搜，但对方可关（privacy.searchByWxId，默认开）；
             //  · 手机号搜索对方可关（privacy.searchByPhone，默认开）。
-            User? target;
             if (!string.IsNullOrEmpty(req.UserId))
             {
                 target = _store.Users.Values.FirstOrDefault(u => u.Id == req.UserId);
@@ -381,7 +387,7 @@ public class ContactsController : ControllerBase
             // 走 Clean：超限直接拒绝（比截断更明确），并破坏任何 <tag> 结构
             var message = Validate.Clean(req.Message, 100) ?? "";
 
-            var fr = new FriendRequest { FromUserId = me, ReceiverId = target.Id, Message = message };
+            fr = new FriendRequest { FromUserId = me, ReceiverId = target.Id, Message = message };
             if (target.IsBot)
             {
                 fr.Status = "accepted";
@@ -391,8 +397,21 @@ public class ContactsController : ControllerBase
             }
             _store.FriendRequests.Add(fr);
             _store.MarkDirty();
-            return Ok(new { status = "pending", request = fr });
         }
+        // 实时通知接收方（锁外）：收到好友申请立刻弹/刷新「新的朋友」，不再等手动刷新。
+        try
+        {
+            var conns = WeChatWeb.Hubs.ChatHub.MemberConnections(_store, target.Id);
+            if (conns.Count > 0)
+                await _hub.Clients.Clients(conns).SendAsync("FriendRequested", new
+                {
+                    fr.Id,
+                    from = new { Id = me, Nickname = _store.Users.TryGetValue(me, out var fu) ? fu.Nickname : "" },
+                    fr.Message,
+                });
+        }
+        catch { /* 推送失败不影响申请本身 */ }
+        return Ok(new { status = "pending", request = fr });
     }
 
     public record SetRemark(string Remark);
