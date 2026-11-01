@@ -349,6 +349,7 @@
   const langOptions = computed(() => [
     { value: 'auto', label: t('login.lang.auto') },
     { value: 'zh', label: t('login.lang.zh') },
+    { value: 'zhHant', label: t('login.lang.zhHant') },
     { value: 'en', label: t('login.lang.en') },
   ])
   const langValue = computed(() => langStore.mode)

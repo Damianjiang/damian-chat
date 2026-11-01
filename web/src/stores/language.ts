@@ -22,7 +22,7 @@ type LangMode = Lang | 'auto'
 function readSavedMode (): LangMode {
   try {
     const saved = localStorage.getItem(LANG_KEY)
-    if (saved === 'zh' || saved === 'en') return saved
+    if (saved === 'zh' || saved === 'en' || saved === 'zhHant') return saved
   } catch { /* privacy mode */ }
   return 'auto'
 }
@@ -33,7 +33,11 @@ function detect (): Lang {
   // auto: 跟随浏览器
   const nav = navigator.languages ?? [navigator.language ?? '']
   for (const code of nav) {
-    if (code.toLowerCase().startsWith('zh')) return 'zh'
+    const c = code.toLowerCase()
+    if (c.startsWith('zh')) {
+      // 繁体地区/显式 zh-Hant → 繁體中文；其余中文 → 简体
+      return c.includes('tw') || c.includes('hk') || c.includes('mo') || c.includes('hant') ? 'zhHant' : 'zh'
+    }
   }
   return 'en'
 }
@@ -44,7 +48,7 @@ export const useLanguageStore = defineStore('language', {
     mode: readSavedMode() as LangMode,
   }),
   getters: {
-    isZh: (s) => s.lang === 'zh',
+    isZh: (s) => s.lang === 'zh' || s.lang === 'zhHant',
     isEn: (s) => s.lang === 'en',
   },
   actions: {
@@ -58,10 +62,12 @@ export const useLanguageStore = defineStore('language', {
         this.lang = val
         try { localStorage.setItem(LANG_KEY, val) } catch { /* ignore */ }
       }
-      document.documentElement.lang = this.lang === 'zh' ? 'zh-CN' : 'en'
+      document.documentElement.lang =
+        this.lang === 'zh' ? 'zh-CN' : this.lang === 'zhHant' ? 'zh-Hant' : 'en'
     },
   },
 })
 
 // 启动时设置 <html lang>
-document.documentElement.lang = detect() === 'zh' ? 'zh-CN' : 'en'
+const _initial = detect()
+document.documentElement.lang = _initial === 'zh' ? 'zh-CN' : _initial === 'zhHant' ? 'zh-Hant' : 'en'
