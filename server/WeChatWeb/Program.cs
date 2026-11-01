@@ -236,6 +236,9 @@ var app = builder.Build();
     var store = app.Services.GetRequiredService<DataStore>();
     lock (store)
     {
+        var mutedCleaned = store.CleanLegacyMuteResidue();
+        if (mutedCleaned > 0)
+            Console.WriteLine($"[迁移] 已清理 {mutedCleaned} 条被旧版本误写入的群禁言残留（免打扰字段混写）");
         var migrated = store.MigrateWxIdToAccount();
         if (migrated > 0)
             Console.WriteLine($"[迁移] 已把 {migrated} 个直接注册用户的大面号改为其注册账号");

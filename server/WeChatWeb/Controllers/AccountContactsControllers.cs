@@ -153,8 +153,17 @@ public class UsersController : ControllerBase
         if (!kicked) return NotFound();
         try
         {
-            var conns = WeChatWeb.Hubs.ChatHub.MemberConnections(_store, me);
-            if (conns.Count > 0) await _hub.Clients.Clients(conns).SendAsync("ForceLogout", sid);
+            // 按「用户」取连接（MemberConnections 按会话 id 索引，传 userId 永远为空）；
+            // 找到被踢会话的实时连接：推送 ForceLogout 并直接 Abort
+            var conns = _store.ConnectionsOf(me)
+                .Where(cid => _store.Connections.TryGetValue(cid, out var c) && c.Sid == sid)
+                .ToList();
+            if (conns.Count > 0)
+            {
+                await _hub.Clients.Clients(conns).SendAsync("ForceLogout", sid);
+                foreach (var cid in conns)
+                    try { _store.Connections[cid].CallerContext?.Abort(); } catch { /* 已断 */ }
+            }
         }
         catch { /* 广播失败不影响踢出 */ }
         return Ok(new { ok = true });
@@ -171,8 +180,15 @@ public class UsersController : ControllerBase
         {
             try
             {
-                var conns = WeChatWeb.Hubs.ChatHub.MemberConnections(_store, me);
-                if (conns.Count > 0) await _hub.Clients.Clients(conns).SendAsync("ForceLogout", "*");
+                var conns = _store.ConnectionsOf(me)
+                    .Where(cid => _store.Connections.TryGetValue(cid, out var c) && c.Sid != null && c.Sid != MySid)
+                    .ToList();
+                if (conns.Count > 0)
+                {
+                    await _hub.Clients.Clients(conns).SendAsync("ForceLogout", "*");
+                    foreach (var cid in conns)
+                        try { _store.Connections[cid].CallerContext?.Abort(); } catch { /* 已断 */ }
+                }
             }
             catch { /* 广播失败不影响踢出 */ }
         }
@@ -703,26 +719,35 @@ public class ConversationsController : ControllerBase
             if (!_store.CanAccessConversation(id, me)) return NotFound();
             if (!_store.Conversations.TryGetValue(id, out var conv)) return NotFound();
 
-            // 安全收紧：群聊是共享历史，普通成员清空会抹掉全群记录（破坏他人数据 + 可反复执行 = DoS）。
-            // 只有群主/管理员可清空群聊；私聊成员可清自己的会话视图。
             if (conv.Kind == "group")
             {
+                // 群聊是共享历史，普通成员清空会抹掉全群记录（破坏他人数据 + 可反复执行 = DoS）。
+                // 只有群主/管理员可清空群聊（清的是真数据 + 共享视图）。
                 if (!_store.Groups.TryGetValue(conv.MemberId, out var g))
                     return NotFound();
                 var role = g.Members.FirstOrDefault(x => x.UserId == me)?.Role;
                 if (role != "owner" && role != "admin")
                     return Forbid();
+                _store.ClearConversationMessages(id);
+                _store.ClearConversationViewState(id);
             }
-            _store.ClearConversationMessages(id);
+            else
+            {
+                // 私聊：只隐藏「我」视角的水位之前的历史，绝不删共享数据、绝不影响对方
+                //（此前会直接删掉双方共享的全部消息并清掉对方的屏幕 —— 单方销毁他人数据）
+                _store.SetClearWatermark(id, me, DateTime.UtcNow);
+            }
             cleared = true;
         }
         if (!cleared) return NotFound();
-        // 广播清空：其它端同步把该会话消息清掉（多端 + 本地缓存一致）
         try
         {
-            var connections = WeChatWeb.Hubs.ChatHub.MemberConnections(_store, id);
-            if (connections.Count > 0)
-                await _hub.Clients.Clients(connections).SendAsync("MessagesCleared", id);
+            // 群清空广播全群；私聊水位清空只同步「我自己」的其它端
+            var targets = _store.Conversations.TryGetValue(id, out var c2) && c2.Kind == "private"
+                ? _store.ConnectionsOf(me)
+                : WeChatWeb.Hubs.ChatHub.MemberConnections(_store, id);
+            if (targets.Count > 0)
+                await _hub.Clients.Clients(targets).SendAsync("MessagesCleared", id);
         }
         catch { /* 广播失败不影响清空本身 */ }
         return Ok(new { ok = true });
@@ -752,15 +777,6 @@ public class ConversationsController : ControllerBase
             // 私聊维持原共享语义（仅两端）。完整按用户隔离需把 flag 改成像 ReadMarks
             // 那样按 userId 存（数据模型改动，后续单独做）。
             bool flagWrite = req.Pinned.HasValue || req.Muted.HasValue || req.Folded.HasValue;
-            if (flagWrite && conv.Kind == "group")
-            {
-                // 群聊标志是全体共享的（群主/管理员统一管理，微信同款）：普通成员改一次会连累全群
-                var role = _store.Groups.TryGetValue(conv.MemberId, out var gg)
-                    ? gg.Members.FirstOrDefault(x => x.UserId == me)?.Role
-                    : null;
-                if (role is not ("owner" or "admin"))
-                    return Forbid();
-            }
             if (flagWrite && conv.Kind == "private")
             {
                 // 私聊标志按用户隔离：一方置顶/免打扰/折叠不再覆盖另一方的视图（越权写修复）
@@ -770,11 +786,27 @@ public class ConversationsController : ControllerBase
                 if (req.Folded.HasValue) uf.Folded = req.Folded.Value;
                 conv.UserFlags[me] = uf;
             }
-            else
+            else if (flagWrite && conv.Kind == "group")
             {
-                if (req.Pinned.HasValue) conv.Pinned = req.Pinned.Value;
-                if (req.Muted.HasValue) conv.Muted = req.Muted.Value;
-                if (req.Folded.HasValue) conv.Folded = req.Folded.Value;
+                // 群聊口径统一：免打扰是成员个人视图（任何成员可改自己的，写 UserFlags）；
+                // 置顶/折叠是全群共享视图（仅群主/管理员，微信同款）。
+                // 此前两条路径口径不一（groups/{id} 可写个人 muted、这里 member 一律 Forbid）。
+                if (req.Muted.HasValue)
+                {
+                    var umf = _store.ConvFlagsFor(conv, me);
+                    umf.Muted = req.Muted.Value;
+                    conv.UserFlags[me] = umf;
+                }
+                if (req.Pinned.HasValue || req.Folded.HasValue)
+                {
+                    var role = _store.Groups.TryGetValue(conv.MemberId, out var gg)
+                        ? gg.Members.FirstOrDefault(x => x.UserId == me)?.Role
+                        : null;
+                    if (role is not ("owner" or "admin"))
+                        return Forbid();
+                    if (req.Pinned.HasValue) conv.Pinned = req.Pinned.Value;
+                    if (req.Folded.HasValue) conv.Folded = req.Folded.Value;
+                }
             }
             // 已读：记录该用户的已读时间并广播给会话内其他人（多端红点同步）
             if (req.Read == true)

@@ -69,6 +69,9 @@ public sealed class UserConvFlags
     public bool Pinned { get; set; }
     public bool Muted { get; set; }
     public bool Folded { get; set; }
+
+    /// <summary>私聊「清空聊天记录」水位：只隐藏此时刻之前的消息（自己视角），不动共享数据。</summary>
+    public DateTime ClearBeforeAt { get; set; } = DateTime.MinValue;
 }
 
 public class Conversation

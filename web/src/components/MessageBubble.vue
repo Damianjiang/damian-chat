@@ -270,9 +270,9 @@
     return segs
   })
 
-  /** 服务端把尖括号转义为 &lt;/&gt; 存储（防注入），渲染时反向解码还原输入 */
+  /** 服务端把 & < > 转义存储（防注入），渲染时单遍反向解码还原输入 */
   function unescape (s?: string | null): string {
-    return (s ?? '').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    return (s ?? '').replace(/&(amp|lt|gt);/g, (_, e) => (e === 'amp' ? '&' : e === 'lt' ? '<' : '>'))
   }
 
   const quote = computed(() => {

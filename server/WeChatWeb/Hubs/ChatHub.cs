@@ -39,6 +39,8 @@ public sealed class ChatHub : Hub
     private string? CurrentUserId =>
         Context.UserIdentifier ?? Context.User?.FindFirst("sub")?.Value;
 
+    private string? CurrentSid => Context.User?.FindFirst("sid")?.Value;
+
     public override async Task OnConnectedAsync()
     {
         var user = CurrentUserId;
@@ -110,7 +112,7 @@ public sealed class ChatHub : Hub
         if (!string.IsNullOrEmpty(user))
         {
             // 登记连接时带上 HubCallerContext 引用：封号/删号可远程 Abort 该连接（即时踢线）
-            _store.MarkConnected(Context.ConnectionId, user, Context);
+            _store.MarkConnected(Context.ConnectionId, user, Context, CurrentSid);
             await SendPresenceToRelated(user, true);
         }
         await base.OnConnectedAsync();

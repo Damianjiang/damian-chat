@@ -14,6 +14,16 @@ public class DiscoveryController : ControllerBase
     private readonly LogService _log;
     private readonly FeedbackStore _feedback;
 
+    /// <summary>朋友圈可见性（与 MomentsController.CanView 同语义）：自己/公开/好友可见。</summary>
+    private bool MomentVisibleTo (Models.Moment m, string me)
+    {
+        if (m.AuthorId == me) return true;
+        if (m.Scope == "private") return false;
+        if (m.Scope == "friends")
+            return _store.Contacts.TryGetValue(me, out var mine) && mine.Any(c => c.OtherUserId == m.AuthorId);
+        return true;
+    }
+
     public DiscoveryController(DataStore store, LogService log, FeedbackStore feedback)
     {
         _store = store;
@@ -103,6 +113,15 @@ public class DiscoveryController : ControllerBase
 [Authorize] // 文件读写一律要求登录：此前匿名可凭 id 下载任意人的文件
 public class FilesController : ControllerBase
 {
+    /// <summary>朋友圈可见性（与 MomentsController.CanView 同语义）：自己/公开/好友可见。</summary>
+    private bool MomentVisibleTo (Models.Moment m, string me)
+    {
+        if (m.AuthorId == me) return true;
+        if (m.Scope == "private") return false;
+        if (m.Scope == "friends")
+            return _store.Contacts.TryGetValue(me, out var mine) && mine.Any(c => c.OtherUserId == m.AuthorId);
+        return true;
+    }
     private readonly DataStore _store;
     private readonly WeChatWeb.Services.FileStore _files;
     private readonly SensitiveWordService _sw;
@@ -258,10 +277,17 @@ public class FilesController : ControllerBase
 
         // 归属校验：只有上传者本人，或在可访问会话里收到过该文件的人能下载。
         // 此前任何拿到 id 的人都能下载全站文件。
-        // 例外：头像（kind=avatar）对所有已登录用户可读 —— 头像从不经过会话（不在
-        // 文件引用索引里），严格的归属校验会让「谁都看不到别人的头像」（聊天气泡、
-        // 通讯录全破图）。头像本就是站内公开资源（微信同款），且文件 id 不可枚举。
-        if (meta.Kind != "avatar" && !CanReadFile(meta, me)) return NotFound();
+        // 引用豁免（按「实际被引用」而非「上传时声明」判定，杜绝拿 kind=avatar 做公开托管）：
+        //  ① 被某用户/群设为头像 → 对已登录用户可读（头像本就是站内公开资源，微信同款）；
+        //  ② 被某条「我可见」的朋友圈引用 → 对我可读（否则朋友圈图片全破图）。
+        if (!CanReadFile(meta, me))
+        {
+            bool avatarRef = _store.Users.Values.Any(u => u.Avatar == id)
+                || _store.Groups.Values.Any(g => g.Avatar == id);
+            bool momentRef = _store.Moments.Any(m =>
+                (m.Images?.Contains(id) ?? false) && MomentVisibleTo(m, me));
+            if (!avatarRef && !momentRef) return NotFound();
+        }
 
         return StreamFile(meta);
     }

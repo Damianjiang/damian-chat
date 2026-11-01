@@ -32,6 +32,8 @@ export interface ChatHubEvents {
   onPollUpdated?: (conversationId: string, poll: Poll) => void
   /** 收到好友申请（实时推送）：接收端立刻刷新「新的朋友」并提示，不再等手动刷新。 */
   onFriendRequested?: (payload: { id: string, from: { id: string, nickname: string }, message: string }) => void
+  /** 本设备被踢（登录设备管理）：立即清凭据并回登录页。 */
+  onForceLogout?: (sid: string) => void
 }
 
 let connection: HubConnection | null = null
@@ -59,6 +61,7 @@ function build (events: ChatHubEvents): HubConnection {
   conn.on('Typing', (conversationId, userId, at) => events.onTyping?.(conversationId, userId, at))
   conn.on('PollUpdated', (conversationId, poll) => events.onPollUpdated?.(conversationId, poll as Poll))
   conn.on('FriendRequested', payload => events.onFriendRequested?.(payload as { id: string, from: { id: string, nickname: string }, message: string }))
+  conn.on('ForceLogout', sid => events.onForceLogout?.(String(sid ?? '')))
 
   // 自动重连（普通闪断）成功恢复后，同样要补偿离线窗口内错过的消息：
   // 此前只有「手动 start 重试」路径会回调 onCatchup，自动重连路径从不补偿，

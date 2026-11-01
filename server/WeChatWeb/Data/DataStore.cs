@@ -20,6 +20,7 @@ public sealed class StoreSnapshot
     public List<FriendRequest> FriendRequests { get; set; } = new();
     public List<Favorite> Favorites { get; set; } = new();
     public List<FileMeta> Files { get; set; } = new();
+    public Dictionary<string, List<Models.LoginSession>> LoginSessions { get; set; } = new();
 }
 
 /// <summary>刷新令牌（7 天，轮转）。瞬态，不落盘。</summary>
@@ -35,6 +36,8 @@ public sealed class ConnectionState
 {
     public string ConnectionId { get; set; } = "";
     public string UserId { get; set; } = "";
+    /// <summary>登录设备会话 id（JWT sid claim）：踢出会话时可精准 Abort 该设备的实时连接。</summary>
+    public string? Sid { get; set; }
     public DateTime ConnectedAt { get; set; }
     public DateTime LastActive { get; set; }
     /// <summary>Hub 调用上下文：封号/删号时经 <c>AbortAsync</c> 即时踢线（即时失效，无需等客户端心跳）。</summary>
@@ -169,6 +172,15 @@ public sealed class DataStore
                 changed = true;
             }
 
+        LoginSessions.Clear();
+        _loginTokenIndex.Clear();
+        foreach (var kv in snap.LoginSessions ?? new())
+        {
+            LoginSessions[kv.Key] = kv.Value ?? new List<Models.LoginSession>();
+            foreach (var s in kv.Value ?? new())
+                if (!string.IsNullOrEmpty(s.RefreshToken)) _loginTokenIndex[s.RefreshToken] = s.Id;
+        }
+
         Contacts.Clear();
         foreach (var kv in snap.Contacts ?? new()) Contacts[kv.Key] = kv.Value ?? new List<Contact>();
 
@@ -229,6 +241,7 @@ public sealed class DataStore
             snap.FriendRequests = FriendRequests.ToList();
             snap.Favorites = Favorites.ToList();
             snap.Files = Files.Values.ToList();
+            snap.LoginSessions = LoginSessions.ToDictionary(kv => kv.Key, kv => kv.Value);
         }
         try
         {
@@ -280,22 +293,49 @@ public sealed class DataStore
     public Dictionary<string, List<Models.LoginSession>> LoginSessions { get; set; } = new();
     private readonly Dictionary<string, string> _loginTokenIndex = new();
 
-    /// <summary>登录成功：登记/复用一条设备会话，返回 sessionId（调用方需持有全局锁）。</summary>
-    public string BeginOrTouchSession (string userId, string refreshToken, string ua, string ip)
+    /// <summary>
+    /// 登录成功：登记一条设备会话（sid 由调用方生成并随 JWT 下发）。
+    /// 同 sid 复用（refresh 轮转重绑）；每用户上限 20 条，超出淘汰最旧。
+    /// </summary>
+    public void BindSession (string userId, string sid, string refreshToken, string ua, string ip)
     {
         var list = LoginSessions.TryGetValue(userId, out var l) ? l : (LoginSessions[userId] = new List<Models.LoginSession>());
-        var s = list.FirstOrDefault(x => x.RefreshToken == refreshToken);
+        var s = list.FirstOrDefault(x => x.Id == sid);
         if (s == null)
         {
-            s = new Models.LoginSession { RefreshToken = refreshToken, Device = ua ?? "", LastIp = ip ?? "" };
+            s = new Models.LoginSession { Id = sid, RefreshToken = refreshToken, Device = ua ?? "", LastIp = ip ?? "" };
             list.Add(s);
+            // 数量上限：淘汰最旧（LastSeen 最小），防止设备列表无界增长
+            if (list.Count > 20)
+            {
+                var oldest = list.OrderBy(x => x.LastSeen).First();
+                _loginTokenIndex.Remove(oldest.RefreshToken);
+                RefreshTokens.Remove(oldest.RefreshToken);
+                list.Remove(oldest);
+            }
         }
         s.LastSeen = DateTime.UtcNow;
         if (!string.IsNullOrEmpty(ip)) s.LastIp = ip;
         if (!string.IsNullOrEmpty(ua)) s.Device = ua;
-        _loginTokenIndex[refreshToken] = s.Id;
+        s.RefreshToken = refreshToken;
+        _loginTokenIndex[refreshToken] = sid;
         MarkDirty();
-        return s.Id;
+    }
+
+    /// <summary>按 refresh 值解析会话 id（refresh 轮转延续会话用）。</summary>
+    public string? FindSessionIdByToken (string refreshToken)
+        => _loginTokenIndex.TryGetValue(refreshToken, out var sid) ? sid : null;
+
+    /// <summary>按 refresh 值找会话（含 userId），用于无鉴权 logout 清僵尸会话。</summary>
+    public bool TryFindSessionByToken (string refreshToken, out string userId, out string sid)
+    {
+        userId = ""; sid = "";
+        foreach (var kv in LoginSessions)
+        {
+            var s = kv.Value.FirstOrDefault(x => x.RefreshToken == refreshToken);
+            if (s != null) { userId = kv.Key; sid = s.Id; return true; }
+        }
+        return false;
     }
 
     /// <summary>refresh 轮转：把会话绑定的 refresh 值换成新值（同一设备会话延续）。</summary>
@@ -349,7 +389,11 @@ public sealed class DataStore
     public void EndAllSessions (string userId)
     {
         if (!LoginSessions.TryGetValue(userId, out var l) || l == null) return;
-        foreach (var s in l) _loginTokenIndex.Remove(s.RefreshToken);
+        foreach (var s in l)
+        {
+            _loginTokenIndex.Remove(s.RefreshToken);
+            RefreshTokens.Remove(s.RefreshToken);   // 会话吊销必须连带 refresh，防止出现"无会话令牌链"
+        }
         LoginSessions.Remove(userId);
         MarkDirty();
     }
@@ -359,6 +403,40 @@ public sealed class DataStore
     {
         if (!_loginTokenIndex.TryGetValue(refreshToken, out var sid)) return;
         EndSession(userId, sid);
+    }
+
+    /// <summary>一次性清理：旧版本把群「免打扰」误写进 GroupMember.Muted（禁言位）。
+    /// 该字段现在只能由群主/管理员设置；启动时无条件清零（幂等）。</summary>
+    public int CleanLegacyMuteResidue ()
+    {
+        var n = 0;
+        foreach (var g in Groups.Values)
+            foreach (var m in g.Members)
+                if (m.Muted) { m.Muted = false; n++; }
+        if (n > 0) MarkDirty();
+        return n;
+    }
+
+    /// <summary>私聊清除水位：写入「我的」会话标志（调用方需持有全局锁）。</summary>
+    public void SetClearWatermark (string conversationId, string userId, DateTime at)
+    {
+        if (!Conversations.TryGetValue(conversationId, out var conv)) return;
+        var uf = ConvFlagsFor(conv, userId);
+        uf.ClearBeforeAt = at;
+        conv.UserFlags[userId] = uf;
+        // 自己的未读同步清零（水位之后才可能再有新未读）
+        conv.UnreadCounts[userId] = 0;
+        MarkDirty();
+    }
+
+    /// <summary>群清空后同步清理共享视图状态：未读计数/已读标记/时间戳（防红点指向不存在的消息）。</summary>
+    public void ClearConversationViewState (string conversationId)
+    {
+        if (!Conversations.TryGetValue(conversationId, out var conv)) return;
+        conv.UnreadCounts.Clear();
+        conv.ReadMarks.Clear();
+        conv.LastAt = null;
+        MarkDirty();
     }
 
     public int MigrateWxIdToAccount ()
@@ -863,7 +941,7 @@ public sealed class DataStore
     /// 登记/更新一条在线连接。可选带上 <paramref name="ctx"/>（HubCallerContext）：
     /// 封号/删号时经 <c>KickConnections</c> 对其 <c>AbortAsync</c> 即时踢线。
     /// </summary>
-    public void MarkConnected (string connectionId, string userId, HubCallerContext? ctx = null)
+    public void MarkConnected (string connectionId, string userId, HubCallerContext? ctx = null, string? sid = null)
     {
         lock (this)
         {
@@ -878,6 +956,7 @@ public sealed class DataStore
                 ConnectedAt = now,
                 LastActive = now,
                 CallerContext = ctx,
+                Sid = sid,
             };
         }
     }

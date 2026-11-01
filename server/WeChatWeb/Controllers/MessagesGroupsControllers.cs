@@ -48,10 +48,14 @@ public class MessagesController : ControllerBase
             //（用户从头翻到尾 = 累计 O(n²)，每页下拉都重排整段历史，纯浪费）。
             // 注意：升序列表切出的尾段天然是「老→新」升序，绝不能再 Reverse（会变降序打乱客户端）。
             var list = _store.MessagesOf(conversationId);
+            // 私聊清除水位：只隐藏「我自己」设置水位之前的历史（他人不受影响）
+            DateTime watermark = DateTime.MinValue;
+            if (_store.Conversations.TryGetValue(conversationId, out var conv0) && conv0.Kind == "private")
+                watermark = _store.ConvFlagsFor(conv0, me).ClearBeforeAt;
             // 返回浅拷贝快照：这些 Message 是活对象，锁外序列化期间可能被撤回改写
             //（Content 清空/Recalled 置位），客户端会拿到撕裂的中间态
             List<Models.Message> Snapshot (List<Models.Message> src) =>
-                src.Select(m =>
+                src.Where(m => m.CreatedAt > watermark).Select(m =>
                 {
                     var c = new Models.Message();
                     foreach (var f in typeof(Models.Message).GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance))
@@ -597,7 +601,8 @@ public class GroupsController : ControllerBase
             if (!_store.Groups.TryGetValue(id, out var g)) { ok = false; return NotFound(); }
             var actor = g.Members.FirstOrDefault(x => x.UserId == me);
             if (actor == null || (actor.Role != "owner" && actor.Role != "admin")) { ok = false; return Forbid(); }
-            if (!_store.Users.ContainsKey(userId)) { ok = false; return NotFound(); }
+            if (!_store.Users.TryGetValue(userId, out var joinUser) || joinUser.Banned)
+            { ok = false; return NotFound(new { error = "该用户不存在或已被停用" }); }
             if (g.Members.Any(m => m.UserId == userId)) { ok = true; } // 已成员则幂等
             // 只能批准「真实提交过申请」的人：没有申请记录的 userId 一律拒绝
             //（否则任意 admin 可绕过「好友+申请」两道防线把陌生人拉进群）
@@ -733,11 +738,11 @@ public class GroupsController : ControllerBase
                     noticeBumped = true;
                 }
             }
-            // 免打扰是"我自己的"开关：写 per-user 会话标志（此前误写 GroupMember.Muted，
-            // 与「禁言」共用同一字段 → 开免打扰的成员被自己禁言）。顺手清掉旧版本写入的残留。
+            // 免打扰是"我自己的"开关：写 per-user 会话标志。
+            // 绝不碰 GroupMember.Muted —— 那是禁言执行字段（此前混写导致"开免打扰=自己禁言"，
+            // 更危险的是会让被禁言者一键自解禁）。旧残留由启动迁移清理。
             if (req.Muted.HasValue)
             {
-                actor.Muted = false;
                 var conv0 = _store.Conversations.Values.FirstOrDefault(c => c.Kind == "group" && c.MemberId == id);
                 if (conv0 != null)
                 {
@@ -902,6 +907,9 @@ public class GroupsController : ControllerBase
             // 免打扰：改目标本人或群主/管理员；普通成员只能改自己
             if (req.Muted.HasValue)
             {
+                // 禁言是管理动作：仅 owner/admin 可写（此前本人可写自己 → 被禁言者一键自解禁）
+                if (actor.Role is not ("owner" or "admin"))
+                    return Forbid();
                 // 权限反转防护：群主不可被任何人禁言；管理员之间互不禁言（只有群主能管管理员）
                 if (m.Role == "owner" || (m.Role == "admin" && actor.Role != "owner"))
                     return Forbid();

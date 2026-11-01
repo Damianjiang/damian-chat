@@ -169,11 +169,13 @@ public class AuthController : ControllerBase
         }
 
         Models.User? user;
+        DateTime pwdChangedSnapshot;
         lock (_store)
         {
             // 登录：注册账号 或 大面号（改过号的用户用大面号也能登录）
             user = _store.Users.Values.FirstOrDefault(u => u.Phone == account)
                 ?? _store.Users.Values.FirstOrDefault(u => u.WxId == account);
+            pwdChangedSnapshot = user?.PasswordChangedAt ?? DateTime.MinValue;
         }
 
         if (user == null)
@@ -182,19 +184,25 @@ public class AuthController : ControllerBase
             // 否则「账号不存在」明显快于「密码错误」，响应时序可被用来枚举有效账号。
             PasswordHasher.Verify(req.Password ?? "", DummyHash);
         }
-        // 封禁检查在密码验证之前：不给被停用账号的持凭据者确认状态的机会，也不再为其算哈希
-        if (user?.Banned == true)
-        {
-            _log.Write("auth", new { ts = DateTime.UtcNow, result = "banned", account, ip = Ip });
-            return StatusCode(StatusCodes.Status403Forbidden, new { error = "该账号已被管理员停用" });
-        }
         if (user == null || !PasswordHasher.Verify(req.Password ?? "", user.Password))
         {
             _guard.RecordFailure(Ip, account, _sec);
             _log.Write("auth", new { ts = DateTime.UtcNow, result = "fail", account, ip = Ip, ua = Ua });
             return Unauthorized(new { error = "账号或密码错误，请重试" });
         }
+        // 封禁检查在密码验证之后：无密码者探测不到账号状态（不做状态 oracle）
+        if (user.Banned)
+        {
+            _log.Write("auth", new { ts = DateTime.UtcNow, result = "banned", account, ip = Ip });
+            return StatusCode(StatusCodes.Status403Forbidden, new { error = "该账号已被管理员停用" });
+        }
 
+        // 改密 TOCTOU：密码验证期间用户改了密码 → 在途登录不得签发新会话
+        lock (_store)
+        {
+            if (user.PasswordChangedAt != pwdChangedSnapshot)
+                return Unauthorized(new { error = "账号或密码错误，请重试" });
+        }
         _guard.ResetAccount(account);
         _log.Write("auth", new { ts = DateTime.UtcNow, result = "ok", user = user.Id, account, ip = Ip, ua = Ua });
         return Ok(IssueTokens(user));
@@ -277,6 +285,13 @@ public class AuthController : ControllerBase
                 _guard.RecordFailure(Ip, account, _sec);
                 return Conflict(new { error = "该邮箱已被绑定" });
             }
+            // 大面号唯一性是全路径不变量：账号名若已被他人用作大面号，拒绝注册
+            //（否则按大面号搜索会命中两个人，好友申请可被先注册者劫持）
+            if (_store.Users.Values.Any(u => u.WxId == account))
+            {
+                _guard.RecordFailure(Ip, "", _sec);
+                return Conflict(new { error = "该账号已被用作大面号，请更换账号后重试" });
+            }
             user = _store.RegisterUser(account, req.Password);
             if (email.Length > 0) user.Email = email;
             // 邮箱注册：大面号随机生成（WxIdCustom=false → 不可被搜索），昵称给个默认
@@ -315,10 +330,13 @@ public class AuthController : ControllerBase
             if (user.Banned) { ClearRefreshCookie(); return Unauthorized(new { error = "账号已停用" }); }
 
             _store.RefreshTokens.Remove(presented);
-            var (access, refresh) = _jwt.CreateTokens(user);
+            // 解析旧 token 所属设备会话：sid 延续到新令牌（踢出/设备列表依赖它）；
+            // 旧令牌没有会话（升级前签发）则新建一条，保证"每个 refresh 都有会话可踢"
+            var oldSid = _store.FindSessionIdByToken(presented);
+            var sid = oldSid ?? Guid.NewGuid().ToString("N");
+            var (access, refresh) = _jwt.CreateTokens(user, sid);
             _store.RefreshTokens[refresh] = new RefreshToken { Value = refresh, UserId = user.Id, ExpiresAt = DateTime.UtcNow.AddDays(7) };
-            // 同一设备的会话延续：refresh 值重绑到原会话（最后活跃时间也刷新）
-            _store.RebindSessionToken(user.Id, presented, refresh);
+            _store.BindSession(user.Id, sid, refresh, Ua, Ip);
             SetRefreshCookie(refresh);   // 轮转后的新 refresh 写回 httpOnly cookie
             return Ok(new { accessToken = access, expiresIn = 7200 });
         }
@@ -335,7 +353,9 @@ public class AuthController : ControllerBase
             if (!string.IsNullOrEmpty(presented))
             {
                 _store.RefreshTokens.Remove(presented);
+                // 有鉴权按 sub 清；无鉴权（token 已过期的客户端）反查清，避免僵尸会话残留
                 if (me != null) _store.EndSessionByToken(me, presented);
+                else if (_store.TryFindSessionByToken(presented, out var zuid, out var zsid)) _store.EndSession(zuid, zsid);
             }
         }
         ClearRefreshCookie();   // 清 httpOnly cookie（+ 旧客户端传了 body 的一并吊销）
@@ -350,11 +370,12 @@ public class AuthController : ControllerBase
     {
         string access;
         string refresh;
-        string sid;
+        // sid 先生成并写进 access token（此前漏传，整条"踢出即时失效"链是死代码）
+        var sid = Guid.NewGuid().ToString("N");
         lock (_store)
         {
-            (access, refresh) = _jwt.CreateTokens(u);
-            sid = _store.BeginOrTouchSession(u.Id, refresh, Ua, Ip);
+            (access, refresh) = _jwt.CreateTokens(u, sid);
+            _store.BindSession(u.Id, sid, refresh, Ua, Ip);
             _store.RefreshTokens[refresh] = new RefreshToken { Value = refresh, UserId = u.Id, ExpiresAt = DateTime.UtcNow.AddDays(7) };
         }
         return (access, refresh, sid);

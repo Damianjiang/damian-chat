@@ -159,7 +159,8 @@ public static class Validate
         var sb = new System.Text.StringBuilder(s.Length);
         foreach (var c in s)
         {
-            if (c == '<') sb.Append("&lt;");
+            if (c == '&') sb.Append("&amp;");
+            else if (c == '<') sb.Append("&lt;");
             else if (c == '>') sb.Append("&gt;");
             else if (char.IsControl(c) && c != '\n' && c != '\t') { /* 丢控制字符 */ }
             else sb.Append(c);
