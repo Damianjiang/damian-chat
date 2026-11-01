@@ -67,7 +67,7 @@
             <v-menu :close-on-content-click="false" location="end">
               <template #activator="{ props }">
                 <v-btn v-bind="props" class="wx-lang-btn" density="comfortable" size="small" variant="tonal">
-                  <span class="text-body-2">{{ langValue === 'auto' ? t('settings.lang.auto') : langValue === 'zh' ? t('settings.lang.zh') : langValue === 'zhHant' ? t('settings.lang.zhHant') : t('settings.lang.en') }}</span>
+                  <span class="text-body-2">{{ langValue === 'auto' ? t('settings.lang.auto') : langValue === 'zh' ? t('settings.lang.zh') : t('settings.lang.en') }}</span>
                 </v-btn>
               </template>
               <v-card width="180">
@@ -77,7 +77,7 @@
                     :key="opt.value"
                     :active="langValue === opt.value"
                     :active-color="'primary'"
-                    @click="langStore.setLang(opt.value as 'auto' | 'zh' | 'zhHant' | 'en')"
+                    @click="langStore.setLang(opt.value as 'auto' | 'zh' | 'en')"
                   >
                     <v-list-item-title>{{ opt.label }}</v-list-item-title>
                   </v-list-item>
@@ -617,7 +617,6 @@
   const langOptions = computed(() => [
     { value: 'auto', label: t('settings.lang.auto') },
     { value: 'zh', label: t('settings.lang.zh') },
-    { value: 'zhHant', label: t('settings.lang.zhHant') },
     { value: 'en', label: t('settings.lang.en') },
   ])
   const langValue = computed(() => langStore.mode)

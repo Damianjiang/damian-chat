@@ -349,14 +349,13 @@
   const langOptions = computed(() => [
     { value: 'auto', label: t('login.lang.auto') },
     { value: 'zh', label: t('login.lang.zh') },
-    { value: 'zhHant', label: t('login.lang.zhHant') },
     { value: 'en', label: t('login.lang.en') },
   ])
   const langValue = computed(() => langStore.mode)
   const langLabel = computed(() =>
     langValue.value === 'auto' ? t('login.lang.auto')
       : langValue.value === 'zh' ? t('login.lang.zh')
-        : langValue.value === 'zhHant' ? t('login.lang.zhHant')
+
           : t('login.lang.en'))
   function setLang (val: string) {
     langStore.setLang(val as 'auto' | 'zh' | 'en')
@@ -394,7 +393,7 @@
 
   /* ---------- 右上角：版本号 + 个性化（主题/明暗/字号，本地持久化） ---------- */
   /** 产品版本号（顶栏展示，与「关于」一致）；构建指纹由 __BUILD_VERSION__ 单独注入，用于「检查更新」比对。 */
-  const appVersion = '1.3.0'
+  const appVersion = '1.5.0'
 
   /** #RRGGBB → [r,g,b]。 */
   function hexToRgb3 (h: string): [number, number, number] {

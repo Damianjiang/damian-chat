@@ -451,6 +451,8 @@ public sealed class DataStore
         var n = 0;
         foreach (var u in Users.Values)
         {
+            // 存量用户一律视为"已引导"：弹窗只针对之后新注册的用户（他们登录即强制设置）
+            u.WxIdPrompted = true;
             if (u.WxIdChangedAt != DateTime.MinValue) continue;                   // 手动改过号，尊重
             if (string.IsNullOrEmpty(u.Phone) || u.Phone.Contains('@')) continue; // 邮箱注册
             if (!Services.Validate.IsAccount(u.Phone)) continue;
@@ -460,7 +462,7 @@ public sealed class DataStore
             u.WxIdCustom = true;
             n++;
         }
-        if (n > 0) MarkDirty();
+        MarkDirty();
         return n;
     }
 

@@ -14,7 +14,7 @@
  */
 'use strict'
 
-const CACHE = 'wxui-v46'
+const CACHE = 'wxui-v47'
 const PRECACHE = ['/', '/favicon.ico', '/robots.txt']
 
 // 绝不拦截缓存的路径前缀：鉴权数据 / 媒体 / 实时 / 接口文档

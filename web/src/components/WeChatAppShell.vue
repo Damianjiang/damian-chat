@@ -114,7 +114,7 @@
       </v-card-text>
       <v-card-actions>
         <v-spacer />
-        <v-btn variant="text" @click="ackWxidPrompt">{{ t('shell.wxid.prompt.later') }}</v-btn>
+        <!-- 强制设置：新用户必须先定大面号才能继续使用（随机号/账号名的坑都堵住） -->
         <v-btn color="primary" :disabled="!/^[a-z][a-z0-9_-]{5,19}$/.test(wxidInput)" @click="saveWxid">{{ t('common.confirm') }}</v-btn>
       </v-card-actions>
     </v-card>
