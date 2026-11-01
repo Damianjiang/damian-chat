@@ -364,6 +364,10 @@ public class GroupsController : ControllerBase
         var limits = _store.GroupLimits;
         if (req.MemberIds is not null && req.MemberIds.Count > limits.MaxSelectOnCreate)
             return BadRequest(new { error = $"一次最多选择 {limits.MaxSelectOnCreate} 位好友" });
+        // 群聊下限：至少 2 位好友（加创建者 ≥3 人）。只拉 1 个人等于私聊，
+        // 会产生一个和单聊几乎一样的"两人群"，消息/会话语义全是歧义 —— 直接拒绝。
+        if (req.MemberIds is null || req.MemberIds.Count < 2)
+            return BadRequest(new { error = "发起群聊至少要选择 2 位好友" });
 
         Group created;
         lock (_store)

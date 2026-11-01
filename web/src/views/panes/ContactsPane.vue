@@ -241,7 +241,7 @@
 
         <div class="d-flex justify-end ga-2 pa-2">
           <v-btn variant="text" @click="createSheet = false">{{ t('common.cancel') }}</v-btn>
-          <v-btn color="primary" :disabled="picked.length === 0 || creating" @click="submitCreateGroup">{{ t('common.confirm') }}</v-btn>
+          <v-btn color="primary" :disabled="picked.length < 2 || creating" @click="submitCreateGroup">{{ t('common.confirm') }}</v-btn>
         </div>
       </v-card>
     </v-bottom-sheet>
@@ -397,7 +397,13 @@
     else picked.value.splice(i, 1)
   }
   async function submitCreateGroup () {
-    if (picked.value.length === 0 || creating.value) return
+    // 群聊下限：至少 2 位好友（加自己 ≥3 人），只选 1 个人请直接私聊
+    if (picked.value.length < 2) {
+      snackMsg.value = t('contacts.group.min')
+      snack.value = true
+      return
+    }
+    if (creating.value) return
     creating.value = true
     try {
       const g = await contacts.createGroup(newGroupName.value || t('group.defaultName'), picked.value)

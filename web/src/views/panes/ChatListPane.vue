@@ -131,7 +131,7 @@
           <v-toolbar-title class="text-body-large font-weight-medium">{{ t('group.create') }}</v-toolbar-title>
           <v-spacer />
 
-          <v-btn color="primary" :disabled="gMembers.length === 0" variant="text" @click="openNameDialog">
+          <v-btn color="primary" :disabled="gMembers.length < 2" variant="text" @click="openNameDialog">
             {{ t('common.next') }}
           </v-btn>
         </v-toolbar>
@@ -211,7 +211,7 @@
 
           <span class="text-body-medium text-medium-emphasis">{{ t('group.pick.selected', { n: gMembers.length }) }}</span>
 
-          <v-btn color="primary" :disabled="gMembers.length === 0" variant="text" @click="submitGroup">
+          <v-btn color="primary" :disabled="gMembers.length < 2" variant="text" @click="submitGroup">
             {{ t('common.done') }}
           </v-btn>
         </div>
@@ -371,7 +371,8 @@
   }
 
   async function submitGroup () {
-    if (gMembers.value.length === 0) return
+    // 群聊下限：至少 2 位好友（服务端同样校验）
+    if (gMembers.value.length < 2) return
     try {
       const g = await contacts.createGroup(gName.value || t('group.defaultName'), gMembers.value)
       groupSheet.value = false
