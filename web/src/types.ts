@@ -21,6 +21,7 @@ export interface User {
   email?: string
   /** 是否为自定义大面号（服务端随机生成的默认为 false） */
   wxIdCustom?: boolean
+  wxIdPrompted?: boolean
   /** 上次修改大面号的时刻（ISO；冷却期判定用） */
   wxIdChangedAt?: string
   signature: string

@@ -23,6 +23,9 @@ public class User
     public DateTime WxIdChangedAt { get; set; } = DateTime.MinValue;
     /// <summary>绑定邮箱（邮箱注册用户的登录凭据 / 找回渠道）。空 = 未绑定。</summary>
     public string Email { get; set; } = "";
+
+    /// <summary>「请修改大面号」引导弹窗是否已处理（改过号或点了「稍后」都算已处理）。</summary>
+    public bool WxIdPrompted { get; set; }
     public string Signature { get; set; } = "";
     public string Region { get; set; } = "";
     public string Gender { get; set; } = "unknown";
@@ -44,6 +47,20 @@ public class Contact
     public List<string> Groups { get; set; } = new();
     public string? Remark { get; set; }
     public bool Blocked { get; set; }
+}
+
+/// <summary>
+/// 登录设备会话（永久保存在 store.json）：一次登录 = 一条。
+/// RefreshToken 存值以便踢出时精准吊销；Id 随 JWT 下发（sid claim），踢出后旧 access token 也失效。
+/// </summary>
+public sealed class LoginSession
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public string Device { get; set; } = "";       // User-Agent（原样展示）
+    public string LastIp { get; set; } = "";
+    public DateTime LastSeen { get; set; } = DateTime.UtcNow;
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public string RefreshToken { get; set; } = "";
 }
 
 /// <summary>单个用户的会话视图标志（置顶/免打扰/折叠，按用户隔离）。</summary>

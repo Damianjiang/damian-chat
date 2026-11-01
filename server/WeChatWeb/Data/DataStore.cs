@@ -271,6 +271,114 @@ public sealed class DataStore
     /* ================= 用户 ================= */
 
     /// <summary>注册：建用户 + 空联系人表；昵称默认取账号。调用方需持有 lock(store)。</summary>
+    /// <summary>
+    /// 一次性迁移：直接注册的老用户此前拿到随机大面号（wx+8位），按「注册账号」搜不到人。
+    /// 把「没手动改过号、注册账号非邮箱」的用户大面号改成注册账号（幂等；目标号被占则跳过）。
+    /// 调用方需持有全局锁。
+    /// </summary>
+    /// <summary>登录设备会话：userId → 会话列表（永久保存）。</summary>
+    public Dictionary<string, List<Models.LoginSession>> LoginSessions { get; set; } = new();
+    private readonly Dictionary<string, string> _loginTokenIndex = new();
+
+    /// <summary>登录成功：登记/复用一条设备会话，返回 sessionId（调用方需持有全局锁）。</summary>
+    public string BeginOrTouchSession (string userId, string refreshToken, string ua, string ip)
+    {
+        var list = LoginSessions.TryGetValue(userId, out var l) ? l : (LoginSessions[userId] = new List<Models.LoginSession>());
+        var s = list.FirstOrDefault(x => x.RefreshToken == refreshToken);
+        if (s == null)
+        {
+            s = new Models.LoginSession { RefreshToken = refreshToken, Device = ua ?? "", LastIp = ip ?? "" };
+            list.Add(s);
+        }
+        s.LastSeen = DateTime.UtcNow;
+        if (!string.IsNullOrEmpty(ip)) s.LastIp = ip;
+        if (!string.IsNullOrEmpty(ua)) s.Device = ua;
+        _loginTokenIndex[refreshToken] = s.Id;
+        MarkDirty();
+        return s.Id;
+    }
+
+    /// <summary>refresh 轮转：把会话绑定的 refresh 值换成新值（同一设备会话延续）。</summary>
+    public void RebindSessionToken (string userId, string oldToken, string newToken)
+    {
+        if (!_loginTokenIndex.TryGetValue(oldToken, out var sid)) return;
+        var s = LoginSessions.TryGetValue(userId, out var l) ? l?.FirstOrDefault(x => x.Id == sid) : null;
+        if (s == null) { _loginTokenIndex.Remove(oldToken); return; }
+        s.RefreshToken = newToken;
+        _loginTokenIndex.Remove(oldToken);
+        _loginTokenIndex[newToken] = sid;
+        MarkDirty();
+    }
+
+    /// <summary>会话是否仍有效（sid 未被踢出）。中间件用于让被踢设备的旧 access token 立即失效。</summary>
+    public bool SessionActive (string userId, string sid)
+    {
+        if (string.IsNullOrEmpty(sid)) return true;   // 无 sid 的旧 token 保持向后兼容
+        return LoginSessions.TryGetValue(userId, out var l) && l!.Any(x => x.Id == sid);
+    }
+
+    /// <summary>踢出指定会话（同时吊销其 refresh）。返回是否踢掉。</summary>
+    public bool EndSession (string userId, string sid)
+    {
+        if (!LoginSessions.TryGetValue(userId, out var l) || l == null) return false;
+        var s = l.FirstOrDefault(x => x.Id == sid);
+        if (s == null) return false;
+        l.Remove(s);
+        _loginTokenIndex.Remove(s.RefreshToken);
+        RefreshTokens.Remove(s.RefreshToken);
+        MarkDirty();
+        return true;
+    }
+
+    /// <summary>踢出除 keepSid 外的所有会话。返回踢掉数量。</summary>
+    public int EndAllSessionsExcept (string userId, string keepSid)
+    {
+        if (!LoginSessions.TryGetValue(userId, out var l) || l == null) return 0;
+        var kill = l.Where(x => x.Id != keepSid).ToList();
+        foreach (var s in kill)
+        {
+            _loginTokenIndex.Remove(s.RefreshToken);
+            RefreshTokens.Remove(s.RefreshToken);
+            l.Remove(s);
+        }
+        if (kill.Count > 0) MarkDirty();
+        return kill.Count;
+    }
+
+    /// <summary>清空某用户全部设备会话（改密/封禁/删号后调用，配合 refresh 全吊销）。</summary>
+    public void EndAllSessions (string userId)
+    {
+        if (!LoginSessions.TryGetValue(userId, out var l) || l == null) return;
+        foreach (var s in l) _loginTokenIndex.Remove(s.RefreshToken);
+        LoginSessions.Remove(userId);
+        MarkDirty();
+    }
+
+    /// <summary>登出：吊销 refresh 的同时移除对应设备会话。</summary>
+    public void EndSessionByToken (string userId, string refreshToken)
+    {
+        if (!_loginTokenIndex.TryGetValue(refreshToken, out var sid)) return;
+        EndSession(userId, sid);
+    }
+
+    public int MigrateWxIdToAccount ()
+    {
+        var n = 0;
+        foreach (var u in Users.Values)
+        {
+            if (u.WxIdChangedAt != DateTime.MinValue) continue;                   // 手动改过号，尊重
+            if (string.IsNullOrEmpty(u.Phone) || u.Phone.Contains('@')) continue; // 邮箱注册
+            if (!Services.Validate.IsAccount(u.Phone)) continue;
+            if (u.WxId == u.Phone) continue;                                      // 已迁移
+            if (Users.Values.Any(x => x != u && x.WxId == u.Phone)) continue;     // 目标号被占
+            u.WxId = u.Phone;
+            u.WxIdCustom = true;
+            n++;
+        }
+        if (n > 0) MarkDirty();
+        return n;
+    }
+
     /// <summary>全库唯一大面号（调用方需持有全局锁；注册/建号路径共用）。</summary>
     public string GenerateUniqueWxIdLocked ()
     {
@@ -290,8 +398,10 @@ public sealed class DataStore
             Phone = account,
             Password = PasswordHasher.Hash(password),
             Nickname = account,
-            // 大面号必须全库唯一：8 位 hex 有小概率撞号，撞上后按大面号搜索会命中两个人
-            WxId = GenerateUniqueWxIdLocked(),
+            // 直接注册：大面号 = 注册账号（用户按账号搜人，预期如此）；
+            // 邮箱注册由调用方覆写为随机号（随机号默认不可被搜索，微信同款）
+            WxId = account.Contains('@') ? GenerateUniqueWxIdLocked() : account,
+            WxIdCustom = !account.Contains('@'),
             CreatedAt = DateTime.UtcNow,
         };
         Users[u.Id] = u;

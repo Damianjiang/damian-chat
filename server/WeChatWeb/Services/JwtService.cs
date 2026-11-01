@@ -16,16 +16,19 @@ public sealed class JwtService
 
     private byte[] SecretKey => JwtKeyProvider.GetKey(_config);
 
-    public (string accessToken, string refreshToken) CreateTokens(User user)
+    public (string accessToken, string refreshToken) CreateTokens(User user, string? sessionId = null)
     {
-        var claims = new[]
+        var claimList = new List<Claim>
         {
-            new Claim(JwtRegisteredClaimNames.Sub, user.Id),
-            new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
-            new Claim("phone", user.Phone),
+            new(JwtRegisteredClaimNames.Sub, user.Id),
+            new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+            new("phone", user.Phone),
             // 签发时刻（秒）：UserInvalidationMiddleware 据此拒绝「改密码之前签发」的旧令牌
             new Claim("pwd", DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString()),
         };
+        if (!string.IsNullOrEmpty(sessionId))
+            claimList.Add(new Claim("sid", sessionId));
+        var claims = claimList.ToArray();
         var notBefore = DateTime.UtcNow;
         var expires = DateTime.UtcNow.AddHours(2);
         var signingCredentials = new SigningCredentials(new SymmetricSecurityKey(SecretKey), SecurityAlgorithms.HmacSha256);

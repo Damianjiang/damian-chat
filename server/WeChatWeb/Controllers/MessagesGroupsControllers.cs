@@ -141,8 +141,10 @@ public class MessagesController : ControllerBase
 
         // 文本消息正文：先打散任何 HTML/标签结构（存储型 XSS 纵深防御），再做敏感词过滤
         // 非文本消息也统一剥离，保证持久化数据与转发/日志里永远不含可注入标记
-        var content = Validate.StripHtml(req.Content ?? "");
-        content = type == "text" ? (_sw.Filter(content) ?? "") : content;
+        // 文本正文：尖括号转义而非删除（防注入 + 原样显示，前端解码渲染）；其余类型仍剥标记
+        var content = type == "text"
+            ? _sw.Filter(Validate.EscapeMessage(req.Content ?? "")) ?? ""
+            : Validate.StripHtml(req.Content ?? "");
 
         // 引用 JSON 解析（重操作：JsonDocument.Parse + 字段读取）放到全局锁外先做，
         // 锁内只保留轻量的 keep 判定 + ToJson —— 减少每条消息在全局锁里的持有时间（聊天延迟关键点）。

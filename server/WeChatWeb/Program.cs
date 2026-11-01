@@ -231,6 +231,17 @@ builder.Services.AddAuthorization();
 
 var app = builder.Build();
 
+// 老用户大面号迁移（幂等）：直接注册用户的随机大面号 → 注册账号，让「按账号搜人」可用
+{
+    var store = app.Services.GetRequiredService<DataStore>();
+    lock (store)
+    {
+        var migrated = store.MigrateWxIdToAccount();
+        if (migrated > 0)
+            Console.WriteLine($"[迁移] 已把 {migrated} 个直接注册用户的大面号改为其注册账号");
+    }
+}
+
 // DEP-SEC 启动即递归收紧敏感目录树（Windows icacls /t、Unix chmod 700）：
 // ・data/：jwt.secret、admin.key、store.json（含全用户 PBKDF2 密码哈希）、files/*（聊天上传）、slider-bg
 // ・logs/：请求/认证/举报日志

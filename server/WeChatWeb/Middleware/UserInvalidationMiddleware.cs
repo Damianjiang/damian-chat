@@ -47,6 +47,14 @@ public sealed class UserInvalidationMiddleware
                 {
                     return Reject(context);
                 }
+
+                // 登录设备管理：sid 不在活跃会话列表 = 该设备已被踢出，旧 access token 立即失效。
+                // 无 sid 的旧令牌（升级前签发）放行，向后兼容。
+                var sid = context.User?.FindFirstValue("sid");
+                if (!_store.SessionActive(sub, sid))
+                {
+                    return Reject(context);
+                }
             }
         }
         return _next(context);

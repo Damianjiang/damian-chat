@@ -37,6 +37,12 @@
           </template>
         </v-list-item>
 
+        <!-- 登录设备管理：查看/踢出其它设备（账号安全） -->
+        <v-list-item @click="openSessions">
+          <v-list-item-title>{{ t('settings.sessions') }}</v-list-item-title>
+          <template #append><v-icon icon="mdi-chevron-right" /></template>
+        </v-list-item>
+
         <v-list-item @click="privacyDialog = true">
           <v-list-item-title>{{ t('settings.privacy') }}</v-list-item-title>
           <template #append><v-icon icon="mdi-chevron-right" /></template>
@@ -301,7 +307,49 @@
     </v-dialog>
 
     <!-- 隐私 -->
-    <v-dialog v-model="privacyDialog" max-width="360">
+        <!-- 登录设备管理：列出所有设备（永久记录），可踢出单个/其它全部 -->
+    <v-dialog v-model="sessionsOpen" max-width="420">
+      <v-card class="pa-2">
+        <div class="d-flex align-center pa-2">
+          <span class="text-body-large font-weight-medium">{{ t('settings.sessions') }}</span>
+          <v-btn class="ml-auto" size="small" variant="text" color="error" @click="kickAll">
+            {{ t('settings.sessions.kickAll') }}
+          </v-btn>
+        </div>
+
+        <v-list v-if="sessions.length > 0" class="pa-0" lines="three">
+          <v-list-item v-for="s in sessions" :key="s.id">
+            <template #prepend>
+              <v-icon :icon="s.current ? 'mdi-cellphone-check' : 'mdi-cellphone'" color="primary" />
+            </template>
+            <template #title>
+              <span>{{ sessionLabel(s.device) }}</span>
+              <v-chip v-if="s.current" class="ml-2" color="primary" size="x-small" variant="flat">{{ t('settings.sessions.current') }}</v-chip>
+            </template>
+            <template #subtitle>
+              <div>{{ s.lastIp }} · {{ new Date(s.lastSeen).toLocaleString() }}</div>
+              <div class="text-caption">{{ s.device }}</div>
+            </template>
+            <template #append>
+              <v-btn
+                v-if="!s.current"
+                icon="mdi-logout-variant"
+                size="small"
+                variant="text"
+                @click="kickSession(s.id)"
+              />
+            </template>
+          </v-list-item>
+        </v-list>
+        <v-empty-state v-else class="pa-6" icon="mdi-cellphone-off" :title="t('settings.sessions.none')" />
+
+        <div class="d-flex justify-end pa-2">
+          <v-btn variant="text" @click="sessionsOpen = false">{{ t('common.close') }}</v-btn>
+        </div>
+      </v-card>
+    </v-dialog>
+
+<v-dialog v-model="privacyDialog" max-width="360">
       <v-card>
         <v-card-title>{{ t('settings.privacy') }}</v-card-title>
 
@@ -734,6 +782,60 @@
       } catch { /* 拿不到就按默认不弹，服务端会兜底校验 */ }
     }
     if (settingsCaptchaRequired.value) await refreshSettingsCaptcha()
+  }
+
+  /* ---------------- 登录设备管理 ---------------- */
+  interface DeviceSession { id: string, device: string, lastIp: string, lastSeen: string, createdAt: string, current: boolean }
+  const sessionsOpen = ref(false)
+  const sessions = ref<DeviceSession[]>([])
+
+  async function openSessions () {
+    sessionsOpen.value = true
+    try {
+      sessions.value = (await api.get('/users/me/sessions')).data
+    } catch {
+      sessions.value = []
+    }
+  }
+
+  /** UA → 可读设备名（手机/桌面 + 浏览器内核） */
+  function sessionLabel (ua: string): string {
+    const s = ua || ''
+    const os = /Android/i.test(s) ? 'Android'
+      : /iPhone|iPad|iOS/i.test(s) ? 'iOS'
+      : /Windows/i.test(s) ? 'Windows'
+      : /Macintosh|Mac OS/i.test(s) ? 'macOS' : '未知设备'
+    const browser = /DingTalk/i.test(s) ? '钉钉内置'
+      : /MicroMessenger/i.test(s) ? '微信内置'
+      : /Edg\//i.test(s) ? 'Edge'
+      : /Chrome/i.test(s) ? 'Chrome'
+      : /Safari/i.test(s) ? 'Safari'
+      : /Firefox/i.test(s) ? 'Firefox' : ''
+    return browser ? `${os} · ${browser}` : os
+  }
+
+  async function kickSession (id: string) {
+    try {
+      await api.delete(`/users/me/sessions/${id}`)
+      sessions.value = sessions.value.filter(x => x.id !== id)
+      snackMsg.value = t('settings.sessions.kicked')
+      snack.value = true
+    } catch (e: unknown) {
+      snackMsg.value = (e as { response?: { data?: { error?: string } } })?.response?.data?.error ?? t('common.op.fail')
+      snack.value = true
+    }
+  }
+
+  async function kickAll () {
+    try {
+      const r = await api.delete('/users/me/sessions')
+      sessions.value = sessions.value.filter(x => x.current)
+      snackMsg.value = t('settings.sessions.kickedN', { n: (r.data as { kicked?: number }).kicked ?? 0 })
+      snack.value = true
+    } catch {
+      snackMsg.value = t('common.op.fail')
+      snack.value = true
+    }
   }
 
   function startEmailCodeCountdown () {

@@ -47,7 +47,7 @@
       <!-- 文本（群聊里 @提及 会被高亮） -->
       <div v-else-if="message.type === 'text'" :class="bubbleClass">
         <div v-if="quote" class="wx-quote">
-          <strong>{{ quote.senderName }}：{{ quote.text }}</strong>
+          <strong>{{ unescape(quote.senderName) }}：{{ unescape(quote.text) }}</strong>
         </div>
 
         <span class="wx-text">
@@ -57,7 +57,7 @@
               <span v-else>{{ seg.text }}</span>
             </template>
           </template>
-          <template v-else>{{ message.content }}</template>
+          <template v-else>{{ unescape(message.content) }}</template>
         </span>
       </div>
 
@@ -124,7 +124,7 @@
       </div>
 
       <!-- 其它 -->
-      <div v-else :class="bubbleClass">{{ message.content }}</div>
+      <div v-else :class="bubbleClass">{{ unescape(message.content) }}</div>
 
       <div v-if="showTime" class="wx-bubble-time">{{ timeLabel(message.createdAt) }}</div>
     </div>
@@ -269,6 +269,11 @@
     if (last < text.length) segs.push({ text: text.slice(last), isMention: false })
     return segs
   })
+
+  /** 服务端把尖括号转义为 &lt;/&gt; 存储（防注入），渲染时反向解码还原输入 */
+  function unescape (s?: string | null): string {
+    return (s ?? '').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+  }
 
   const quote = computed(() => {
     if (!props.message.quoteJson) return null

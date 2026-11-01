@@ -214,8 +214,12 @@ export const useConversationsStore = defineStore('conversations', {
         if (message.senderId === meId) {
           return
         }
-        if (this.activeId === message.conversationId) {
-          // 正开着这个会话：本地红点不加，且必须把「已读」同步到服务端，
+        // 页面可见时才视为「正在看」：App 切后台/锁屏时页面依旧 active，
+        // 若照旧自动已读，用户没读消息红点却消失了。不可见 → 照常累加未读，
+        // 等回到前台（visibilitychange）再对当前会话补已读。
+        const visible = typeof document === 'undefined' || document.visibilityState === 'visible'
+        if (this.activeId === message.conversationId && visible) {
+          // 正开着且可见：本地红点不加，且必须把「已读」同步到服务端，
           // 否则刷新/重登后服务端未读数照涨 —— 红点复活。
           // 防抖：消息密集时（如刷屏）每条一个 PUT 会打爆服务端，500ms 合并为一次
           s.unread = 0

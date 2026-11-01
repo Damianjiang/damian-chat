@@ -1082,6 +1082,17 @@
       }
     })
   })
+  // 回到前台时补已读：后台期间收到的消息红点还在，回来看到了才标记已读
+  const onVisible = () => {
+    if (document.visibilityState !== 'visible') return
+    const cid = convId.value
+    if (!cid || !store.messagesByConv[cid]) return
+    store.markRead(cid)
+    void api.put(`/conversations/${cid}`, { read: true }).catch(() => {})
+  }
+  document.addEventListener('visibilitychange', onVisible)
+  onBeforeUnmount(() => document.removeEventListener('visibilitychange', onVisible))
+
   // 切会话竞态守卫：A→B 快速导航时两个 watcher 并发执行，
   // 若 A 的 openConversation 后完成会把 activeId 覆盖回 A —— 用令牌让过期运行直接退出
   let convSwitchSeq = 0

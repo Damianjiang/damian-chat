@@ -42,11 +42,13 @@ public class UsersController : ControllerBase
     private readonly DataStore _store;
     private readonly SecuritySettings _sec;
     private readonly EmailCodeService _emailCode;
-    public UsersController(DataStore store, SecuritySettings sec, EmailCodeService emailCode)
+    private readonly Microsoft.AspNetCore.SignalR.IHubContext<WeChatWeb.Hubs.ChatHub> _hub;
+    public UsersController(DataStore store, SecuritySettings sec, EmailCodeService emailCode, Microsoft.AspNetCore.SignalR.IHubContext<WeChatWeb.Hubs.ChatHub> hub)
     {
         _store = store;
         _sec = sec;
         _emailCode = emailCode;
+        _hub = hub;
     }
 
     [HttpGet("users/me")]
@@ -72,6 +74,7 @@ public class UsersController : ControllerBase
             p.Gender,
             u.WxIdCustom,
             u.WxIdChangedAt,
+            u.WxIdPrompted,
             u.Email,
             u.CreatedAt,
         };
@@ -107,6 +110,84 @@ public class UsersController : ControllerBase
             user.WxId = wxId;
             user.WxIdCustom = true;
             user.WxIdChangedAt = DateTime.UtcNow;
+            user.WxIdPrompted = true;   // 改过号 → 引导完成
+            _store.MarkDirty();
+        }
+        return Ok(SelfProfile(user));
+    }
+
+    // ---------------- 登录设备管理（安全中心） ----------------
+
+    private string? MySid => User.FindFirst("sid")?.Value;
+
+    /// <summary>我的登录设备列表（永久记录；当前设备带 current 标记）。</summary>
+    [HttpGet("users/me/sessions")]
+    public IActionResult MySessions ()
+    {
+        var me = HttpContext.GetUserId();
+        lock (_store)
+        {
+            object list = _store.LoginSessions.TryGetValue(me, out var l)
+                ? (object)l!.OrderByDescending(x => x.LastSeen).Select(x => new
+                {
+                    id = x.Id,
+                    device = x.Device,
+                    lastIp = x.LastIp,
+                    lastSeen = x.LastSeen,
+                    createdAt = x.CreatedAt,
+                    current = x.Id == MySid,
+                }).ToList()
+                : new List<object>();
+            return Ok(list);
+        }
+    }
+
+    /// <summary>踢出指定登录设备（吊销其 refresh；旧 access token 经中间件立即失效）。</summary>
+    [HttpDelete("users/me/sessions/{sid}")]
+    public async Task<IActionResult> KickSession (string sid)
+    {
+        var me = HttpContext.GetUserId();
+        if (sid == MySid) return BadRequest(new { error = "不能踢出当前设备（请用退出登录）" });
+        bool kicked;
+        lock (_store) { kicked = _store.EndSession(me, sid); }
+        if (!kicked) return NotFound();
+        try
+        {
+            var conns = WeChatWeb.Hubs.ChatHub.MemberConnections(_store, me);
+            if (conns.Count > 0) await _hub.Clients.Clients(conns).SendAsync("ForceLogout", sid);
+        }
+        catch { /* 广播失败不影响踢出 */ }
+        return Ok(new { ok = true });
+    }
+
+    /// <summary>踢出除当前设备外的所有登录设备（账号安全应急用）。</summary>
+    [HttpDelete("users/me/sessions")]
+    public async Task<IActionResult> KickAllOtherSessions ()
+    {
+        var me = HttpContext.GetUserId();
+        int n;
+        lock (_store) { n = _store.EndAllSessionsExcept(me, MySid ?? ""); }
+        if (n > 0)
+        {
+            try
+            {
+                var conns = WeChatWeb.Hubs.ChatHub.MemberConnections(_store, me);
+                if (conns.Count > 0) await _hub.Clients.Clients(conns).SendAsync("ForceLogout", "*");
+            }
+            catch { /* 广播失败不影响踢出 */ }
+        }
+        return Ok(new { ok = true, kicked = n });
+    }
+
+    /// <summary>「请修改大面号」引导弹窗点了「稍后再说」：记录已提示过，不再每次登录弹。</summary>
+    [HttpPut("users/me/wxid-prompt-ack")]
+    public IActionResult AckWxIdPrompt ()
+    {
+        var user = HttpContext.FindUser(_store);
+        if (user is null) return NotFound();
+        lock (_store)
+        {
+            user.WxIdPrompted = true;
             _store.MarkDirty();
         }
         return Ok(SelfProfile(user));
@@ -374,11 +455,15 @@ public class ContactsController : ControllerBase
                 // 手机号只在标准 11 位输入时参与匹配：直接注册的账号名存在 Phone 字段，
                 // 若按账号名（看起来像"名字"）也能搜到人，既不符合"按大面号加好友"的预期，
                 // 又会在账号名撞上别人大面号时搜错对象（重复/张冠李戴）。
+                // 搜索语义：输入 = 对方的大面号 或 注册账号（直接注册用户两者相同）；
+                // 11 位数字则同时可命中手机号。受对方「添加我的方式」隐私开关约束。
+                // （随机大面号 WxIdCustom=false 的邮箱注册用户永远搜不到 —— 防批量加人）
                 var isPhoneQuery = System.Text.RegularExpressions.Regex.IsMatch(phone, @"^1[3-9]\d{9}$");
+                var isAccountQuery = Validate.IsAccount(phone);
                 target = _store.Users.Values.FirstOrDefault(u =>
                     (wxId.Length > 0 && !string.IsNullOrEmpty(u.WxId) && u.WxId == wxId
                         && u.WxIdCustom && Searchable(u, "searchByWxId"))
-                    || (isPhoneQuery && u.Phone == phone && Searchable(u, "searchByPhone")));
+                    || ((isPhoneQuery || isAccountQuery) && u.Phone == phone && Searchable(u, "searchByPhone")));
             }
             if (target == null) return BadRequest(new { error = "该手机号或大面号不存在" });
             if (target.Id == me) return BadRequest(new { error = "不能添加自己为好友" });
@@ -739,6 +824,7 @@ public class AccountController : ControllerBase
             // 截断到整秒：令牌里的 pwd 时间戳是秒级精度，亚秒部分会让「同一秒签发的新令牌」被误杀。
             var nowUtc = DateTime.UtcNow;
             user.PasswordChangedAt = new DateTime(nowUtc.Ticks - nowUtc.Ticks % TimeSpan.TicksPerSecond, DateTimeKind.Utc);
+            _store.EndAllSessions(me);   // 改密 = 全设备下线（设备列表同步清空）
             foreach (var kv in _store.RefreshTokens.Where(kv => kv.Value.UserId == me).ToList())
                 _store.RefreshTokens.Remove(kv.Key);
             // 本机其它实时连接一并踢线（前端会话校验失败自动回登录页）

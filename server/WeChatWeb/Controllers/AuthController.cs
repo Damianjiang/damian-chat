@@ -171,7 +171,9 @@ public class AuthController : ControllerBase
         Models.User? user;
         lock (_store)
         {
-            user = _store.Users.Values.FirstOrDefault(u => u.Phone == account);
+            // 登录：注册账号 或 大面号（改过号的用户用大面号也能登录）
+            user = _store.Users.Values.FirstOrDefault(u => u.Phone == account)
+                ?? _store.Users.Values.FirstOrDefault(u => u.WxId == account);
         }
 
         if (user == null)
@@ -199,16 +201,7 @@ public class AuthController : ControllerBase
 
         object IssueTokens (Models.User u)
         {
-            var (access, refresh) = _jwt.CreateTokens(u);
-            lock (_store)
-            {
-                _store.RefreshTokens[refresh] = new RefreshToken
-                {
-                    Value = refresh,
-                    UserId = u.Id,
-                    ExpiresAt = DateTime.UtcNow.AddDays(7),
-                };
-            }
+            var (access, refresh, sid) = CreateSessionTokens(u);
             SetRefreshCookie(refresh);   // refresh 落 httpOnly cookie（JS 读不到）
             return new { accessToken = access, expiresIn = 7200, user = PublicUser(u) };
         }
@@ -298,12 +291,8 @@ public class AuthController : ControllerBase
         _guard.ResetAccount(account);
         _log.Write("auth", new { ts = DateTime.UtcNow, result = "register-ok", user = user.Id, account, ip = Ip, ua = Ua });
 
-        var (access, refresh) = _jwt.CreateTokens(user);
-        lock (_store)
-        {
-            _store.RefreshTokens[refresh] = new RefreshToken { Value = refresh, UserId = user.Id, ExpiresAt = DateTime.UtcNow.AddDays(7) };
-        }
-            SetRefreshCookie(refresh);   // 注册成功即登录：refresh 落 httpOnly cookie
+        var (access, refresh, _) = CreateSessionTokens(user);
+        SetRefreshCookie(refresh);   // 注册成功即登录：refresh 落 httpOnly cookie
         return Ok(new { accessToken = access, expiresIn = 7200, user = PublicUser(user) });
     }
 
@@ -328,6 +317,8 @@ public class AuthController : ControllerBase
             _store.RefreshTokens.Remove(presented);
             var (access, refresh) = _jwt.CreateTokens(user);
             _store.RefreshTokens[refresh] = new RefreshToken { Value = refresh, UserId = user.Id, ExpiresAt = DateTime.UtcNow.AddDays(7) };
+            // 同一设备的会话延续：refresh 值重绑到原会话（最后活跃时间也刷新）
+            _store.RebindSessionToken(user.Id, presented, refresh);
             SetRefreshCookie(refresh);   // 轮转后的新 refresh 写回 httpOnly cookie
             return Ok(new { accessToken = access, expiresIn = 7200 });
         }
@@ -338,12 +329,35 @@ public class AuthController : ControllerBase
     public IActionResult Logout ([FromBody] RefreshRequest? req)
     {
         var presented = PresentedRefresh(req?.RefreshToken);
+        var me = User.Identity?.IsAuthenticated == true ? HttpContext.GetUserId() : null;
         lock (_store)
         {
-            if (!string.IsNullOrEmpty(presented)) _store.RefreshTokens.Remove(presented);
+            if (!string.IsNullOrEmpty(presented))
+            {
+                _store.RefreshTokens.Remove(presented);
+                if (me != null) _store.EndSessionByToken(me, presented);
+            }
         }
         ClearRefreshCookie();   // 清 httpOnly cookie（+ 旧客户端传了 body 的一并吊销）
         return Ok(new { ok = true });
+    }
+
+    /// <summary>
+    /// 签发一对令牌并登记「登录设备会话」（设备=UA+IP，永久保存）。
+    /// sid 随 access token 下发：被踢设备即使 token 未过期也立即失效（中间件校验）。
+    /// </summary>
+    private (string access, string refresh, string sid) CreateSessionTokens (Models.User u)
+    {
+        string access;
+        string refresh;
+        string sid;
+        lock (_store)
+        {
+            (access, refresh) = _jwt.CreateTokens(u);
+            sid = _store.BeginOrTouchSession(u.Id, refresh, Ua, Ip);
+            _store.RefreshTokens[refresh] = new RefreshToken { Value = refresh, UserId = u.Id, ExpiresAt = DateTime.UtcNow.AddDays(7) };
+        }
+        return (access, refresh, sid);
     }
 
     /// <summary>客户端安全视图：绝不携带密码哈希。WxId 是账号本人的大面号，随登录下发。</summary>
@@ -355,6 +369,7 @@ public class AuthController : ControllerBase
         u.Avatar,
         WxId = u.WxId,
         u.WxIdCustom,
+        u.WxIdPrompted,
         u.Email,
         u.Signature,
         u.Region,

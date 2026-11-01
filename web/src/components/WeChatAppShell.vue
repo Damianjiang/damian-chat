@@ -96,14 +96,39 @@
       </div>
     </div>
   </v-main>
+
+  <!-- 大面号引导：新号首次登录提示改大面号（改过/点稍后都不再弹） -->
+  <v-dialog v-model="wxidPromptOpen" persistent max-width="360">
+    <v-card class="pa-2">
+      <v-card-title class="text-body-large font-weight-medium">{{ t('shell.wxid.prompt.title') }}</v-card-title>
+      <v-card-text>
+        <div class="text-body-medium mb-2">{{ t('shell.wxid.prompt.body') }}</div>
+        <div class="text-body-small text-warning mb-3">{{ t('shell.wxid.prompt.warn') }}</div>
+        <v-text-field
+          v-model="wxidInput"
+          density="compact"
+          hide-details
+          :placeholder="t('shell.wxid.prompt.ph')"
+          variant="solo"
+        />
+      </v-card-text>
+      <v-card-actions>
+        <v-spacer />
+        <v-btn variant="text" @click="ackWxidPrompt">{{ t('shell.wxid.prompt.later') }}</v-btn>
+        <v-btn color="primary" :disabled="!/^[a-z][a-z0-9_-]{5,19}$/.test(wxidInput)" @click="saveWxid">{{ t('common.confirm') }}</v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
 </template>
 
 <script setup lang="ts">
   import { computed, ref, watch } from 'vue'
   import { useRoute, useRouter } from 'vue-router'
 
+  import { api } from '@/lib/api'
   import { layoutMode } from '@/lib/device'
   import { t } from '@/lib/i18n'
+  import { useAuthStore } from '@/stores/auth'
   import BlockedUsersPane from '@/views/panes/BlockedUsersPane.vue'
   import ChatDetailPane from '@/views/panes/ChatDetailPane.vue'
   import ChatListPane from '@/views/panes/ChatListPane.vue'
@@ -260,6 +285,35 @@
   })
 
   const placeholderText = computed(() => t(placeholderMap[section.value]?.key ?? 'shell.empty.chat'))
+
+const auth = useAuthStore()
+
+/* ---------------- 大面号引导弹窗 ---------------- */
+const wxidPromptOpen = ref(false)
+const wxidInput = ref('')
+watch(() => auth.user, u => {
+  wxidPromptOpen.value = !!u && u.wxIdPrompted === false
+}, { immediate: true })
+
+async function saveWxid () {
+  try {
+    const me = (await api.put('/users/me/wxid', { wxId: wxidInput.value })).data
+    auth.user = { ...auth.user!, ...me }
+    wxidPromptOpen.value = false
+  } catch (e: unknown) {
+    // 冷却/重名等错误：提示后关闭（用户可在设置里再改）
+    console.warn('[wxid]', e)
+    wxidPromptOpen.value = false
+  }
+}
+
+async function ackWxidPrompt () {
+  wxidPromptOpen.value = false
+  try {
+    const me = (await api.put('/users/me/wxid-prompt-ack')).data
+    auth.user = { ...auth.user!, ...me }
+  } catch { /* 忽略 */ }
+}
 </script>
 
 <style scoped>
