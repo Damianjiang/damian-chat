@@ -356,7 +356,8 @@
   const langLabel = computed(() =>
     langValue.value === 'auto' ? t('login.lang.auto')
       : langValue.value === 'zh' ? t('login.lang.zh')
-        : t('login.lang.en'))
+        : langValue.value === 'zhHant' ? t('login.lang.zhHant')
+          : t('login.lang.en'))
   function setLang (val: string) {
     langStore.setLang(val as 'auto' | 'zh' | 'en')
   }
