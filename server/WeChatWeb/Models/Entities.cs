@@ -225,6 +225,10 @@ public class FileMeta
     public string Path { get; set; } = "";
     public string UploaderId { get; set; } = "";
 
+    /// <summary>上传用途（private=普通文件 / avatar=头像 / voice=语音）。
+    /// 头像下载走「站内已登录用户可读」的公开策略（不走会话归属校验）。</summary>
+    public string Kind { get; set; } = "private";
+
     /// <summary>内容 SHA-256（去重用；相同内容只存一份）。</summary>
     public string Hash { get; set; } = "";
 

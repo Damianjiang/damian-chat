@@ -180,7 +180,7 @@ public class FilesController : ControllerBase
         // 网络公平性由 Kestrel 请求体大小上限保障，本地磁盘 I/O 无需额外限速。
         using var uploadStream = file.OpenReadStream();
         var uploaderId = HttpContext.GetUserId();
-        var (id, dedup) = await _files.SaveAsync(uploadStream, ext, uploaderId, safeName, HttpContext.RequestAborted);
+        var (id, dedup) = await _files.SaveAsync(uploadStream, ext, uploaderId, safeName, HttpContext.RequestAborted, kind);
 
         // 展示用文件名先做敏感词过滤（掩码而非拒收），再写回元数据
         var displayName = _sw.Filter(safeName) ?? safeName;
@@ -258,7 +258,10 @@ public class FilesController : ControllerBase
 
         // 归属校验：只有上传者本人，或在可访问会话里收到过该文件的人能下载。
         // 此前任何拿到 id 的人都能下载全站文件。
-        if (!CanReadFile(meta, me)) return NotFound();
+        // 例外：头像（kind=avatar）对所有已登录用户可读 —— 头像从不经过会话（不在
+        // 文件引用索引里），严格的归属校验会让「谁都看不到别人的头像」（聊天气泡、
+        // 通讯录全破图）。头像本就是站内公开资源（微信同款），且文件 id 不可枚举。
+        if (meta.Kind != "avatar" && !CanReadFile(meta, me)) return NotFound();
 
         return StreamFile(meta);
     }

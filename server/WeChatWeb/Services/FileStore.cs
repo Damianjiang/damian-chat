@@ -136,7 +136,7 @@ public sealed class FileStore
             .ToLowerInvariant();
     }
 
-    public async Task<(string Id, bool Deduplicated)> SaveAsync (Stream source, string ext, string uploaderId, string originalName, CancellationToken ct)
+    public async Task<(string Id, bool Deduplicated)> SaveAsync (Stream source, string ext, string uploaderId, string originalName, CancellationToken ct, string kind = "private")
     {
         Directory.CreateDirectory(Dir);
         var temp = Path.Combine(Dir, Guid.NewGuid().ToString("N") + ".tmp");
@@ -189,6 +189,7 @@ public sealed class FileStore
                         Path = final,
                         Hash = sha,
                         UploaderId = uploaderId,
+                        Kind = kind,
                         CreatedAt = DateTime.UtcNow,
                     };
                     _data.Files[id] = meta;
