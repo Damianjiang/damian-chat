@@ -933,6 +933,13 @@
 
     // 有新版 → 拉新 SW 并接管刷新
     updateMsg.value = t('settings.update.found', { n: latestVersion.value })
+    // 浏览器只在「安全上下文」（https 或 localhost）允许 Service Worker。
+    // 通过 http://局域网IP 访问时注册必然失败 —— 给出可操作的原因，而不是笼统的"未注册"。
+    if (!('serviceWorker' in navigator) || !window.isSecureContext) {
+      updateMsg.value = t('settings.update.sw.insecure')
+      updating.value = false
+      return
+    }
     let reg: ServiceWorkerRegistration
     try {
       reg = await navigator.serviceWorker.ready
