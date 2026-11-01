@@ -152,7 +152,7 @@ export const useConversationsStore = defineStore('conversations', {
       }
       const s = this.sessions.find(x => x.id === conversationId)
       if (s?.lastMessage?.id === messageId) {
-        s.lastMessage = this.messagesByConv[conversationId]?.at(-1)
+        const list = this.messagesByConv[conversationId]; s.lastMessage = list && list.length > 0 ? list[list.length - 1] : undefined
         s.lastAt = s.lastMessage?.createdAt
       }
       // 只精准删这一条 IDB 缓存（不能整段重写：跨设备接收端可能从没打开过该会话，

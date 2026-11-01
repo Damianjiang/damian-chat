@@ -373,10 +373,14 @@ public class ContactsController : ControllerBase
             {
                 bool Searchable (User u, string key)
                     => !u.Privacy.TryGetValue(key, out var v) || v;
+                // 手机号只在标准 11 位输入时参与匹配：直接注册的账号名存在 Phone 字段，
+                // 若按账号名（看起来像"名字"）也能搜到人，既不符合"按大面号加好友"的预期，
+                // 又会在账号名撞上别人大面号时搜错对象（重复/张冠李戴）。
+                var isPhoneQuery = System.Text.RegularExpressions.Regex.IsMatch(phone, @"^1[3-9]\d{9}$");
                 target = _store.Users.Values.FirstOrDefault(u =>
                     (wxId.Length > 0 && !string.IsNullOrEmpty(u.WxId) && u.WxId == wxId
                         && u.WxIdCustom && Searchable(u, "searchByWxId"))
-                    || (phone.Length > 0 && u.Phone == phone && Searchable(u, "searchByPhone")));
+                    || (isPhoneQuery && u.Phone == phone && Searchable(u, "searchByPhone")));
             }
             if (target == null) return BadRequest(new { error = "该手机号或大面号不存在" });
             if (target.Id == me) return BadRequest(new { error = "不能添加自己为好友" });
@@ -386,6 +390,17 @@ public class ContactsController : ControllerBase
             // 申请留言长度限制 + 打散 HTML 标记（显示在对方申请列表里，属跨用户文本）。
             // 走 Clean：超限直接拒绝（比截断更明确），并破坏任何 <tag> 结构
             var message = Validate.Clean(req.Message, 100) ?? "";
+
+            // 重复申请去重：同一人对同一目标已有 pending 申请 → 只更新留言并幂等返回
+            //（此前可无限重复发，对方「新的朋友」里堆一串同一个人）
+            var existing = _store.FriendRequests.FirstOrDefault(x =>
+                x.FromUserId == me && x.ReceiverId == target.Id && x.Status == "pending");
+            if (existing != null)
+            {
+                existing.Message = message;
+                _store.MarkDirty();
+                return Ok(new { status = "pending", request = existing });
+            }
 
             fr = new FriendRequest { FromUserId = me, ReceiverId = target.Id, Message = message };
             if (target.IsBot)

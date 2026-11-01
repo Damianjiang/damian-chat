@@ -1054,7 +1054,8 @@
     // 仅当内容变化才触发（此前每次返回新对象，数组的整体重赋值也会触发空转）。
     // 返回原始值组合即可复用 watch 旧值 comparisons（Vue 对二元元组做引用相等判断也会失效，
     // 但这里用两个独立 getter 逐项比较最稳定）。
-    return `${list?.length ?? 0}|${list?.at(-1)?.id ?? ''}`
+    const lastId = list && list.length > 0 ? list[list.length - 1]! : null
+    return `${list?.length ?? 0}|${lastId?.id ?? ''}`
   }, nv => {
     if (suppressScroll) return
     const [lenStr, lastId] = nv.split('|')

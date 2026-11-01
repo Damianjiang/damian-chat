@@ -441,7 +441,7 @@ public class AdminController : ControllerBase
                 Phone = account,
                 Password = PasswordHasher.Hash(pwd),
                 Nickname = nickname ?? account,
-                WxId = "wx" + Guid.NewGuid().ToString("N")[..8],
+                WxId = _store.GenerateUniqueWxIdLocked(),   // 全库唯一（防撞号导致按大面号搜错人）
                 WxIdCustom = true,   // 管理员创建的账号：账号名即登录名，随机大面号仅占位且可搜（管理员场景）
             };
             _store.Users[user.Id] = user;

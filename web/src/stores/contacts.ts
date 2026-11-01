@@ -17,7 +17,7 @@ export const useContactsStore = defineStore('contacts', {
     keyword: '',
   }),
   getters: {
-    sorted: state => state.items.toSorted((a, b) => a.firstLetter.localeCompare(b.firstLetter) || a.user.nickname.localeCompare(b.user.nickname, 'zh')),
+    sorted: state => state.items.slice().sort((a, b) => a.firstLetter.localeCompare(b.firstLetter) || a.user.nickname.localeCompare(b.user.nickname, 'zh')),
   },
   actions: {
     async load (keyword?: string) {

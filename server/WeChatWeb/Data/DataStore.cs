@@ -271,6 +271,17 @@ public sealed class DataStore
     /* ================= 用户 ================= */
 
     /// <summary>注册：建用户 + 空联系人表；昵称默认取账号。调用方需持有 lock(store)。</summary>
+    /// <summary>全库唯一大面号（调用方需持有全局锁；注册/建号路径共用）。</summary>
+    public string GenerateUniqueWxIdLocked ()
+    {
+        for (var i = 0; i < 20; i++)
+        {
+            var id = "wx" + Guid.NewGuid().ToString("N")[..8];
+            if (!Users.Values.Any(u => u.WxId == id)) return id;
+        }
+        return "wx" + Guid.NewGuid().ToString("N")[..12];
+    }
+
     public User RegisterUser (string account, string password)
     {
         var u = new User
@@ -279,7 +290,8 @@ public sealed class DataStore
             Phone = account,
             Password = PasswordHasher.Hash(password),
             Nickname = account,
-            WxId = "wx" + Guid.NewGuid().ToString("N")[..8],
+            // 大面号必须全库唯一：8 位 hex 有小概率撞号，撞上后按大面号搜索会命中两个人
+            WxId = GenerateUniqueWxIdLocked(),
             CreatedAt = DateTime.UtcNow,
         };
         Users[u.Id] = u;

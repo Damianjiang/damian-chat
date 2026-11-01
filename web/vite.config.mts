@@ -111,6 +111,11 @@ export default defineConfig({
   build: {
     outDir: fileURLToPath(new URL('../server/WeChatWeb/wwwroot', import.meta.url)),
     emptyOutDir: true,
+    // 兼容旧手机内核：默认 target（baseline-widely-available ≈ Chrome 107）在
+    // 低版本 WebView 上会因内置方法缺失整页白屏（首页能开、通讯录空白 —— toSorted）。
+    // es2022：转译更新的语法，且支持 top-level await（main.ts 在用）；
+    // 代码里已不再使用 toSorted / .at() 等 ES2022+ 内置方法。
+    target: 'es2022',
     // 大库独立分桶，避免全部打进 index-*.js 触发 "chunk 过大" 警告：
     //   - vuetify  组件库最大头
     //   - vendor   vue + vue-router + pinia（前端框架内核）

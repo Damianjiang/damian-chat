@@ -624,7 +624,7 @@
   }
 
   /** 只显示实际存在的字母，避免右侧拖出一长条 A-Z */
-  const availableLetters = computed(() => Object.keys(grouped.value).toSorted())
+  const availableLetters = computed(() => Object.keys(grouped.value).slice().sort())
 
   function scrollToLetter (l: string) {
     const el = listRef.value?.querySelector(`#letter-${l}`)
