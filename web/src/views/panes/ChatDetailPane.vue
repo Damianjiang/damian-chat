@@ -701,7 +701,14 @@
     // 搜索态下自己刚发的消息可能被关键词过滤掉（看着像发送失败），发了就退出搜索
     if (searchOn.value) closeSearch()
     // 乐观发送：气泡已即时上屏，失败时 store 会把它标记为 failed（点红色 ! 可重试）
-    store.send(s, payload as Partial<Message>).catch(() => {})
+    store.send(s, payload as Partial<Message>).catch((error: any) => {
+      // 服务端业务拒绝（拉黑/删除好友/禁言等）：弹 snackbar 告知具体原因
+      const err = error?.response?.data?.error
+      if (err) {
+        snackMsg.value = err
+        snack.value = true
+      }
+    })
     // 自己发的消息始终滚到底部（微信行为，即使在翻历史记录）
     scrollBottom()
   }
