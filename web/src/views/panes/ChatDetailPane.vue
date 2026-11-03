@@ -593,10 +593,12 @@
     }
   }
 
-  /** 双击对方头像（群聊）→ 发一条「我拍了拍 XX」消息（乐观上屏，服务端确认后替换） */
+  /** 拍一拍（群聊双击成员头像 / 私聊双击对方头像 / 右键菜单）→ 发一条「我拍了拍 XX」消息。
+      群聊对象 = 该条消息的发送者（群成员）；私聊对象 = 对方（私聊里非我发的消息 senderId 恒为对方）。
+      乐观上屏，服务端按「群成员 / 私聊对方」校验对象合法性，被好友删除或拉黑时发不出。 */
   function onPat (m: Message) {
     const targetId = m.senderId
-    if (!targetId || targetId === meId.value || !isGroup.value || !session.value) return
+    if (!targetId || targetId === meId.value || !session.value) return
     const payload: Partial<Message> = { type: 'pat', patTarget: targetId }
     store.send(session.value, payload).catch(() => {
       snackMsg.value = t('chat.pat.fail')

@@ -148,6 +148,11 @@
     <ContextMenu v-model="menuOpen" :x="lastPoint.x" :y="lastPoint.y" :width="180">
       <v-card width="180">
         <v-list density="compact">
+          <v-list-item v-if="!isMe" @click="$emit('pat', message)">
+            <v-list-item-title>{{ t('msg.menu.pat') }}</v-list-item-title>
+            <template #append><v-icon icon="mdi-hand-raise" /></template>
+          </v-list-item>
+
           <v-list-item v-if="!isMe && message.type === 'text'" @click="$emit('quote', message)">
             <v-list-item-title>{{ t('msg.menu.reply') }}</v-list-item-title>
             <template #append><v-icon icon="mdi-reply" /></template>
@@ -380,8 +385,8 @@
     lastAvatarClick = now
     if (isDouble) {
       if (avatarClickTimer) { clearTimeout(avatarClickTimer); avatarClickTimer = null }
-      if (props.isGroup && !isMe.value) {
-        emit('pat', props.message)   // 双击 → 拍一拍（仅群聊、仅对方）
+      if (!isMe.value) {
+        emit('pat', props.message)   // 双击 → 拍一拍（群聊拍该成员、私聊拍对方）
       }
       return
     }

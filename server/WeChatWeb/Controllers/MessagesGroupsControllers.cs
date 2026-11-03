@@ -212,18 +212,25 @@ public class MessagesController : ControllerBase
                 }
             }
 
-            // 拍一拍（pat）：仅群聊可用；被拍者必须是该群成员且不能拍自己。
+            // 拍一拍（pat）：群聊对象必须是该群成员；私聊对象必须是会话对方。
             // 放在锁内读会话/群，与其它路径同一把锁，避免字典被并发写。
+            // 私聊拍一拍复用上面的「好友关系 / 拉黑」拦截：关系已删 / 已拉黑时会话本身就发不出，
+            // 拍一拍自然也被拒。
             string? patTarget = null;
             if (type == "pat")
             {
-                if (conv.Kind != "group")
-                    return BadRequest(new { error = "拍一拍仅在群聊中可用" });
                 if (string.IsNullOrWhiteSpace(req.PatTarget) || req.PatTarget == me)
                     return BadRequest(new { error = "拍一拍对象不合法" });
-                if (!_store.Groups.TryGetValue(conv.MemberId, out var patGroup)
-                    || !patGroup.Members.Any(m => m.UserId == req.PatTarget))
-                    return BadRequest(new { error = "只能拍群成员" });
+                if (conv.Kind == "group")
+                {
+                    if (!_store.Groups.TryGetValue(conv.MemberId, out var patGroup)
+                        || !patGroup.Members.Any(m => m.UserId == req.PatTarget))
+                        return BadRequest(new { error = "只能拍群成员" });
+                }
+                else if (!conv.Members.Contains(req.PatTarget))
+                {
+                    return BadRequest(new { error = "只能拍对方" });
+                }
                 patTarget = req.PatTarget;
             }
 
