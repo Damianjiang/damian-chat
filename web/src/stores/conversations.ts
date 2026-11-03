@@ -308,7 +308,17 @@ export const useConversationsStore = defineStore('conversations', {
             rest.push(fm)
           }
         }
-        let merged = [...rest, ...existing]
+        let merged
+        // ★ 关键修复：合并顺序取决于拉取方向
+        //   翻页（beforeId 非空）：拉的是更早的消息 → prepend 到前面
+        //   拉取最新（beforeId 为空）：拉的是更新的最新消息 → append 到后面
+        //   此前一律 [...rest, ...existing]，拉取最新时新消息被塞到列表前面，
+        //   UI 只显示尾部 60 条 → 新消息永远藏在前半段看不到（用户反馈「拉取没用」）。
+        if (beforeId) {
+          merged = [...rest, ...existing]
+        } else {
+          merged = [...existing, ...rest]
+        }
         // 内存上限：按调用方的 cap 淘汰最旧（默认 500，翻历史时动态放大）
         if (merged.length > cap) {
           merged = merged.slice(-cap)
@@ -543,7 +553,8 @@ export const useConversationsStore = defineStore('conversations', {
             if (fresh.length === 0) {
               continue
             }
-            const merged = [...fresh, ...existing].slice(-500)
+            // 拉取的是最新消息（无 beforeId）→ 新消息 append 到已有列表后面
+            const merged = [...existing, ...fresh].slice(-500)
             this.messagesByConv[conv.id] = merged
             this.cacheLoaded[conv.id] = true
             await idbPutMessages(conv.id, merged)

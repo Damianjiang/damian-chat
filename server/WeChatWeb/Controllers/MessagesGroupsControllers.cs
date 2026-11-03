@@ -172,14 +172,25 @@ public class MessagesController : ControllerBase
                         new { error = "无权使用该附件" });
             }
 
-            // 拉黑拒收：私聊中若对方把我拉黑，消息一律拒收（微信式「对方拒收了」）。
-            // 此前 Blocked 只存不用 —— 被拉黑的人照样能继续发消息骚扰。
+            // 私聊业务拦截：好友关系 + 拉黑双向校验
             if (conv.Kind == "private")
             {
                 var other = conv.Members.FirstOrDefault(x => x != me);
-                if (other != null && _store.IsBlocked(other, me))
-                    return StatusCode(StatusCodes.Status403Forbidden,
-                        new { error = "消息已发出，但被对方拒收了。" });
+                if (other != null)
+                {
+                    // ① 好友关系已删除：不允许继续发消息（双向删除后关系不存在）
+                    if (!_store.IsContact(me, other))
+                        return StatusCode(StatusCodes.Status403Forbidden,
+                            new { error = "对方已删除好友，无法发送消息。" });
+                    // ② 我拉黑了对方：不能给对方发消息
+                    if (_store.IsBlocked(me, other))
+                        return StatusCode(StatusCodes.Status403Forbidden,
+                            new { error = "你已拉黑对方，无法发送消息。" });
+                    // ③ 对方拉黑了我：消息拒收（微信式「对方拒收了」）
+                    if (_store.IsBlocked(other, me))
+                        return StatusCode(StatusCodes.Status403Forbidden,
+                            new { error = "消息已发出，但被对方拒收了。" });
+                }
             }
 
             // 群禁言拦截（QQ 式）：全员禁言时普通成员不可发言（群主/管理员不受限）；

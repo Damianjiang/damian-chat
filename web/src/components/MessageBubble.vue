@@ -15,6 +15,7 @@
     :class="[
       'wx-bubble-row',
       isMe ? 'wx-bubble-row--me' : 'wx-bubble-row--other',
+      { 'wx-bubble-row--selected': props.selected },
     ]"
     @contextmenu.prevent="onContextMenu"
     @pointerdown="onDown"
@@ -568,6 +569,15 @@
 
 .wx-bubble-row--me {
   flex-direction: row-reverse;
+}
+
+/* 多选态：被勾选的消息行加高亮背景，一眼可见 */
+.wx-bubble-row--selected {
+  background: rgba(7, 193, 96, 0.10);
+  border-radius: 6px;
+}
+.wx-bubble-row--selected .wx-bubble {
+  box-shadow: 0 0 0 2px rgba(7, 193, 96, 0.35);
 }
 
 /* 气泡列：宽度按内容自适应但不超过可用空间 */
