@@ -12,7 +12,7 @@
 
 ## 界面展示
 
-> 完整功能界面见 [📸 功能一览（配 14 张实跑截图）](docs/功能一览.md)。
+> 完整功能界面见 [📸 功能一览（配 14 张实跑截图）](docs/功能一览.md) · English version: [📸 Feature Gallery](docs/feature-gallery.md)。
 
 <p align="center">
   <img src="docs/images/chat-list.png" width="440" alt="聊天列表">
@@ -50,6 +50,7 @@
 | 文档 | 内容 |
 |---|---|
 | [📸 功能一览](docs/功能一览.md) | **每个功能界面配实跑截图**：聊天 / 群聊 / 朋友圈 / 通讯录 / 设置 / 暗色 / 手机布局 |
+| [📸 Feature Gallery (EN)](docs/feature-gallery.md) | same walkthrough, English |
 | [📖 部署与使用指南](docs/部署与使用指南.md) | **从零到上线**：三种部署方式、HTTPS、首个账号、管理端运维、排障、配置参考 |
 | [English README](./README.en.md) | English feature / architecture / security |
 | [Release 产物](https://github.com/Damianjiang/damian-chat/releases) | Windows x64 一键运行包（自带前端 + 管理端 GUI） |

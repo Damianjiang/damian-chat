@@ -12,7 +12,7 @@ A **self-hosted, WeChat-style open-source instant messaging platform**: WeChat-l
 
 ## Screenshots
 
-> Full feature-by-feature walkthrough with real screenshots: [📸 功能一览 / Feature Gallery](docs/功能一览.md)
+> Full feature-by-feature walkthrough with real screenshots: [📸 Feature Gallery (EN)](docs/feature-gallery.md) · [📸 功能一览 (中文)](docs/功能一览.md)
 
 <p align="center">
   <img src="docs/images/chat-list.png" width="440" alt="Chat list">
@@ -49,7 +49,8 @@ Among similar projects, **Damian Chat** is positioned as a "WeChat-like messenge
 
 | Doc | What's inside |
 |---|---|
-| [📸 功能一览 / Feature Gallery](docs/功能一览.md) | **every screen with a real screenshot**: chat / group / moments / contacts / settings / dark / mobile layout |
+| [📸 Feature Gallery (EN)](docs/feature-gallery.md) | **every screen with a real screenshot**: chat / group / moments / contacts / settings / dark / mobile layout |
+| [📸 功能一览 (中文)](docs/功能一览.md) | same walkthrough, Simplified Chinese |
 | [📖 Deployment & Usage Guide](docs/部署与使用指南.md) | **zero to live** (Chinese): 3 deploy paths, HTTPS, first account, admin-GUI ops, troubleshooting, config reference |
 | [中文 README](./README.zh.md) | feature / architecture / security (Simplified Chinese) |
 | [Release binaries](https://github.com/Damianjiang/damian-chat/releases) | Windows x64 one-click package (bundled frontend + admin GUI) |
