@@ -331,6 +331,7 @@
   import { resolveDark } from '@/lib/theme'
   import { getFx } from '@/lib/personalize'
   import { isLowPerf } from '@/lib/perf'
+  import { APP_VERSION } from '@/lib/version'
   import { useAuthStore } from '@/stores/auth'
   import { useContactsStore } from '@/stores/contacts'
   import { useConversationsStore } from '@/stores/conversations'
@@ -392,8 +393,8 @@
   }
 
   /* ---------- 右上角：版本号 + 个性化（主题/明暗/字号，本地持久化） ---------- */
-  /** 产品版本号（顶栏展示，与「关于」一致）；构建指纹由 __BUILD_VERSION__ 单独注入，用于「检查更新」比对。 */
-  const appVersion = '1.5.0'
+  /** 产品版本号（顶栏展示，与「关于」一致，统一来自 lib/version.ts）；构建指纹由 __BUILD_VERSION__ 单独注入，用于「检查更新」比对。 */
+  const appVersion = APP_VERSION
 
   /** #RRGGBB → [r,g,b]。 */
   function hexToRgb3 (h: string): [number, number, number] {

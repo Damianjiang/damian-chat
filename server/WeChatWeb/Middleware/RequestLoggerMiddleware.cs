@@ -67,20 +67,23 @@ public sealed class RequestLoggerMiddleware
     }
 
     /// <summary>
-    /// 高频轮询/健康检查端点不记入请求日志（避免 GUI 在线用户轮询把日志刷爆）。
-    /// 维护：新增此类端点时把前缀追加进集合。
+    /// 高频/无审计价值的端点前缀（GUI 管理端 3s 轮询、健康检查、文件下载流等）。
+    /// 命中任意前缀即跳过记日志，防止 requests.jsonl 无限膨胀。
     /// </summary>
-    private static readonly System.Collections.Generic.HashSet<string> SkippedPaths = new()
+    private static readonly string[] SkippedPrefixes =
     {
-        "/api/admin/online",
+        // 管理端 GUI 每 3s 轮询：在线用户 / 日志 / 用户列表 / 安全设置 / 限流设置
+        "/api/admin/",
+        // 健康检查
         "/health",
         "/api/health",
+        // 文件下载（二进制流，记日志无意义且体积大）
+        "/api/files/",
     };
 
     private static bool IsHighFrequency(string path)
     {
-        // 用 StartsWith 防路径尾随斜杠变体；集合小，O(n) 可接受
-        foreach (var p in SkippedPaths)
+        foreach (var p in SkippedPrefixes)
         {
             if (path.StartsWith(p, StringComparison.OrdinalIgnoreCase))
                 return true;

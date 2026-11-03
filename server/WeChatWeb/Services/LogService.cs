@@ -15,11 +15,14 @@ public sealed class LogService
     private readonly ConcurrentDictionary<string, object> _locks = new();
 
     /// <summary>
-    /// 按日志名称分级上限：requests 是高频轮询端点产生的（已过滤掉 admin/online 等），
-    /// 但仍比 auth 日志量大 → 2 MB 就够；其余（auth / files 等）保持 5 MB。
+    /// 按日志名称分级上限：
+    /// ・requests：已跳过 admin/文件下载/健康检查，剩余的是用户真实 API 调用，1 MB 足够。
+    /// ・auth / reports / error / power / firewall：2 MB 足够（低频、信息密度高）。
+    /// 总量控制：单文件 1~2 MB + .1 归档（最多 4 MB/文件），7 个日志文件共 ≤28 MB。
+    /// 加上定期清理（LogCleanupService 7 天过期），存储占用有上限、不会无限涨。
     /// </summary>
     private long MaxBytesFor(string name) =>
-        name == "requests" ? 2L * 1024 * 1024 : 5L * 1024 * 1024;
+        name == "requests" ? 1L * 1024 * 1024 : 2L * 1024 * 1024;
 
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
@@ -96,5 +99,83 @@ public sealed class LogService
         {
             return new(); // 读不出来就当没有，日志页不能因此报错
         }
+    }
+
+    /// <summary>
+    /// 删除日志目录里超过保留期的文件（按最后修改时间），供 LogCleanupService 定期调用。
+    /// 只删 .jsonl/.log/.1 结尾的文件，绝不误删目录或其它资源；返回删除数量。
+    /// </summary>
+    public int PurgeOlderThan(TimeSpan retention)
+    {
+        var cutoff = DateTime.Now - retention;
+        var removed = 0;
+        try
+        {
+            foreach (var f in new DirectoryInfo(_dir).GetFiles())
+            {
+                // 只清理日志类文件：*.jsonl、*.log、*.jsonl.1、*.log.1（轮转归档）
+                var n = f.Name;
+                if (!(n.EndsWith(".jsonl", StringComparison.OrdinalIgnoreCase)
+                      || n.EndsWith(".log", StringComparison.OrdinalIgnoreCase)
+                      || n.EndsWith(".jsonl.1", StringComparison.OrdinalIgnoreCase)
+                      || n.EndsWith(".log.1", StringComparison.OrdinalIgnoreCase)))
+                    continue;
+                if (f.LastWriteTime >= cutoff) continue;
+                try
+                {
+                    f.Delete();
+                    removed++;
+                }
+                catch { /* 占用中下次再清，不影响主流程 */ }
+            }
+        }
+        catch { /* 目录不存在等：忽略 */ }
+        return removed;
+    }
+}
+
+/// <summary>
+/// 日志定期清理（IHostedService）：启动 1 小时后每 24 小时把超过 7 天的日志文件删掉。
+/// 配合 LogService 的单文件容量上限（1~2 MB + .1 归档），让 logs/ 占用始终有上限，
+/// 长期挂机也不会把磁盘写满。
+/// </summary>
+public sealed class LogCleanupService : IHostedService
+{
+    private const int RetentionDays = 7;
+    private readonly LogService _log;
+    private CancellationTokenSource _cts = new();
+    private Task? _task;
+
+    public LogCleanupService(LogService log) => _log = log;
+
+    public Task StartAsync(CancellationToken cancellationToken)
+    {
+        _cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        _task = Task.Run(() => LoopAsync(_cts.Token));
+        return Task.CompletedTask;
+    }
+
+    private async Task LoopAsync(CancellationToken ct)
+    {
+        try { await Task.Delay(TimeSpan.FromHours(1), ct); }
+        catch (OperationCanceledException) { return; }
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                var n = _log.PurgeOlderThan(TimeSpan.FromDays(RetentionDays));
+                if (n > 0)
+                    Console.WriteLine($"[log] 已清理 {n} 个超过 {RetentionDays} 天的日志文件");
+            }
+            catch { /* 清理失败不影响服务 */ }
+            try { await Task.Delay(TimeSpan.FromHours(24), ct); }
+            catch (OperationCanceledException) { break; }
+        }
+    }
+
+    public Task StopAsync(CancellationToken cancellationToken)
+    {
+        _cts.Cancel();
+        return _task ?? Task.CompletedTask;
     }
 }

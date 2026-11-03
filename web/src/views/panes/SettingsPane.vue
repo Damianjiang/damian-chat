@@ -130,7 +130,7 @@
           <v-list-item-title>{{ t('settings.about') }}</v-list-item-title>
 
           <template #append>
-            <span class="text-body-medium text-medium-emphasis mr-1">{{ t('settings.version') }} 1.3.0</span>
+            <span class="text-body-medium text-medium-emphasis mr-1">{{ t('settings.version') }} {{ appVersion }}</span>
             <v-icon icon="mdi-chevron-right" size="small" />
           </template>
         </v-list-item>
@@ -494,7 +494,7 @@
         <v-card-title>{{ t('settings.about') }}</v-card-title>
 
         <v-card-text>
-          <div class="text-body-medium mb-1">{{ t('settings.version') }}：1.3.0</div>
+          <div class="text-body-medium mb-1">{{ t('settings.version') }}：{{ appVersion }}</div>
           <div class="text-body-medium mb-1">{{ t('settings.about.tech') }}</div>
           <div class="text-body-medium mb-1">{{ t('settings.about.device', { n: deviceLabel(deviceKind), m: deviceKind }) }}</div>
           <div class="text-body-small text-medium-emphasis" style="word-break: break-all">{{ uaShort }}</div>
@@ -601,6 +601,7 @@
   import { clearMediaCache, mediaCacheCount } from '@/lib/files'
   import { idbEstimateBytes } from '@/lib/idb'
   import { stopRealtime } from '@/lib/realtime'
+  import { APP_VERSION } from '@/lib/version'
   import { useAuthStore } from '@/stores/auth'
   import { useContactsStore } from '@/stores/contacts'
   import { useLanguageStore } from '@/stores/language'
@@ -968,6 +969,9 @@
   const runningVersion = ref('--')
   const latestVersion = ref('--')
   const hasUpdate = ref(false)
+
+  /** 产品语义版本号（「关于」对话框 / 设置行展示，统一来自 lib/version.ts，发版只改那一处） */
+  const appVersion = APP_VERSION
 
   let updateHandlerBound = false
 

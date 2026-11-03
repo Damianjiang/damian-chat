@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Net.Http;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Win32;
@@ -802,6 +803,16 @@ internal sealed class MainForm : Form
         _tray.DoubleClick += (_, _) => RestoreFromTray();
     }
 
+    /* ---- Win32：防系统休眠（托盘后台时阻止机器入睡，恢复前台时放开） ---- */
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern void SetThreadExecutionState(uint executionState);
+
+    // Win32 标志（DWORD / uint）
+    private const uint ES_SYSTEM_REQUIRED = 0x00000001;
+    private const uint ES_AWAYMODE_DISABLED = 0x00000002;
+    private const uint ES_DISPLAY_REQUIRED = 0x00000004;
+    private const uint ES_CONTINUOUS = 0x80000000;
+
     private void HideToTray()
     {
         Hide();
@@ -810,6 +821,9 @@ internal sealed class MainForm : Form
             _trayHintShown = true;
             _tray.ShowBalloonTip(2500, "大面聊天管理端", "窗口已最小化到托盘后台运行，双击托盘图标打开。", ToolTipIcon.Info);
         }
+        // 托盘后台 = 需要服务持续可访问：阻止系统休眠/睡眠，
+        // 否则宿主/虚拟机空闲暂停 → 外部浏览器访问服务超时（"过一段时间就访问不了"）
+        try { SetThreadExecutionState(ES_SYSTEM_REQUIRED | ES_CONTINUOUS); } catch { }
     }
 
     private void RestoreFromTray()
@@ -818,6 +832,8 @@ internal sealed class MainForm : Form
         WindowState = FormWindowState.Normal;
         Activate();
         BringToFront();
+        // 回到前台：放开系统休眠限制（避免笔记本合盖也保持唤醒）
+        try { SetThreadExecutionState(ES_CONTINUOUS); } catch { }
     }
 
     private void ExitApp()
@@ -825,6 +841,8 @@ internal sealed class MainForm : Form
         _exiting = true;
         _tray.Visible = false;
         _tray.Dispose();
+        // 退出前放开系统休眠限制
+        try { SetThreadExecutionState(ES_CONTINUOUS); } catch { }
         Close();
     }
 

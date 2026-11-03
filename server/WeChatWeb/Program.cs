@@ -154,6 +154,8 @@ builder.Services.AddSingleton<DataStore>();
 builder.Services.AddSingleton<MessageFloodLimiter>();
 builder.Services.AddSingleton<WeChatWeb.Services.FileStore>();
 builder.Services.AddHostedService<WeChatWeb.Services.FileCleanupService>();
+// 日志定期清理（7 天过期）：防止 logs/ 长期挂机写满磁盘
+builder.Services.AddHostedService<WeChatWeb.Services.LogCleanupService>();
 // 服务端仅存 1 天聊天记录：定时清理过期消息（更早的由浏览器 IndexedDB 缓存）
 builder.Services.AddHostedService<WeChatWeb.Services.MessageRetentionService>();
 // 电源/冻结看门狗：VM/云游戏后台空闲被宿主暂停时——① 周期自环回保活降低被判空闲概率；② 时钟跳变侦测把「冻结窗口」写 logs/power.jsonl 留证（后台超时时直接取证）
