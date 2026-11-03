@@ -27,6 +27,32 @@ A **self-hosted, WeChat-style open-source instant messaging platform**: WeChat-l
   <img src="docs/dark.png" width="440" alt="Dark mode">
 </p>
 
+## Why this over the alternatives
+
+Among similar projects, **Damian Chat** is positioned as a "WeChat-like messenger that is 100% yours" — private, self-hosted IM.
+
+| Need | Damian Chat | DIY IM (Matrix etc.) | General group chat (Rocket.Chat / Mattermost) | AI chat (GPT clone) |
+|---|---|---|---|---|
+| WeChat-like UX (Moments / pat / custom ID / quote / recall) | ✅ native | ❌ | ❌ | ❌ |
+| Realtime private + group chat | ✅ SignalR | ✅ | ✅ | — |
+| **Full data ownership** (no cloud / SaaS / telemetry) | ✅ local only | ⚠️ | ⚠️ often cloud | ⚠️ often cloud |
+| **Batter-in security hardening** (firewall + honeypot + dual captcha + loopback admin gate) | ✅ built-in | ❌ build it yourself | ⚠️ basic | ❌ |
+| **One-file / one-line deploy** | ✅ | ⚠️ | ⚠️ multi-service | ⚠️ |
+| GUI admin tool (Windows tray) | ✅ included | ❌ | ⚠️ web | ❌ |
+| QQ-style join + mute-all / timed mute + group polls | ✅ | ❌ | ⚠️ partial | ❌ |
+
+**Right for you if**: you want "your own WeChat" on a LAN / private server — realtime, secure, data that never leaves your machine, polished and usable — without assembling an IM protocol from scratch and without a SaaS subscription.
+
+## Docs map
+
+| Doc | What's inside |
+|---|---|
+| [📖 Deployment & Usage Guide](docs/部署与使用指南.md) | **zero to live** (Chinese): 3 deploy paths, HTTPS, first account, admin-GUI ops, troubleshooting, config reference |
+| [中文 README](./README.zh.md) | feature / architecture / security (Simplified Chinese) |
+| [Release binaries](https://github.com/Damianjiang/damian-chat/releases) | Windows x64 one-click package (bundled frontend + admin GUI) |
+
+> Fast start: `启动.bat` (Windows one-click) or `docker build -t damian-chat . && docker run -d -p 8080:8080 -v damian-data:/app/data damian-chat`. See the deployment guide for details.
+
 ## Highlights
 
 - 🔐 **Data ownership** — all users, chats and files live in your own directory; no cloud account, no telemetry.
