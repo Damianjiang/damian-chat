@@ -12,19 +12,21 @@
 
 ## 界面展示
 
+> 完整功能界面见 [📸 功能一览（配 14 张实跑截图）](docs/功能一览.md)。
+
 <p align="center">
-  <img src="docs/chat.png" width="440" alt="聊天列表">
-  <img src="docs/group.png" width="440" alt="群聊设置">
+  <img src="docs/images/chat-list.png" width="440" alt="聊天列表">
+  <img src="docs/images/group-settings.png" width="440" alt="群聊设置">
 </p>
 
 <p align="center">
-  <img src="docs/private.png" width="440" alt="私聊">
-  <img src="docs/moments.png" width="440" alt="朋友圈">
+  <img src="docs/images/private-chat.png" width="440" alt="私聊">
+  <img src="docs/images/moments.png" width="440" alt="朋友圈">
 </p>
 
 <p align="center">
-  <img src="docs/contacts.png" width="440" alt="通讯录">
-  <img src="docs/dark.png" width="440" alt="暗色模式">
+  <img src="docs/images/contacts.png" width="440" alt="通讯录">
+  <img src="docs/images/chat-list-dark.png" width="440" alt="暗色模式">
 </p>
 
 ## 为什么选它 / 与相近项目对比
@@ -47,6 +49,7 @@
 
 | 文档 | 内容 |
 |---|---|
+| [📸 功能一览](docs/功能一览.md) | **每个功能界面配实跑截图**：聊天 / 群聊 / 朋友圈 / 通讯录 / 设置 / 暗色 / 手机布局 |
 | [📖 部署与使用指南](docs/部署与使用指南.md) | **从零到上线**：三种部署方式、HTTPS、首个账号、管理端运维、排障、配置参考 |
 | [English README](./README.en.md) | English feature / architecture / security |
 | [Release 产物](https://github.com/Damianjiang/damian-chat/releases) | Windows x64 一键运行包（自带前端 + 管理端 GUI） |

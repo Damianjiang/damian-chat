@@ -12,19 +12,21 @@ A **self-hosted, WeChat-style open-source instant messaging platform**: WeChat-l
 
 ## Screenshots
 
+> Full feature-by-feature walkthrough with real screenshots: [📸 功能一览 / Feature Gallery](docs/功能一览.md)
+
 <p align="center">
-  <img src="docs/chat.png" width="440" alt="Chat list">
-  <img src="docs/group.png" width="440" alt="Group chat & settings">
+  <img src="docs/images/chat-list.png" width="440" alt="Chat list">
+  <img src="docs/images/group-settings.png" width="440" alt="Group chat & settings">
 </p>
 
 <p align="center">
-  <img src="docs/private.png" width="440" alt="Private chat">
-  <img src="docs/moments.png" width="440" alt="Moments">
+  <img src="docs/images/private-chat.png" width="440" alt="Private chat">
+  <img src="docs/images/moments.png" width="440" alt="Moments">
 </p>
 
 <p align="center">
-  <img src="docs/contacts.png" width="440" alt="Contacts">
-  <img src="docs/dark.png" width="440" alt="Dark mode">
+  <img src="docs/images/contacts.png" width="440" alt="Contacts">
+  <img src="docs/images/chat-list-dark.png" width="440" alt="Dark mode">
 </p>
 
 ## Why this over the alternatives
@@ -47,6 +49,7 @@ Among similar projects, **Damian Chat** is positioned as a "WeChat-like messenge
 
 | Doc | What's inside |
 |---|---|
+| [📸 功能一览 / Feature Gallery](docs/功能一览.md) | **every screen with a real screenshot**: chat / group / moments / contacts / settings / dark / mobile layout |
 | [📖 Deployment & Usage Guide](docs/部署与使用指南.md) | **zero to live** (Chinese): 3 deploy paths, HTTPS, first account, admin-GUI ops, troubleshooting, config reference |
 | [中文 README](./README.zh.md) | feature / architecture / security (Simplified Chinese) |
 | [Release binaries](https://github.com/Damianjiang/damian-chat/releases) | Windows x64 one-click package (bundled frontend + admin GUI) |

@@ -11,11 +11,13 @@
 > **A self-hosted, WeChat-style instant messenger that runs entirely on your own machine.** 可自托管、类微信的开源即时通讯系统：实时私聊 / 群聊、朋友圈、QQ 式群管理、邮箱注册与微信式「大面号」，并内置一层**深度安全加固**（流量防火墙 · 双验证码 · 隔离式蜜罐 · 全链路成员鉴权 · 管理接口环回双门）。后端 **C# / ASP.NET Core 8 + SignalR**，前端 **Vue 3 + Vuetify 4 + TypeScript**。数据 100% 自持，无云账号、无遥测，开箱即用。
 
 <p align="center">
-  <img src="docs/chat.png" width="300" alt="聊天主界面" style="border-radius:8px">
-  <img src="docs/group.png" width="300" alt="群聊" style="border-radius:8px">
-  <img src="docs/moments.png" width="300" alt="朋友圈" style="border-radius:8px">
-  <img src="docs/dark.png" width="300" alt="暗色模式" style="border-radius:8px">
+  <img src="docs/images/chat-list.png" width="300" alt="聊天主界面" style="border-radius:8px">
+  <img src="docs/images/group-settings.png" width="300" alt="群聊" style="border-radius:8px">
+  <img src="docs/images/moments.png" width="300" alt="朋友圈" style="border-radius:8px">
+  <img src="docs/images/chat-list-dark.png" width="300" alt="暗色模式" style="border-radius:8px">
 </p>
+
+> **Every screen with a real screenshot:** [📸 功能一览 / Feature Gallery](docs/功能一览.md)
 
 ---
 
@@ -81,6 +83,7 @@ cd server/WeChatWeb && dotnet run
 
 | 文档 | 内容 |
 |---|---|
+| [📸 功能一览 / Feature Gallery](docs/功能一览.md) | **每个功能界面配实跑截图**：聊天 / 群聊 / 朋友圈 / 通讯录 / 设置 / 暗色 / 手机布局 |
 | [📖 部署与使用指南](docs/部署与使用指南.md) | **从零到上线**：三种部署方式、HTTPS、首个账号、管理端运维、排障、配置参考（中文详版） |
 | [中文 README](./README.zh.md) | 功能 / 技术栈 / 目录结构 / 安全说明 |
 | [English README](./README.en.md) | English feature / architecture / security |
