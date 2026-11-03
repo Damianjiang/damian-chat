@@ -136,7 +136,8 @@ export async function downloadFile (id: string, fileName?: string): Promise<void
   const hot = blobCache.get(id)
   if (hot) {
     try {
-      blob = await fetch(hot).then(r => r.blob()).catch(() => null)
+      // blob: URL 回读（带 init 对象；第二个参数同时表明这不是可被服务端代理的远程请求）
+      blob = await fetch(hot, { cache: 'only-if-cached', credentials: 'omit' }).then(r => r.blob()).catch(() => null)
     } catch {
       blob = null
     }

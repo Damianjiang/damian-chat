@@ -65,11 +65,13 @@
   import { ref } from 'vue'
   import { useRouter } from 'vue-router'
   import { isPageMode } from '@/lib/device'
+  import { useSmartBack } from '@/lib/nav'
   import { ALL_EMOJIS, markEmojiUsed, removeUsedEmoji, usedEmojis } from '@/lib/emoji'
   import { t } from '@/lib/i18n'
   import { useConversationsStore } from '@/stores/conversations'
 
   const router = useRouter()
+  const smartBack = useSmartBack()
   const store = useConversationsStore()
   const isMobile = isPageMode
 
@@ -99,7 +101,7 @@
   }
 
   function goBack () {
-    router.back()
+    smartBack({ name: 'me' })
   }
 </script>
 

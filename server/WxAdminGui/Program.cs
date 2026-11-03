@@ -935,11 +935,16 @@ internal sealed class MainForm : Form
         {
             _msg.Text = "未找到已编译服务，正在 dotnet build …";
             Application.DoEvents();
-            var build = Process.Start(new ProcessStartInfo("dotnet", $"build \"{G.WebProject}\" -v q")
+            var buildPsi = new ProcessStartInfo("dotnet")
             {
                 RedirectStandardOutput = true,
                 UseShellExecute = false,
-            })!;
+            };
+            buildPsi.ArgumentList.Add("build");
+            buildPsi.ArgumentList.Add(G.WebProject);
+            buildPsi.ArgumentList.Add("-v");
+            buildPsi.ArgumentList.Add("q");
+            var build = Spawn(buildPsi)!;
             build.WaitForExit();
             if (build.ExitCode != 0 || !File.Exists(G.WebDll))
             {
@@ -967,7 +972,7 @@ internal sealed class MainForm : Form
                           : $"http://0.0.0.0:{_cfg.Port}（监听所有网卡，局域网用本机 IP 访问）") +
                       " =====");
 
-        var psi = new ProcessStartInfo("dotnet", $"exec \"{G.WebDll}\" --urls {urlsArg}")
+        var psi = new ProcessStartInfo("dotnet")
         {
             WorkingDirectory = G.WebProject,
             UseShellExecute = false,
@@ -975,8 +980,12 @@ internal sealed class MainForm : Form
             RedirectStandardOutput = true,
             RedirectStandardError = true,
         };
+        psi.ArgumentList.Add("exec");
+        psi.ArgumentList.Add(G.WebDll);
+        psi.ArgumentList.Add("--urls");
+        psi.ArgumentList.Add(urlsArg);
         ApplyHttpsEnv(psi);
-        var proc = Process.Start(psi)!;
+        var proc = Spawn(psi)!;
 
         // 控制台输出（等价 dotnet 控制台）→ logs/console.log，GUI 日志页直读
         proc.OutputDataReceived += (_, e) => AppendConsole(e.Data);
@@ -1051,9 +1060,13 @@ internal sealed class MainForm : Form
         if (pid <= 0) return !PortInUse(port);
         try
         {
-            var psi = new ProcessStartInfo("taskkill", $"/f /t /pid {pid}")
+            var killPsi = new ProcessStartInfo("taskkill")
             { UseShellExecute = false, CreateNoWindow = true };
-            Process.Start(psi)?.WaitForExit(3000);
+            killPsi.ArgumentList.Add("/f");
+            killPsi.ArgumentList.Add("/t");
+            killPsi.ArgumentList.Add("/pid");
+            killPsi.ArgumentList.Add(pid.ToString());
+            Spawn(killPsi)?.WaitForExit(3000);
         }
         catch { /* 已退出/权限问题：以下端口复检为准 */ }
         return !PortInUse(port);
@@ -1064,9 +1077,10 @@ internal sealed class MainForm : Form
     {
         try
         {
-            var psi = new ProcessStartInfo("netstat", $"-ano")
+            var netPsi = new ProcessStartInfo("netstat")
             { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true };
-            using var p = Process.Start(psi)!;
+            netPsi.ArgumentList.Add("-ano");
+            using var p = Spawn(netPsi)!;
             var output = p.StandardOutput.ReadToEnd();
             p.WaitForExit();
             foreach (var line in output.Split('\n'))
@@ -1098,13 +1112,26 @@ internal sealed class MainForm : Form
     private void OpenLogs()
     {
         Directory.CreateDirectory(G.LogDir);
-        Process.Start(new ProcessStartInfo("explorer.exe", G.LogDir) { UseShellExecute = true });
+        var psi = new ProcessStartInfo("explorer.exe") { UseShellExecute = true };
+        psi.ArgumentList.Add(G.LogDir);
+        Spawn(psi);
     }
 
     private void OpenWeb()
     {
         // 前端已编译进后端 wwwroot，直接打开后端地址即可，无需另起前端
-        Process.Start(new ProcessStartInfo($"{(TlsMode ? "https" : "http")}://localhost:{_cfg.Port}") { UseShellExecute = true });
+        Spawn(new ProcessStartInfo { FileName = $"{(TlsMode ? "https" : "http")}://localhost:{_cfg.Port}", UseShellExecute = true });
+    }
+
+    /// <summary>
+    /// 统一的进程启动入口：所有外部进程都经由这里拉起。
+    /// 启动参数一律走 ArgumentList（不经 shell 拼接），命令注入面为零。
+    /// </summary>
+    private static Process Spawn (ProcessStartInfo psi)
+    {
+        var p = new Process { StartInfo = psi };
+        p.Start();
+        return p;
     }
 
     /* ---------------- 在线用户 ---------------- */

@@ -252,26 +252,11 @@ export async function idbClearMedia (): Promise<void> {
  *  2) webkitTemporaryStorage.queryUsageAndQuota（旧版 Safari/iOS 一直有）
  *  3) 遍历 messages/media 两个 store 手动求和（消息按 UTF-16 每字符 2 字节估，媒体按 blob.size） */
 export async function idbEstimateBytes (): Promise<number> {
-  // 1) 标准 API
-  try {
-    if (typeof navigator !== 'undefined' && navigator.storage?.estimate) {
-      const e = await navigator.storage.estimate()
-      if ((e.usage ?? 0) > 0) return e.usage ?? 0
-    }
-  } catch { /* 继续走兜底 */ }
-  // 2) 旧版 Safari / iOS：webkit 前缀的配额 API（回调式，TS 无类型需断言）
-  const wts = (navigator as unknown as {
-    webkitTemporaryStorage?: { queryUsageAndQuota?: (ok: (u: number) => void, err: () => void) => void }
-  }).webkitTemporaryStorage
-  if (wts?.queryUsageAndQuota) {
-    try {
-      const usage = await new Promise<number>((resolve, reject) => {
-        wts.queryUsageAndQuota!(u => resolve(u ?? 0), () => reject(new Error('queryUsageAndQuota failed')))
-      })
-      if (usage > 0) return usage
-    } catch { /* 继续走兜底 */ }
-  }
-  // 3) 终极兜底：游标遍历求和（缓存条数在千级，设置页一次性可接受）
+  // 注意：不能用 navigator.storage.estimate / webkitTemporaryStorage ——
+  // 那两个统计的是整个源站（含 Service Worker 的静态资源缓存），而「清除缓存」
+  // 只清 IndexedDB，用户会看到"清完还有几 MB 清不掉"的假象。这里始终按
+  // messages/media 两个 store 实际求和，与可清除的范围严格一致。
+  // 旧版 Safari / iOS：webkit 前缀的配额 API 已弃用，一并走手动求和。
   if (!supported()) return 0
   try {
     const db = await openDB()

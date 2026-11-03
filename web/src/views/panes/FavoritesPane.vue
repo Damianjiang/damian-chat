@@ -51,6 +51,7 @@
   import { useRouter } from 'vue-router'
   import { api } from '@/lib/api'
   import { isPageMode } from '@/lib/device'
+  import { useSmartBack } from '@/lib/nav'
   import { t } from '@/lib/i18n'
 
   interface FavoriteItem {
@@ -64,6 +65,7 @@
   }
 
   const router = useRouter()
+  const smartBack = useSmartBack()
   const isMobile = isPageMode
 
   const items = ref<FavoriteItem[]>([])
@@ -108,7 +110,7 @@
   }
 
   function goBack () {
-    router.back()
+    smartBack({ name: 'me' })
   }
 </script>
 

@@ -86,6 +86,16 @@ function makeLocalKey () {
  * @returns 是否命中并替换了一条待确认的乐观气泡
  */
 function settlePending (list: Message[], incoming: Message): boolean {
+  // 优先按 clientMsgId 精确对账（服务端回显前端生成的幂等 id）：
+  // 按内容匹配会被服务端转义破坏（"a&b" 乐观气泡 vs "a&amp;b" 回声）→ 出现重复气泡
+  if (incoming.clientMsgId) {
+    const i = list.findIndex(m => !!m.pending && m.localKey === incoming.clientMsgId)
+    const target = at(list, i)
+    if (target) {
+      replaceAt(list, i, { ...incoming, localKey: target.localKey })
+      return true
+    }
+  }
   const i = list.findIndex(m =>
     !!m.pending
     && m.senderId === incoming.senderId
@@ -362,6 +372,8 @@ export const useConversationsStore = defineStore('conversations', {
         stickerEmoji: msg.stickerEmoji,
         quoteJson: msg.quoteJson,
         patTarget: msg.patTarget,
+        // 幂等 id：服务端弱网重试去重 + 回声精准对账（内容匹配会被转义破坏）
+        clientMsgId: localKey,
       }
 
       try {
@@ -414,6 +426,7 @@ export const useConversationsStore = defineStore('conversations', {
           stickerEmoji: m.stickerEmoji,
           quoteJson: m.quoteJson,
           patTarget: m.patTarget,
+          clientMsgId: localKey,   // 与首次发送同一个幂等 id：服务端弱网重试去重
         })
         const created = res.data as Message
         const live = this.messagesByConv[convId] ?? list

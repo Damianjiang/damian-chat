@@ -605,11 +605,11 @@
     scrollBottom()
   }
 
-  /* ---------- 对方正在输入（微信式提示） ---------- */
+  /* ---------- 对方正在输入（微信式提示；群聊不显示 —— 微信同款） ---------- */
   const typingUser = ref<{ userId: string, at: number } | null>(null)
   let typingClearTimer: ReturnType<typeof setTimeout> | null = null
   watch(() => store.typingBy[convId.value], t => {
-    if (!t) { typingUser.value = null; return }
+    if (!t || isGroup.value) { typingUser.value = null; return }
     typingUser.value = t
     if (typingClearTimer) clearTimeout(typingClearTimer)
     // 微信式：5s 无新输入信号自动消失
@@ -1119,7 +1119,14 @@
     } finally {
       if (seq === convSwitchSeq) initializing.value = false // 失败也要收掉骨架，否则永远转圈
     }
-    if (seq === convSwitchSeq) scrollBottom()
+    if (seq === convSwitchSeq) {
+      // 移动端进会话先停在顶部/中间的修复：气泡是异步渲染（图片加载后高度还会涨），
+      // 单次 nextTick 滚动会被随后的内容撑高顶回去。三段式：立即无动画贴底 +
+      // 300ms / 700ms 各补滚一次，保证任何时序下都落在最底部。
+      scrollBottom(false)
+      setTimeout(() => { if (seq === convSwitchSeq) scrollBottom(false) }, 300)
+      setTimeout(() => { if (seq === convSwitchSeq) scrollBottom(false) }, 700)
+    }
   })
 
   onMounted(async () => {

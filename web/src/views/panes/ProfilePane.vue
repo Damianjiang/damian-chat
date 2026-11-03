@@ -1,7 +1,7 @@
 <template>
   <v-sheet class="wx-chat-surface wx-panes" flat>
     <v-app-bar class="wx-chat-bar" color="surface" density="compact" flat>
-      <v-btn v-if="isMobile" icon="mdi-arrow-left" variant="text" @click="router.back()" />
+      <v-btn v-if="isMobile" icon="mdi-arrow-left" variant="text" @click="smartBack({ name: 'me' })" />
       <v-toolbar-title class="text-body-large font-weight-medium">{{ t('settings.profile') }}</v-toolbar-title>
     </v-app-bar>
 
@@ -291,11 +291,13 @@
   import { api } from '@/lib/api'
   import { t } from '@/lib/i18n'
   import { isPageMode } from '@/lib/device'
+  import { useSmartBack } from '@/lib/nav'
   import { fileUrl } from '@/lib/files'
   import { avatarColor } from '@/lib/utils'
   import { useAuthStore } from '@/stores/auth'
 
   const router = useRouter()
+  const smartBack = useSmartBack()
   const auth = useAuthStore()
 
   const isMobile = isPageMode

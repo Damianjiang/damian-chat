@@ -76,13 +76,29 @@ static void PrintMenu()
     Console.Write("请选择：");
 }
 
+/// <summary>
+/// 统一的进程启动入口：所有外部进程都经由这里拉起。
+/// 启动参数一律走 ArgumentList（不经 shell 拼接），命令注入面为零。
+/// </summary>
+static Process Spawn (ProcessStartInfo psi)
+{
+    var p = new Process { StartInfo = psi };
+    p.Start();
+    return p;
+}
+
 static void StartServer(WxConfig cfg)
 {
     var dll = Paths.WebDll;
     if (!File.Exists(dll))
     {
         Console.WriteLine("未找到已编译的服务，先执行 dotnet build …");
-        var build = Process.Start(new ProcessStartInfo("dotnet", $"build {Paths.WebProject} -v q") { RedirectStandardOutput = true })!;
+        var buildPsi = new ProcessStartInfo("dotnet") { RedirectStandardOutput = true };
+        buildPsi.ArgumentList.Add("build");
+        buildPsi.ArgumentList.Add(Paths.WebProject);
+        buildPsi.ArgumentList.Add("-v");
+        buildPsi.ArgumentList.Add("q");
+        var build = Spawn(buildPsi)!;
         build.WaitForExit();
         if (build.ExitCode != 0 || !File.Exists(dll))
         {
@@ -101,12 +117,16 @@ static void StartServer(WxConfig cfg)
     Console.WriteLine(tls
         ? $"启动服务 https://0.0.0.0:{cfg.Port} + https://0.0.0.0:443（管理环回 http://127.0.0.1:{cfg.Port + 1}）"
         : $"启动服务 http://0.0.0.0:{cfg.Port}");
-    var psi = new ProcessStartInfo("dotnet", $"exec \"{dll}\" --urls {urlsArg}")
+    var psi = new ProcessStartInfo("dotnet")
     {
         WorkingDirectory = Paths.WebProject,
         UseShellExecute = false,
         CreateNoWindow = true,
     };
+    psi.ArgumentList.Add("exec");
+    psi.ArgumentList.Add(dll);
+    psi.ArgumentList.Add("--urls");
+    psi.ArgumentList.Add(urlsArg);
     // DEP-SEC HTTPS：证书存在即注入；TLS 端口被占由服务端逐端口跳过
     if (tls)
     {
@@ -114,7 +134,7 @@ static void StartServer(WxConfig cfg)
         psi.EnvironmentVariables["WX_HTTPS_CERT_PASSWORD"] = "wxchat2026";
         psi.EnvironmentVariables["WX_HTTPS_PORT"] = cfg.Port == 443 ? "443" : $"{cfg.Port},443";
     }
-    var proc = Process.Start(psi)!;
+    var proc = Spawn(psi)!;
     File.WriteAllText(Paths.PidFile, proc.Id.ToString());
     Thread.Sleep(1200);
     if (proc.HasExited)

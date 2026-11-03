@@ -129,6 +129,9 @@ public class Message
     public bool Pat { get; set; }
     /// <summary>被拍的人（群聊里点头像的人；私聊就是对方）。</summary>
     public string? PatTarget { get; set; }
+    /// <summary>客户端幂等 id（= 前端 localKey）：弱网重发/超时重试时服务端按它去重，
+    /// 回声与 POST 响应各自携带，前端凭它精准对账乐观气泡（按内容匹配会被转义破坏）。</summary>
+    public string? ClientMsgId { get; set; }
     public bool Recalled { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }

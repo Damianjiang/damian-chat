@@ -34,7 +34,7 @@ public class MessagesController : ControllerBase
         _floodLimiter = floodLimiter;
     }
 
-    public record SendMessage(string ConversationId, string Type = "text", string Content = "", string? ImageId = null, int? VoiceSeconds = null, string? FileName = null, long? FileSize = null, string? StickerEmoji = null, string? QuoteJson = null, string? PatTarget = null);
+    public record SendMessage(string ConversationId, string Type = "text", string Content = "", string? ImageId = null, int? VoiceSeconds = null, string? FileName = null, long? FileSize = null, string? StickerEmoji = null, string? QuoteJson = null, string? PatTarget = null, string? ClientMsgId = null);
 
     [HttpGet("messages/{conversationId}")]
     public IActionResult History(string conversationId, [FromQuery] string? beforeId, int count = 30)
@@ -261,8 +261,23 @@ public class MessagesController : ControllerBase
                 Pat = type == "pat",
                 PatTarget = patTarget,
                 QuoteJson = quoteJson,
+                // 客户端幂等 id：弱网重试时同 id 直接返回已建消息（去重），前端据此对账乐观气泡
+                ClientMsgId = string.IsNullOrEmpty(req.ClientMsgId) || req.ClientMsgId!.Length > 40
+                    ? null
+                    : req.ClientMsgId,
                 CreatedAt = DateTime.UtcNow,
             };
+            // 幂等去重：同会话同发送者已存在同 ClientMsgId 的消息（弱网 POST 超时重试）→
+            // 直接返回原消息，不再新建（此前会产生两条一模一样的消息）
+            if (!string.IsNullOrEmpty(msg.ClientMsgId))
+            {
+                var dup = _store.MessagesOf(msg.ConversationId).LastOrDefault(m =>
+                    m.SenderId == me && m.ClientMsgId == msg.ClientMsgId);
+                if (dup != null)
+                {
+                    return Ok(dup);
+                }
+            }
             _store.Messages.Add(msg);
             _store.MsgIndexAdd(msg);   // 会话消息索引同步（性能）
             _store.OnNewMessage(msg);  // 未读计数：非发送者成员 +1（列表 O(1) 读取）

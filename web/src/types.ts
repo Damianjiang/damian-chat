@@ -68,6 +68,8 @@ export interface Message {
    * v-for 用它做 key 就不会重新挂载 —— 否则气泡会把进场动画再播一遍（观感上"闪一下"）。
    */
   localKey?: string
+  /** 服务端回显的客户端幂等 id（= localKey）：实时回声与乐观气泡精准对账（内容匹配会被转义破坏） */
+  clientMsgId?: string
   /** 发送中（乐观气泡，尚未被服务端确认） */
   pending?: boolean
   /** 发送失败，点击可重试 */

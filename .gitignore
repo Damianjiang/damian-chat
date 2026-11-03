@@ -42,3 +42,6 @@ Thumbs.db
 
 # vite 构建期产物（unplugin-vue-components 自动生成）
 web/components.d.ts
+
+# 扫描器状态目录（任何层级，机器生成不入库）
+**/.mimosa/

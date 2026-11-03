@@ -116,6 +116,11 @@ function shade (hex: string, percent: number): string {
   return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`
 }
 
+/** 服务端把 & < > 转义存储（防注入）；会话预览/摘要等纯文本展示处单遍解码还原 */
+export function unescapeEntities (s?: string | null): string {
+  return (s ?? '').replace(/&(amp|lt|gt);/g, (_, e) => (e === 'amp' ? '&' : e === 'lt' ? '<' : '>'))
+}
+
 export function messageSummary (m: { type: string, content: string, fileName?: string, stickerEmoji?: string, voiceSeconds?: number, recalled?: boolean } | undefined): string {
   if (!m) {
     return t('chat.preview.none')
@@ -136,13 +141,13 @@ export function messageSummary (m: { type: string, content: string, fileName?: s
     }
     case 'poll': { return t('chat.preview.poll')
     }
-    case 'system': { return m.content
+    case 'system': { return unescapeEntities(m.content)
     }
-    case 'text': { return m.content
+    case 'text': { return unescapeEntities(m.content)
     }
-    case 'quote': { return m.content
+    case 'quote': { return unescapeEntities(m.content)
     }
-    default: { return m.content
+    default: { return unescapeEntities(m.content)
     }
   }
 }

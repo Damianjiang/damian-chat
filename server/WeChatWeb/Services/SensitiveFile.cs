@@ -62,7 +62,7 @@ public static class SensitiveFile
         else
         {
             // Unix：目录 700，后续新建文件 600 由各写入点补
-            Run("chmod", $"700 \"{dir}\"");
+            SetUnixMode(dir, directory: true);
         }
     }
 
@@ -104,7 +104,24 @@ public static class SensitiveFile
         }
         else
         {
-            Run("chmod", $"600 \"{path}\"");
+            // Unix：目录 700 / 文件 600。用 .NET 8 原生 API（不再 shell 出 chmod），
+            // 权限收紧面更小、也没有外部进程参与。
+            SetUnixMode(path, directory: false);
+        }
+    }
+
+    /// <summary>Unix 权限收紧（仅非 Windows 分支可达）：目录 700，文件 600。</summary>
+    private static void SetUnixMode (string path, bool directory)
+    {
+        try
+        {
+            const UnixFileMode OwnerOnly = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
+            const UnixFileMode FileOnly = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+            File.SetUnixFileMode(path, directory ? OwnerOnly : FileOnly);
+        }
+        catch (Exception ex)
+        {
+            Warn(directory ? "SetDirUnixMode" : "SetFileUnixMode", path, ex);
         }
     }
 
@@ -153,18 +170,6 @@ public static class SensitiveFile
             $"icacls \"{path}\" /reset  然后重启服务。");
     }
 
-    private static void Run (string file, string args)
-    {
-        var psi = new ProcessStartInfo(file, args)
-        {
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-        };
-        using var p = Process.Start(psi);
-        if (p != null) p.WaitForExit(3000); // 限时 3s，避免卡住
-    }
 }
 
 /// <summary>
