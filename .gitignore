@@ -52,3 +52,7 @@ web/components.d.ts
 # ---- 本地安全备份（只留在本机，不进仓库 / 不上传）----
 .backup/
 .backup+/
+
+# ---- 构建发布临时目录（publish 输出 / 打包暂存，打进 Release 但本身不入库）----
+.release/
+.pkg/
