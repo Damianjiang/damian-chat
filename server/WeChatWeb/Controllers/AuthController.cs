@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 using WeChatWeb.Data;
 using WeChatWeb.Services;
 
@@ -18,8 +19,9 @@ public class AuthController : ControllerBase
     private readonly LoginGuard _guard;
     private readonly WeChatWeb.Services.LoginBackgroundStore _loginBg;
     private readonly EmailCodeService _emailCode;
+    private readonly IHubContext<Hubs.ChatHub> _hub;
 
-    public AuthController (DataStore store, JwtService jwt, LogService log, SecuritySettings sec, CaptchaService captcha, SliderCaptchaService slider, LoginGuard guard, WeChatWeb.Services.LoginBackgroundStore loginBg, EmailCodeService emailCode)
+    public AuthController (DataStore store, JwtService jwt, LogService log, SecuritySettings sec, CaptchaService captcha, SliderCaptchaService slider, LoginGuard guard, WeChatWeb.Services.LoginBackgroundStore loginBg, EmailCodeService emailCode, IHubContext<Hubs.ChatHub> hub)
     {
         _store = store;
         _jwt = jwt;
@@ -30,6 +32,23 @@ public class AuthController : ControllerBase
         _guard = guard;
         _loginBg = loginBg;
         _emailCode = emailCode;
+        _hub = hub;
+    }
+
+    /// <summary>
+    /// 账号安全提醒（微信「安全提醒」同款）：向该账号当前全部在线连接推送。
+    /// 被盗号的第一发现人往往是被挤下线的本人 —— 新设备登录/改密/换绑邮箱都推一条。
+    /// </summary>
+    private async Task NotifyAccountSecurity (string userId, object payload)
+    {
+        try
+        {
+            List<string> conns;
+            lock (_store) conns = _store.ConnectionsOf(userId).ToList();
+            if (conns.Count > 0)
+                await _hub.Clients.Clients(conns).SendAsync("AccountSecurity", payload);
+        }
+        catch { /* 实时通道不可用不影响登录本身 */ }
     }
 
     /* ---------------- 登录页主题 / 背景（公开，无鉴权） ---------------- */
@@ -202,14 +221,33 @@ public class AuthController : ControllerBase
         }
 
         // 改密 TOCTOU：密码验证期间用户改了密码 → 在途登录不得签发新会话
+        bool newDevice;
         lock (_store)
         {
             if (user.PasswordChangedAt != pwdChangedSnapshot)
                 return Unauthorized(new { error = "账号或密码错误，请重试" });
+            // 盗号检测：本机（同 UA）此前从未登录过 = 新设备。须在 CreateSessionTokens
+            // 登记会话之前判定。老账号的第一个会话不算（首次登录没得提醒）。
+            var sessions = _store.LoginSessions.TryGetValue(user.Id, out var l) ? l! : new();
+            newDevice = sessions.Count > 0 && sessions.All(s => s.Device != Ua);
         }
         _guard.ResetAccount(account);
-        _log.Write("auth", new { ts = DateTime.UtcNow, result = "ok", user = user.Id, account, ip = Ip, ua = Ua });
-        return Ok(IssueTokens(user));
+        _log.Write("auth", new { ts = DateTime.UtcNow, result = "ok", user = user.Id, account, ip = Ip, ua = Ua, newDevice });
+        if (newDevice)
+            _log.Write("auth", new { ts = DateTime.UtcNow, result = "new-device-login", user = user.Id, ip = Ip, ua = Ua });
+        var issued = IssueTokens(user);
+        if (newDevice)
+        {
+            // 安全提醒推给该账号当前在线的其他端（此刻新端尚未建立 WS 连接，正好全是他端）
+            _ = NotifyAccountSecurity(user.Id, new
+            {
+                type = "new-device-login",
+                device = Ua,
+                ip = Ip,
+                time = DateTime.UtcNow,
+            });
+        }
+        return Ok(issued);
 
         object IssueTokens (Models.User u)
         {

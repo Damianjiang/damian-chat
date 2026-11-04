@@ -31,6 +31,32 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <!-- 全局「账号安全提醒」弹窗（防盗号）：新设备登录 / 换绑邮箱时服务端实时推送，
+         被盗号的第一发现人是本人。提供了「去改密码」一键入口（改密即全设备下线）。 -->
+    <v-dialog :model-value="securityAlertState.show" max-width="380" persistent>
+      <v-card>
+        <v-card-title class="text-body-large d-flex align-center">
+          <v-icon class="mr-2" color="warning" icon="mdi-shield-alert" size="22" />
+          {{ t('security.alert.title') }}
+        </v-card-title>
+        <v-card-text class="text-body-medium" style="word-break: break-word">
+          <template v-if="securityAlertState.type === 'new-device-login'">
+            {{ t('security.alert.newDevice', { time: formatAlertTime(securityAlertState.time) }) }}
+          </template>
+          <template v-else-if="securityAlertState.type === 'email-changed'">
+            {{ t('security.alert.emailChanged', { email: securityAlertState.email }) }}
+          </template>
+          <template v-else>{{ t('security.alert.generic') }}</template>
+          <div class="text-body-small text-medium-emphasis mt-2">{{ t('security.alert.footer') }}</div>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="dismissSecurityAlert">{{ t('security.alert.dismiss') }}</v-btn>
+          <v-btn color="primary" variant="flat" @click="goSecurity">{{ t('security.alert.action') }}</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </v-app>
 </template>
 
@@ -40,7 +66,9 @@
   import BrowserGate from '@/components/BrowserGate.vue'
   import { confirmState, resolveConfirm } from '@/lib/confirm'
   import { clearTokens, getAccessToken } from '@/lib/api'
+  import { dismissSecurityAlert, securityAlertState } from '@/lib/securityAlert'
   import { watchSystemTheme } from '@/lib/theme'
+  import { t } from '@/lib/i18n'
   import { useAuthStore } from '@/stores/auth'
   import { useContactsStore } from '@/stores/contacts'
   import { useConversationsStore } from '@/stores/conversations'
@@ -94,6 +122,23 @@
   function onConfirmed () {
     confirmed.value = true
     void bootstrap()
+  }
+
+  /** 安全提醒的时间展示（服务端 UTC → 本地「MM-DD HH:mm」）。 */
+  function formatAlertTime (iso?: string) {
+    try {
+      const d = iso ? new Date(iso) : new Date()
+      const p = (n: number) => String(n).padStart(2, '0')
+      return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+    } catch {
+      return ''
+    }
+  }
+
+  /** 安全提醒的「去处理」：进 设置 → 账号（改密码/看登录设备）。 */
+  function goSecurity () {
+    dismissSecurityAlert()
+    void router.push({ name: 'settings' })
   }
 
   /** 关闭全局确认框（ESC / 点击遮罩）→ 视为取消。 */

@@ -252,6 +252,18 @@
               <v-icon v-else icon="mdi-reload" />
             </div>
           </div>
+
+          <!-- 盗号防线：绑定/换绑需账号密码二次验证（仅凭邮箱验证码时，
+               一个泄露的 access token 就能把别人邮箱绑到自己账号） -->
+          <v-text-field
+            v-model="bindPassword"
+            class="mt-2"
+            autocomplete="current-password"
+            hide-details
+            :label="t('account.email.password')"
+            :placeholder="t('account.email.password.ph')"
+            type="password"
+          />
         </v-card-text>
 
         <v-card-actions>
@@ -259,7 +271,7 @@
           <v-btn variant="text" @click="emailDialog = false">{{ t('common.cancel') }}</v-btn>
           <v-btn
             color="primary"
-            :disabled="!emailValid || bindCode.trim().length !== 6"
+            :disabled="!emailValid || bindCode.trim().length !== 6 || bindPassword.length === 0"
             :loading="emailLoading"
             @click="bindEmailSubmit"
           >{{ t('account.email.bindBtn') }}</v-btn>
@@ -747,6 +759,7 @@
   const emailDialog = ref(false)
   const bindEmail = ref('')
   const bindCode = ref('')
+  const bindPassword = ref('')
   const emailLoading = ref(false)
   const emailCodeLeft = ref(0)
   const emailCodeSending = ref(false)
@@ -881,12 +894,21 @@
 
   async function bindEmailSubmit () {
     if (!emailValid.value || bindCode.value.trim().length !== 6 || emailLoading.value) return
+    if (!bindPassword.value) {
+      toast(t('account.email.password.ph'))
+      return
+    }
     emailLoading.value = true
     try {
-      const res = await api.put('/users/me/email', { email: bindEmail.value.trim(), code: bindCode.value.trim() })
+      const res = await api.put('/users/me/email', {
+        email: bindEmail.value.trim(),
+        code: bindCode.value.trim(),
+        password: bindPassword.value,
+      })
       auth.user = res.data
       toast(t('account.email.ok'))
       emailDialog.value = false
+      bindPassword.value = ''
     } catch (error: any) {
       toast(error?.response?.data?.error ?? t('common.save.fail'))
     } finally {

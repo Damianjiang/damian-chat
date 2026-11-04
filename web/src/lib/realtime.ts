@@ -9,6 +9,7 @@ import { useConversationsStore } from '@/stores/conversations'
 import { usePollsStore } from '@/stores/polls'
 import { useContactsStore } from '@/stores/contacts'
 import { clearTokens } from '@/lib/api'
+import { showSecurityAlert } from '@/lib/securityAlert'
 let started = false
 
 /** 群公告「已确认」进度（groupId → { 确认者名/时间, 已确认数, 总数 }），挂到 store 让群聊页即时更新。 */
@@ -69,6 +70,10 @@ export function initRealtime () {
       // 本设备被踢（登录设备管理）：清本地凭据并回登录页
       clearTokens()
       window.location.href = '/login'
+    },
+    onAccountSecurity: payload => {
+      // 账号安全提醒（新设备登录/换绑邮箱）：全局弹窗，盗号本人第一时间发现
+      showSecurityAlert(payload)
     },
     onCatchup: async () => {
       // 离线消息补偿：重连后拉取会话列表与当前打开会话的历史

@@ -43,12 +43,14 @@ public class UsersController : ControllerBase
     private readonly SecuritySettings _sec;
     private readonly EmailCodeService _emailCode;
     private readonly Microsoft.AspNetCore.SignalR.IHubContext<WeChatWeb.Hubs.ChatHub> _hub;
-    public UsersController(DataStore store, SecuritySettings sec, EmailCodeService emailCode, Microsoft.AspNetCore.SignalR.IHubContext<WeChatWeb.Hubs.ChatHub> hub)
+    private readonly LogService _log;
+    public UsersController(DataStore store, SecuritySettings sec, EmailCodeService emailCode, Microsoft.AspNetCore.SignalR.IHubContext<WeChatWeb.Hubs.ChatHub> hub, LogService log)
     {
         _store = store;
         _sec = sec;
         _emailCode = emailCode;
         _hub = hub;
+        _log = log;
     }
 
     [HttpGet("users/me")]
@@ -211,16 +213,21 @@ public class UsersController : ControllerBase
         return Ok(SelfProfile(user));
     }
 
-    public record BindEmailRequest (string Email, string Code);
+    public record BindEmailRequest (string Email, string Code, string Password);
 
-    /// <summary>绑定/换绑邮箱：需邮箱验证码（邮箱注册用户换绑同样走这里）。</summary>
+    /// <summary>绑定/换绑邮箱：需邮箱验证码 + **账号密码二次验证**（邮箱注册用户换绑同样走这里）。
+    /// 盗号防线：邮箱是账号的身份锚点，此前只凭邮箱验证码即可换绑 —— 拿到一个
+    /// 泄露的 access token 就能把自己的邮箱绑到别人账号上。</summary>
     [HttpPut("users/me/email")]
-    public IActionResult BindEmail ([FromBody] BindEmailRequest req)
+    public async Task<IActionResult> BindEmail ([FromBody] BindEmailRequest req)
     {
         var user = HttpContext.FindUser(_store);
         if (user is null) return NotFound();
         var email = (req.Email ?? "").Trim().ToLowerInvariant();
         if (!EmailCodeService.ValidEmail(email)) return BadRequest(new { error = "请输入正确的邮箱地址" });
+        // 密码二次验证：access token（可被窃取/借用设备）不足以变更账号归属凭据
+        if (!PasswordHasher.Verify(req.Password ?? "", user.Password))
+            return BadRequest(new { error = "账号密码不正确" });
         var err = _emailCode.Verify(email, req.Code);
         if (err != null) return BadRequest(new { error = err });
         lock (_store)
@@ -230,6 +237,16 @@ public class UsersController : ControllerBase
             user.Email = email;
             _store.MarkDirty();
         }
+        // 安全提醒：换绑邮箱对全设备可见（被盗号者换邮箱是接管前置动作，本人要能第一时间看到）
+        _log.Write("auth", new { ts = DateTime.UtcNow, result = "email-changed", user = user.Id, ip = HttpContext.Connection.RemoteIpAddress?.ToString() });
+        var conns = _store.ConnectionsOf(user.Id).ToList();
+        if (conns.Count > 0)
+            await _hub.Clients.Clients(conns).SendAsync("AccountSecurity", new
+            {
+                type = "email-changed",
+                email,
+                time = DateTime.UtcNow,
+            });
         return Ok(SelfProfile(user));
     }
 
