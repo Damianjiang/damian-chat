@@ -122,7 +122,7 @@
 </template>
 
 <script setup lang="ts">
-  import { computed, defineAsyncComponent, ref, watch } from 'vue'
+  import { computed, defineAsyncComponent, defineComponent, h, ref, watch } from 'vue'
   import { useRoute, useRouter } from 'vue-router'
 
   import { api } from '@/lib/api'
@@ -130,13 +130,37 @@
   import { t } from '@/lib/i18n'
   import { useAuthStore } from '@/stores/auth'
 
+  /** pane chunk 加载中的极简占位（三颗呼吸点）：只在空闲预取没赶上首跳时短暂出现 */
+  const PaneLoading = defineComponent({
+    name: 'PaneLoading',
+    render () {
+      return h('div', { class: 'wx-pane-loading' }, [
+        h('span', { class: 'wx-pane-loading-dot' }),
+        h('span', { class: 'wx-pane-loading-dot' }),
+        h('span', { class: 'wx-pane-loading-dot' }),
+      ])
+    },
+  })
+
   /**
    * 面板全部异步加载：此前 16 个 pane 静态打进 shell 主 chunk，登录后整包解析
-   * （连带 qrcode/jsqr 等 lib 一起进首屏）。拆开后随用随取——登录后先只拉聊天列表，
-   * 朋友圈/设置/扫码等进入对应页才取各自代码与依赖，老手机内存与解析开销大幅下降。
+   * （连带 qrcode/jsqr 等 lib 一起进首屏）。拆开后随用随取，老手机内存与解析开销大幅下降。
+   * 两处配套防止「进页面闪白」：
+   *  ① shell 挂载后空闲时段把全部 pane chunk 预取完（总增量约 200KB，空闲网络秒完），
+   *     之后每次切页都是本地即时渲染，不再出现「白屏等 chunk」；
+   *  ② defineAsyncComponent 带 delay 200ms 的加载态——极端慢网下首跳也是淡入
+   *     loading 而不是白板。
    * chunk 加载失败由 router 里全局 vite:preloadError 自愈（整页刷新）兜底。
    */
-  const pane = (load: () => Promise<any>) => defineAsyncComponent(load)
+  const paneLoaders: Array<() => Promise<any>> = []
+  const pane = (load: () => Promise<any>) => {
+    paneLoaders.push(load)
+    return defineAsyncComponent({
+      loader: load,
+      delay: 200,
+      loadingComponent: PaneLoading,
+    })
+  }
 
   const sectionPanes: Record<string, any> = {
     chat: pane(() => import('@/views/panes/ChatListPane.vue')),
@@ -159,6 +183,14 @@
     emojis: pane(() => import('@/views/panes/EmojiStorePane.vue')),
     favorites: pane(() => import('@/views/panes/FavoritesPane.vue')),
   }
+
+  // 空闲预取全部 pane chunk：fetchpriority=low 的 modulepreload，不阻塞交互
+  const prefetchPanes = () => {
+    for (const load of paneLoaders) load().catch(() => { /* 预取失败等真实导航自愈 */ })
+  }
+  const idle = (window as unknown as { requestIdleCallback?: (cb: () => void) => number }).requestIdleCallback
+  if (idle) idle(prefetchPanes)
+  else setTimeout(prefetchPanes, 2500)
 
   const route = useRoute()
   const router = useRouter()

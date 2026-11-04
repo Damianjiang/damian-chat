@@ -664,17 +664,9 @@ html.wx-low-perf body.wx-has-user-bg::after {
   -webkit-backdrop-filter: none !important;
 }
 
-/* 低端机：页面切换过渡（推入/弹出/淡入淡出）整段省掉——旧 GPU 上每帧都在
-   合成两层整页，切换会明显掉帧；直接切屏反而"跟手" */
-html.wx-low-perf .wx-push-enter-active,
-html.wx-low-perf .wx-push-leave-active,
-html.wx-low-perf .wx-pop-enter-active,
-html.wx-low-perf .wx-pop-leave-active,
-html.wx-low-perf .wx-fade-enter-active,
-html.wx-low-perf .wx-fade-leave-active {
-  transition-duration: 0.01ms !important;
-  animation-duration: 0.01ms !important;
-}
+/* 页面切换过渡在手机上保留：wx-push/pop 是 transform/opacity 合成层动画，
+   弱 GPU 也带得动（此前试过在低端机一刀切归零过渡，用户反馈"动画没了"，
+   已回退 —— 掉帧的元凶是 backdrop-filter 和整页重排，不是这两个过渡） */
 
 /* 2b) 各表面层按 alpha 透明化（top bar / 列表分组 / 卡片 / 详情面板）。
       用 rgba 叠色而非改 Vuetify 变量：不破坏暗色主题计算。 */
@@ -818,4 +810,31 @@ html[data-dm-mode='dark'] body.wx-has-user-bg::after {
     animation: none !important;
     transition: none !important;
   }
+}
+/* pane chunk 加载占位（异步面板 loadingComponent，delay 200ms 后才出现）：
+   三颗呼吸点居中，用主题次级文字色 —— 暗色模式不闪白 */
+.wx-pane-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 100%;
+  min-height: 120px;
+  background: transparent;
+}
+
+.wx-pane-loading-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgb(var(--v-theme-wechat-text-secondary), 0.55);
+  animation: wx-pane-dot 1.1s ease-in-out infinite;
+
+  &:nth-child(2) { animation-delay: 0.18s; }
+  &:nth-child(3) { animation-delay: 0.36s; }
+}
+
+@keyframes wx-pane-dot {
+  0%, 100% { opacity: 0.35; transform: translateY(0); }
+  50% { opacity: 1; transform: translateY(-3px); }
 }
