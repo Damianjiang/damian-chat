@@ -186,7 +186,16 @@ public class FilesController : ControllerBase
         // 网络公平性由 Kestrel 请求体大小上限保障，本地磁盘 I/O 无需额外限速。
         using var uploadStream = file.OpenReadStream();
         var uploaderId = HttpContext.GetUserId();
-        var (id, dedup) = await _files.SaveAsync(uploadStream, ext, uploaderId, safeName, HttpContext.RequestAborted, kind);
+        string id;
+        bool dedup;
+        try
+        {
+            (id, dedup) = await _files.SaveAsync(uploadStream, ext, uploaderId, safeName, HttpContext.RequestAborted, kind);
+        }
+        catch (Services.FileStore.StorageQuotaExceededException q)
+        {
+            return StatusCode(StatusCodes.Status413PayloadTooLarge, new { error = q.Message });
+        }
 
         // 展示用文件名先做敏感词过滤（掩码而非拒收），再写回元数据
         var displayName = _sw.Filter(safeName) ?? safeName;

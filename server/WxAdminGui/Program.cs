@@ -1034,9 +1034,29 @@ internal sealed class MainForm : Form
         if (!File.Exists(cert)) return;
         var tlsPorts = _cfg.Port == 443 ? "443" : $"{_cfg.Port},443";
         psi.EnvironmentVariables["WX_HTTPS_CERT"] = cert;
-        psi.EnvironmentVariables["WX_HTTPS_CERT_PASSWORD"] = "wxchat2026";
+        psi.EnvironmentVariables["WX_HTTPS_CERT_PASSWORD"] = ReadCertPassword();
         psi.EnvironmentVariables["WX_HTTPS_PORT"] = tlsPorts;
         AppendConsole($"[HTTPS] 自签名证书已加载 → https://0.0.0.0:{tlsPorts}（对外全 TLS；管理 API 走本机环回 http://127.0.0.1:{_cfg.Port + 1}）");
+    }
+
+    /// <summary>
+    /// 证书口令：优先读 Data/certs/cert.pass（ACL 受限文件），读不到再退回历史固定值。
+    /// 此前口令硬编码在源码里 —— 仓库+证书文件同时到手即可导入；新部署请把口令写进
+    /// cert.pass（与证书一起放 data/certs/ 下，不进 git），源码里不再保存秘密。
+    /// </summary>
+    internal static string ReadCertPassword ()
+    {
+        try
+        {
+            var passFile = Path.Combine(G.WebProject, "Data", "certs", "cert.pass");
+            if (File.Exists(passFile))
+            {
+                var pass = File.ReadAllText(passFile).Trim();
+                if (pass.Length > 0) return pass;
+            }
+        }
+        catch { /* 读不到就走回退 */ }
+        return "wxchat2026";   // 历史证书兼容（该口令随旧证书文件，仅自签名传输证书）
     }
 
     private void StopServer()

@@ -26,6 +26,9 @@ async function cachedMediaUrl (fileId: string): Promise<string> {
   }
   const url = URL.createObjectURL(rec.blob)
   blobCache.set(fileId, url)
+  // IDB 路径同样要驱逐热层：此前只有网络路径驱逐，长会话滚大聊天时
+  // IDB 命中的每个 blob 都常驻内存（objectURL 钉住 blob，登出才释放）
+  evictHotIfNeeded()
   return url
 }
 

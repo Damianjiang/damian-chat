@@ -175,9 +175,10 @@ public class AuthController : ControllerBase
         DateTime pwdChangedSnapshot;
         lock (_store)
         {
-            // 登录：注册账号 或 大面号（改过号的用户用大面号也能登录）
+            // 登录：注册账号 或 大面号（改过号的用户用大面号也能登录）。
+            // 大面号按大小写不敏感匹配（与改号唯一性一致，防同形号行为分裂）
             user = _store.Users.Values.FirstOrDefault(u => u.Phone == account)
-                ?? _store.Users.Values.FirstOrDefault(u => u.WxId == account);
+                ?? _store.Users.Values.FirstOrDefault(u => string.Equals(u.WxId, account, StringComparison.OrdinalIgnoreCase));
             pwdChangedSnapshot = user?.PasswordChangedAt ?? DateTime.MinValue;
         }
 
@@ -289,8 +290,8 @@ public class AuthController : ControllerBase
                 return Conflict(new { error = "该邮箱已被绑定" });
             }
             // 大面号唯一性是全路径不变量：账号名若已被他人用作大面号，拒绝注册
-            //（否则按大面号搜索会命中两个人，好友申请可被先注册者劫持）
-            if (_store.Users.Values.Any(u => u.WxId == account))
+            //（否则按大面号搜索会命中两个人，好友申请可被先注册者劫持）。忽略大小写。
+            if (_store.Users.Values.Any(u => string.Equals(u.WxId, account, StringComparison.OrdinalIgnoreCase)))
             {
                 _guard.RecordFailure(Ip, "", _sec);
                 return Conflict(new { error = "该账号已被用作大面号，请更换账号后重试" });
@@ -327,18 +328,19 @@ public class AuthController : ControllerBase
                 _store.RefreshTokens.Remove(kv.Key);
 
             if (string.IsNullOrEmpty(presented)
-                || !_store.RefreshTokens.TryGetValue(presented, out var rt) || rt.ExpiresAt < now)
+                || !_store.RefreshTokens.TryGetValue(DataStore.HashRefreshToken(presented), out var rt) || rt.ExpiresAt < now)
             { ClearRefreshCookie(); return Unauthorized(new { error = "refresh token 无效" }); }
             if (!_store.Users.TryGetValue(rt.UserId, out var user)) { ClearRefreshCookie(); return Unauthorized(new { error = "用户不存在" }); }
             if (user.Banned) { ClearRefreshCookie(); return Unauthorized(new { error = "账号已停用" }); }
 
-            _store.RefreshTokens.Remove(presented);
+            _store.RefreshTokens.Remove(DataStore.HashRefreshToken(presented));
             // 解析旧 token 所属设备会话：sid 延续到新令牌（踢出/设备列表依赖它）；
             // 旧令牌没有会话（升级前签发）则新建一条，保证"每个 refresh 都有会话可踢"
             var oldSid = _store.FindSessionIdByToken(presented);
             var sid = oldSid ?? Guid.NewGuid().ToString("N");
             var (access, refresh) = _jwt.CreateTokens(user, sid);
-            _store.RefreshTokens[refresh] = new RefreshToken { Value = refresh, UserId = user.Id, ExpiresAt = DateTime.UtcNow.AddDays(7) };
+            // RefreshTokens / 设备会话一律存哈希：store.json 外泄不再等于全站刷新链泄露
+            _store.RefreshTokens[DataStore.HashRefreshToken(refresh)] = new RefreshToken { Value = DataStore.HashRefreshToken(refresh), UserId = user.Id, ExpiresAt = DateTime.UtcNow.AddDays(7) };
             _store.BindSession(user.Id, sid, refresh, Ua, Ip);
             SetRefreshCookie(refresh);   // 轮转后的新 refresh 写回 httpOnly cookie
             return Ok(new { accessToken = access, expiresIn = 7200 });
@@ -355,7 +357,7 @@ public class AuthController : ControllerBase
         {
             if (!string.IsNullOrEmpty(presented))
             {
-                _store.RefreshTokens.Remove(presented);
+                _store.RefreshTokens.Remove(DataStore.HashRefreshToken(presented));
                 // 有鉴权按 sub 清；无鉴权（token 已过期的客户端）反查清，避免僵尸会话残留
                 if (me != null) _store.EndSessionByToken(me, presented);
                 else if (_store.TryFindSessionByToken(presented, out var zuid, out var zsid)) _store.EndSession(zuid, zsid);
@@ -379,7 +381,8 @@ public class AuthController : ControllerBase
         {
             (access, refresh) = _jwt.CreateTokens(u, sid);
             _store.BindSession(u.Id, sid, refresh, Ua, Ip);
-            _store.RefreshTokens[refresh] = new RefreshToken { Value = refresh, UserId = u.Id, ExpiresAt = DateTime.UtcNow.AddDays(7) };
+            // 只存哈希（明文只活在签发响应与 httpOnly cookie 里，绝不落盘）
+            _store.RefreshTokens[DataStore.HashRefreshToken(refresh)] = new RefreshToken { Value = DataStore.HashRefreshToken(refresh), UserId = u.Id, ExpiresAt = DateTime.UtcNow.AddDays(7) };
         }
         return (access, refresh, sid);
     }

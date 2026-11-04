@@ -178,7 +178,16 @@ public sealed class DataStore
         {
             LoginSessions[kv.Key] = kv.Value ?? new List<Models.LoginSession>();
             foreach (var s in kv.Value ?? new())
+            {
+                // 旧版 store.json 里 refresh 是明文：就地升级为哈希（一次迁移，
+                // 之后所有落盘值均为哈希 —— 明文不再出进程内存）
+                if (!string.IsNullOrEmpty(s.RefreshToken) && !IsHashedRefresh(s.RefreshToken))
+                {
+                    s.RefreshToken = HashRefreshToken(s.RefreshToken);
+                    changed = true;
+                }
                 if (!string.IsNullOrEmpty(s.RefreshToken)) _loginTokenIndex[s.RefreshToken] = s.Id;
+            }
         }
 
         Contacts.Clear();
@@ -301,16 +310,33 @@ public sealed class DataStore
     private readonly Dictionary<string, string> _loginTokenIndex = new();
 
     /// <summary>
+    /// refresh 令牌哈希（SHA-256 hex）。落盘的 LoginSession.RefreshToken 与
+    /// _loginTokenIndex 只存哈希 —— store.json 一旦外泄，攻击者拿不到可直接
+    /// 换取 access token 的明文刷新链（此前明文落盘 = 一次备份泄露全站 7 天会话）。
+    /// 兼容：启动加载时把旧版明文值就地升级为哈希（见 LoadFromSnapshot）。
+    /// </summary>
+    internal static string HashRefreshToken (string token)
+    {
+        if (string.IsNullOrEmpty(token)) return token;
+        var bytes = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(token));
+        return Convert.ToHexString(bytes).ToLowerInvariant();
+    }
+
+    private static bool IsHashedRefresh (string? token)
+        => token is { Length: 64 } && token.All(char.IsAsciiHexDigit);
+
+    /// <summary>
     /// 登录成功：登记一条设备会话（sid 由调用方生成并随 JWT 下发）。
     /// 同 sid 复用（refresh 轮转重绑）；每用户上限 20 条，超出淘汰最旧。
     /// </summary>
     public void BindSession (string userId, string sid, string refreshToken, string ua, string ip)
     {
+        var tokenHash = HashRefreshToken(refreshToken);
         var list = LoginSessions.TryGetValue(userId, out var l) ? l : (LoginSessions[userId] = new List<Models.LoginSession>());
         var s = list.FirstOrDefault(x => x.Id == sid);
         if (s == null)
         {
-            s = new Models.LoginSession { Id = sid, RefreshToken = refreshToken, Device = ua ?? "", LastIp = ip ?? "" };
+            s = new Models.LoginSession { Id = sid, RefreshToken = tokenHash, Device = ua ?? "", LastIp = ip ?? "" };
             list.Add(s);
             // 数量上限：淘汰最旧（LastSeen 最小），防止设备列表无界增长
             if (list.Count > 20)
@@ -324,36 +350,38 @@ public sealed class DataStore
         s.LastSeen = DateTime.UtcNow;
         if (!string.IsNullOrEmpty(ip)) s.LastIp = ip;
         if (!string.IsNullOrEmpty(ua)) s.Device = ua;
-        s.RefreshToken = refreshToken;
-        _loginTokenIndex[refreshToken] = sid;
+        s.RefreshToken = tokenHash;
+        _loginTokenIndex[tokenHash] = sid;
         MarkDirty();
     }
 
-    /// <summary>按 refresh 值解析会话 id（refresh 轮转延续会话用）。</summary>
+    /// <summary>按 refresh 值解析会话 id（refresh 轮转延续会话用）。索引里存的是哈希。</summary>
     public string? FindSessionIdByToken (string refreshToken)
-        => _loginTokenIndex.TryGetValue(refreshToken, out var sid) ? sid : null;
+        => _loginTokenIndex.TryGetValue(HashRefreshToken(refreshToken), out var sid) ? sid : null;
 
     /// <summary>按 refresh 值找会话（含 userId），用于无鉴权 logout 清僵尸会话。</summary>
     public bool TryFindSessionByToken (string refreshToken, out string userId, out string sid)
     {
         userId = ""; sid = "";
+        var h = HashRefreshToken(refreshToken);
         foreach (var kv in LoginSessions)
         {
-            var s = kv.Value.FirstOrDefault(x => x.RefreshToken == refreshToken);
+            var s = kv.Value.FirstOrDefault(x => x.RefreshToken == h);
             if (s != null) { userId = kv.Key; sid = s.Id; return true; }
         }
         return false;
     }
 
-    /// <summary>refresh 轮转：把会话绑定的 refresh 值换成新值（同一设备会话延续）。</summary>
+    /// <summary>refresh 轮转：把会话绑定的 refresh 值换成新值（同一设备会话延续）。两参均为明文。</summary>
     public void RebindSessionToken (string userId, string oldToken, string newToken)
     {
-        if (!_loginTokenIndex.TryGetValue(oldToken, out var sid)) return;
+        var oldHash = HashRefreshToken(oldToken);
+        if (!_loginTokenIndex.TryGetValue(oldHash, out var sid)) return;
         var s = LoginSessions.TryGetValue(userId, out var l) ? l?.FirstOrDefault(x => x.Id == sid) : null;
-        if (s == null) { _loginTokenIndex.Remove(oldToken); return; }
-        s.RefreshToken = newToken;
-        _loginTokenIndex.Remove(oldToken);
-        _loginTokenIndex[newToken] = sid;
+        if (s == null) { _loginTokenIndex.Remove(oldHash); return; }
+        s.RefreshToken = HashRefreshToken(newToken);
+        _loginTokenIndex.Remove(oldHash);
+        _loginTokenIndex[s.RefreshToken] = sid;
         MarkDirty();
     }
 
@@ -405,10 +433,10 @@ public sealed class DataStore
         MarkDirty();
     }
 
-    /// <summary>登出：吊销 refresh 的同时移除对应设备会话。</summary>
+    /// <summary>登出：吊销 refresh 的同时移除对应设备会话。入参为明文 token。</summary>
     public void EndSessionByToken (string userId, string refreshToken)
     {
-        if (!_loginTokenIndex.TryGetValue(refreshToken, out var sid)) return;
+        if (!_loginTokenIndex.TryGetValue(HashRefreshToken(refreshToken), out var sid)) return;
         EndSession(userId, sid);
     }
 
@@ -485,9 +513,9 @@ public sealed class DataStore
             Phone = account,
             Password = PasswordHasher.Hash(password),
             Nickname = account,
-            // 直接注册：大面号 = 注册账号（用户按账号搜人，预期如此）；
-            // 邮箱注册由调用方覆写为随机号（随机号默认不可被搜索，微信同款）
-            WxId = account.Contains('@') ? GenerateUniqueWxIdLocked() : account,
+            // 直接注册：大面号 = 注册账号（用户按账号搜人，预期如此），统一小写归一
+            //（搜索/登录/唯一性全部大小写不敏感 —— 防同形号）；邮箱注册由调用方覆写为随机号
+            WxId = account.Contains('@') ? GenerateUniqueWxIdLocked() : account.ToLowerInvariant(),
             WxIdCustom = !account.Contains('@'),
             CreatedAt = DateTime.UtcNow,
         };

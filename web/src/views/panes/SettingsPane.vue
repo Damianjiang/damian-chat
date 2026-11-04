@@ -587,6 +587,7 @@
   import { useRouter } from 'vue-router'
 
   import { api } from '@/lib/api'
+  import { confirm } from '@/lib/confirm'
   import { t } from '@/lib/i18n'
   import {
     buffer_,
@@ -815,6 +816,7 @@
   }
 
   async function kickSession (id: string) {
+    if (!(await confirm({ text: t('settings.kick.one.text'), danger: true }))) return
     try {
       await api.delete(`/users/me/sessions/${id}`)
       sessions.value = sessions.value.filter(x => x.id !== id)
@@ -827,6 +829,8 @@
   }
 
   async function kickAll () {
+    // 一键下线全设备不可逆：先确认（与其他危险操作同规）
+    if (!(await confirm({ text: t('settings.kick.all.text'), danger: true }))) return
     try {
       const r = await api.delete('/users/me/sessions')
       sessions.value = sessions.value.filter(x => x.current)
@@ -1074,7 +1078,11 @@
             }
           }
           target.addEventListener('statechange', onState)
-          setTimeout(resolve, 5000)
+          // 超时兜底也要摘掉监听：否则 worker 晚到时回调仍挂在旧对象上
+          setTimeout(() => {
+            target.removeEventListener('statechange', onState)
+            resolve()
+          }, 5000)
         })
         updateProgress.value = 70
         updateMsg.value = t('settings.update.applying')

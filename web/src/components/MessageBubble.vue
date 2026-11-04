@@ -73,6 +73,8 @@
           :alt="message.content"
           :class="{ 'is-loaded': imgLoaded }"
           class="rounded-lg wx-img wx-img-fade"
+          decoding="async"
+          loading="lazy"
           :src="src"
           @click="$emit('preview', message)"
           @error="imgLoaded = true"

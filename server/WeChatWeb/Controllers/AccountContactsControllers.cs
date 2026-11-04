@@ -105,7 +105,9 @@ public class UsersController : ControllerBase
                 var next = last.Value.AddDays(cooldown);
                 return BadRequest(new { error = $"修改太频繁，{next:yyyy-MM-dd} 后才能再次修改", nextAllowedAt = next });
             }
-            if (_store.Users.Values.Any(u => u.WxId == wxId))
+            // 大面号唯一性按大小写不敏感比较：此前「Damian」和「damian」可共存，
+            // 搜索/登录按大小写匹配会出现同形号占位与行为分裂
+            if (_store.Users.Values.Any(u => string.Equals(u.WxId, wxId, StringComparison.OrdinalIgnoreCase)))
                 return Conflict(new { error = "该大面号已被使用" });
             user.WxId = wxId;
             user.WxIdCustom = true;
@@ -488,7 +490,7 @@ public class ContactsController : ControllerBase
                 var isPhoneQuery = System.Text.RegularExpressions.Regex.IsMatch(phone, @"^1[3-9]\d{9}$");
                 var isAccountQuery = Validate.IsAccount(phone);
                 target = _store.Users.Values.FirstOrDefault(u =>
-                    (wxId.Length > 0 && !string.IsNullOrEmpty(u.WxId) && u.WxId == wxId
+                    (wxId.Length > 0 && !string.IsNullOrEmpty(u.WxId) && string.Equals(u.WxId, wxId, StringComparison.OrdinalIgnoreCase)
                         && u.WxIdCustom && Searchable(u, "searchByWxId"))
                     || ((isPhoneQuery || isAccountQuery) && u.Phone == phone && Searchable(u, "searchByPhone")));
             }
@@ -550,7 +552,8 @@ public class ContactsController : ControllerBase
             var c = _store.Contacts.TryGetValue(HttpContext.GetUserId(), out var l) ? l.FirstOrDefault(x => x.Id == id) : null;
             if (c == null) return NotFound();
             // 备注长度上限：与昵称一致，防止塞入超长字符串
-            c.Remark = req.Remark is { Length: > Validate.MaxNickname } ? null : req.Remark;
+            // 备注是跨用户可见文本：与昵称/签名同规清洗（此前只限长度不剥标记）
+            c.Remark = Validate.Clean(req.Remark, Validate.MaxNickname);
             _store.MarkDirty();
             return Ok(c);
         }

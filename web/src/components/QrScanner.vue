@@ -89,6 +89,7 @@
 
   let stream: MediaStream | null = null
   let raf = 0
+  let lastDecode = 0
   let canvas: HTMLCanvasElement | null = null
   let busy = false
 
@@ -117,11 +118,20 @@
   function loop () {
     if (!stream) return
     const video = videoEl.value
+    // 降到 ~8fps + 把帧缩到 480px 再识别：此前每帧全分辨率(≈1280) getImageData 跑 jsQR，
+    // 低端机 CPU 被持续打满、摄像头发热。识别延迟可接受（码通常离镜头很近）。
+    const now = performance.now()
+    if (now - lastDecode < 120) {
+      raf = requestAnimationFrame(loop)
+      return
+    }
+    lastDecode = now
     if (video && canvas && video.readyState === video.HAVE_ENOUGH_DATA && !busy) {
       busy = true
       try {
-        canvas.width = video.videoWidth
-        canvas.height = video.videoHeight
+        const scale = Math.min(1, 480 / Math.max(video.videoWidth, video.videoHeight))
+        canvas.width = Math.max(1, Math.round(video.videoWidth * scale))
+        canvas.height = Math.max(1, Math.round(video.videoHeight * scale))
         const ctx = canvas.getContext('2d', { willReadFrequently: true })
         if (ctx) {
           ctx.drawImage(video, 0, 0, canvas.width, canvas.height)

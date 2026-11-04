@@ -320,13 +320,20 @@
   function uidOf (c: { user?: { id: string } | null, id: string }) {
     return c.user?.id ?? c.id
   }
+  /** 联系人 id→联系人 Map：此前每行 nickOf/avrOf 各做 O(n) find（nickOf 还 find 两次），
+   *  选人面板每勾一个成员全表扫 3 次；建一次 Map 后所有行 O(1) 查。 */
+  const contactById = computed(() => {
+    const m = new Map<string, typeof contacts.items[number]>()
+    for (const c of contacts.items) m.set(c.user?.id ?? c.id, c)
+    return m
+  })
   function nickOf (id: string) {
-    return contacts.items.find(c => (c.user?.id ?? c.id) === id)?.remark
-      || contacts.items.find(c => (c.user?.id ?? c.id) === id)?.user?.nickname
+    return contactById.value.get(id)?.remark
+      || contactById.value.get(id)?.user?.nickname
       || t('group.pick.friend')
   }
   function avatarOf (id: string) {
-    return contacts.items.find(c => (c.user?.id ?? c.id) === id)?.user?.avatar || ''
+    return contactById.value.get(id)?.user?.avatar || ''
   }
 
   const allSelected = computed(() =>

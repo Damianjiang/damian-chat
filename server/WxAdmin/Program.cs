@@ -127,11 +127,14 @@ static void StartServer(WxConfig cfg)
     psi.ArgumentList.Add(dll);
     psi.ArgumentList.Add("--urls");
     psi.ArgumentList.Add(urlsArg);
-    // DEP-SEC HTTPS：证书存在即注入；TLS 端口被占由服务端逐端口跳过
+    // DEP-SEC HTTPS：证书存在即注入；TLS 端口被占由服务端逐端口跳过。
+    // 口令优先读 Data/certs/cert.pass（不进 git），回退历史固定值兼容旧证书 —— 口令不再写死在源码。
     if (tls)
     {
         psi.EnvironmentVariables["WX_HTTPS_CERT"] = cert;
-        psi.EnvironmentVariables["WX_HTTPS_CERT_PASSWORD"] = "wxchat2026";
+        var passFile = Path.Combine(Paths.WebProject, "Data", "certs", "cert.pass");
+        var pass = File.Exists(passFile) ? File.ReadAllText(passFile).Trim() : "";
+        psi.EnvironmentVariables["WX_HTTPS_CERT_PASSWORD"] = pass.Length > 0 ? pass : "wxchat2026";
         psi.EnvironmentVariables["WX_HTTPS_PORT"] = cfg.Port == 443 ? "443" : $"{cfg.Port},443";
     }
     var proc = Spawn(psi)!;

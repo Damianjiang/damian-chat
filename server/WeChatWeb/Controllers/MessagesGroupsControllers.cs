@@ -438,6 +438,9 @@ public class GroupsController : ControllerBase
         Group created;
         lock (_store)
         {
+            // 每用户建群数量上限：此前无界，脚本可无限建群把 store.json 撑到写盘劣化
+            if (_store.Groups.Values.Count(g => g.OwnerId == me) >= 200)
+                return BadRequest(new { error = "你创建的群已达上限（200 个）" });
             created = new Group
             {
                 Id = Guid.NewGuid().ToString("N"),
@@ -548,6 +551,10 @@ public class GroupsController : ControllerBase
     /// <summary>入群问题答错的防爆破限流：每 (用户, 群) 每小时最多 5 次错误尝试。</summary>
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (int Count, DateTime WindowStart)> JoinFailHits = new();
 
+    /// <summary>入群申请频控：每用户每小时最多 10 次。此前只限「答错」，答对/直接进的
+    /// 成功次数不限 —— 脚本可反复进群退群，每次都落一条系统消息把库灌大。</summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (int Count, DateTime WindowStart)> JoinHits = new();
+
     /// <summary>申请加群（QQ 式四种模式：open 直接进 / question 答对自动进 / approve 人工审核 / none 拒绝所有人）。</summary>
     [HttpPost("groups/{id}/join")]
     public async Task<IActionResult> Join(string id, [FromBody] JoinGroup req)
@@ -555,6 +562,16 @@ public class GroupsController : ControllerBase
         var me = HttpContext.GetUserId();
         lock (_store)
         {
+            // 每用户每小时 10 次入群申请（窗口清扫与 JoinFailHits 同款）
+            foreach (var kv in JoinHits)
+                if ((DateTime.UtcNow - kv.Value.WindowStart).TotalHours > 1)
+                    JoinHits.TryRemove(kv.Key, out _);
+            var (jcount, jstart) = JoinHits.GetOrAdd(me, _ => (0, DateTime.UtcNow));
+            var jinWindow = DateTime.UtcNow - jstart < TimeSpan.FromHours(1);
+            if (jinWindow && jcount >= 10)
+                return StatusCode(StatusCodes.Status429TooManyRequests, new { error = "加群过于频繁，请一小时后再试" });
+            JoinHits[me] = (jinWindow ? jcount + 1 : 1, jinWindow ? jstart : DateTime.UtcNow);
+
             if (!_store.Groups.TryGetValue(id, out var g)) return NotFound(new { error = "群不存在" });
             g.JoinRequests ??= new();
             // 已是成员：幂等返回
@@ -1136,6 +1153,9 @@ public class GroupsController : ControllerBase
                 CreatedBy = me,
                 Options = optionTexts.Select(o => new PollOption { Text = o }).ToList(),
             };
+            // 每群投票上限：此前可无限刷（每条 ~1KB，永久驻留 store.json）
+            if (g.Polls.Count >= 100)
+                return BadRequest(new { error = "本群投票已达上限（100 个），请先让发起人删除旧投票" });
             g.Polls.Add(poll);
             _store.MarkDirty();
         }

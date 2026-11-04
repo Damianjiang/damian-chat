@@ -50,6 +50,7 @@
   import { onMounted, ref } from 'vue'
   import { useRouter } from 'vue-router'
   import { api } from '@/lib/api'
+  import { confirm } from '@/lib/confirm'
   import { isPageMode } from '@/lib/device'
   import { useSmartBack } from '@/lib/nav'
   import { t } from '@/lib/i18n'
@@ -89,6 +90,7 @@
   }
 
   async function remove (f: FavoriteItem) {
+    if (!(await confirm({ text: t('favorites.remove.text'), danger: true }))) return
     try {
       await api.delete(`/favorites/${f.id}`)
       items.value = items.value.filter(x => x.id !== f.id)

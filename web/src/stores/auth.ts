@@ -84,5 +84,26 @@ export const useAuthStore = defineStore('auth', {
       void idbClearMessages().catch(() => {})
       void clearMediaCache().catch(() => {})
     },
+
+    /**
+     * 换号护栏：同一浏览器换了登录账号时，主动清上一个账号的本地残留。
+     * 补上 logout 之外的缺口 —— token 静默过期（没走登出）→ 别人登进来，
+     * 打开会话时 IDB 里上一账号的聊天记录/媒体会被直接回填渲染。
+     * 登录成功与刷新恢复两条入口都要调。
+     */
+    async accountSwitchGuard (userId: string) {
+      let last = ''
+      try { last = localStorage.getItem('wx_last_uid') ?? '' } catch { /* 忽略 */ }
+      try { localStorage.setItem('wx_last_uid', userId) } catch { /* 忽略 */ }
+      if (!last || last === userId) return
+      useConversationsStore().$reset()
+      try {
+        (await import('@/stores/conversations')).clearConversationCache()
+      } catch { /* 模块未加载则忽略 */ }
+      useContactsStore().$reset()
+      useMomentsStore().$reset()
+      void idbClearMessages().catch(() => {})
+      void clearMediaCache().catch(() => {})
+    },
   },
 })

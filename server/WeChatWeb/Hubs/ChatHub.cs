@@ -16,6 +16,8 @@ namespace WeChatWeb.Hubs;
 public sealed class ChatHub : Hub
 {
     private readonly DataStore _store;
+    /// <summary>SendTyping 服务端节流表：connectionId → 上次转发时间（Environment.TickCount64 ms）。</summary>
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, long> _lastTyping = new();
 
     /// <summary>
     /// 连接上限（WS-PERF-001 / BIZ-SEC-024）：
@@ -129,6 +131,7 @@ public sealed class ChatHub : Hub
     {
         var user = CurrentUserId;
         _store.MarkDisconnected(Context.ConnectionId);
+        _lastTyping.TryRemove(Context.ConnectionId, out _);
         if (!string.IsNullOrEmpty(user))
         {
             bool stillOnline;
@@ -168,6 +171,13 @@ public sealed class ChatHub : Hub
     {
         var user = CurrentUserId;
         if (string.IsNullOrEmpty(user) || string.IsNullOrEmpty(conversationId)) return;
+
+        // 服务端节流：每连接每 2 秒最多转发 1 次。客户端虽有 3s 节流，但恶意客户端
+        // 可绕开直接高频调用 —— 每次都触发全局锁 + 成员展开 + 定向推送，1000 人群
+        // 即被单连接放大成每秒百万级消息帧。
+        var now = Environment.TickCount64;
+        if (_lastTyping.TryGetValue(Context.ConnectionId, out var last) && now - last < 2000) return;
+        _lastTyping[Context.ConnectionId] = now;
 
         List<string> targetConnections;
         lock (_store)

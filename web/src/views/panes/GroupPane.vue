@@ -593,6 +593,7 @@
   import { computed, onMounted, ref, watch } from 'vue'
   import { useRoute, useRouter } from 'vue-router'
   import { api } from '@/lib/api'
+  import { confirm } from '@/lib/confirm'
   import { fileUrl } from '@/lib/files'
   import { compressImage } from '@/lib/imgCompress'
   import { t } from '@/lib/i18n'
@@ -1119,6 +1120,9 @@
   }
 
   async function transfer (userId: string) {
+    // 转让群主不可撤销：此前列表里一触碰发，误触即丢群主。与其他危险操作同规先确认
+    const name = group.value?.members.find(x => x.userId === userId)?.nickname ?? ''
+    if (!(await confirm({ text: t('group.transfer.confirm', { name }), danger: true }))) return
     try {
       await api.post(`/groups/${groupId.value}/transfer`, { userId })
       const name = group.value?.members.find(x => x.userId === userId)?.nickname ?? ''

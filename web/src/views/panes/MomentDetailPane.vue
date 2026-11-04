@@ -68,6 +68,7 @@
   import MediaPreviewer from '@/components/MediaPreviewer.vue'
   import MomentCard from '@/components/MomentCard.vue'
   import { isPageMode } from '@/lib/device'
+  import { confirm } from '@/lib/confirm'
   import { t } from '@/lib/i18n'
   import { avatarColor } from '@/lib/utils'
   import { useAuthStore } from '@/stores/auth'
@@ -129,6 +130,8 @@
 
   async function onDelete () {
     if (!moment.value) return
+    // 与列表页同规：删除前确认（此前详情页一键直删）
+    if (!(await confirm({ text: t('moments.delete.text'), danger: true }))) return
     const id = moment.value.id
     try {
       await moments.remove(id)

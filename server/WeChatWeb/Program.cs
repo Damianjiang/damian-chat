@@ -358,6 +358,29 @@ if (httpsEnabled)
 // 否则 [EnableRateLimiting("captcha")] 之类的特性是死代码（曾导致验证码接口完全不限流）。
 app.UseRateLimiter();
 
+// 请求体分级上限：此前 1GB 的 Kestrel 上限对所有路由生效 —— 持一个合法 token 就能对
+// 任意纯 JSON 端点（登录/发消息/朋友圈…）发 1GB body，Kestrel 全量缓冲制造内存/磁盘尖峰
+// （防火墙此前也只统计响应字节）。分级：文件上传维持 1GB（云盘定位）、管理端背景图 64MB、
+// 其余一律 2MB 快速失败（413）。
+app.Use(async (ctx, next) =>
+{
+    var len = ctx.Request.ContentLength;
+    if (len.HasValue)
+    {
+        var path = ctx.Request.Path;
+        long cap = path.StartsWithSegments("/api/files/upload") ? 1L * 1024 * 1024 * 1024
+            : path.StartsWithSegments("/api/admin") ? 64L * 1024 * 1024
+            : 2L * 1024 * 1024;
+        if (len.Value > cap)
+        {
+            ctx.Response.StatusCode = StatusCodes.Status413PayloadTooLarge;
+            await ctx.Response.WriteAsJsonAsync(new { error = "请求体过大" });
+            return;
+        }
+    }
+    await next();
+});
+
 // 压缩中间件须早挂（包住控制器 + 静态文件）：只压响应体，不影响认证/限流逻辑
 app.UseResponseCompression();
 

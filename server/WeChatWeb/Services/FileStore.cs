@@ -19,6 +19,13 @@ public sealed class FileStorageConfig
     /// <summary>文件保留天数（默认 7 天，与聊天记录保留期对齐），后台定时清理过期文件。</summary>
     public int KeepDays { get; set; } = 7;
 
+    /// <summary>单用户已用存储配额（默认 5GB）。此前上传无任何总量限制，
+    /// 单个合法账号每分钟可写入数百 GB（防火墙只统计响应字节），足以灌满磁盘拖垮整站。</summary>
+    public long MaxUserBytes { get; set; } = 5L * 1024 * 1024 * 1024;
+
+    /// <summary>全站存储总量配额（默认 100GB）。</summary>
+    public long MaxTotalBytes { get; set; } = 100L * 1024 * 1024 * 1024;
+
     private static readonly JsonSerializerOptions Opts = new() { WriteIndented = true };
 
     public static string FilePath =>
@@ -34,6 +41,8 @@ public sealed class FileStorageConfig
                 MaxFileBytes = MaxFileBytes,
                 MaxUploadBytesPerSecond = MaxUploadBytesPerSecond,
                 KeepDays = KeepDays,
+                MaxUserBytes = MaxUserBytes,
+                MaxTotalBytes = MaxTotalBytes,
             };
     }
 
@@ -192,6 +201,23 @@ public sealed class FileStore
                         Kind = kind,
                         CreatedAt = DateTime.UtcNow,
                     };
+
+                    // 存储配额：单用户 + 全站两道闸（此前上传字节完全不计入防火墙，
+                    // 单账号可每分钟灌数百 GB 直到磁盘写满、整站瘫痪）。去重命中
+                    // 不占新空间，已在上面的复用分支提前返回，不会走到这里。
+                    long userUsed = 0, totalUsed = 0;
+                    foreach (var f in _data.Files.Values)
+                    {
+                        totalUsed += f.Size;
+                        if (f.UploaderId == uploaderId) userUsed += f.Size;
+                    }
+                    if (totalUsed + meta.Size > Config.MaxTotalBytes || userUsed + meta.Size > Config.MaxUserBytes)
+                    {
+                        TryDelete(final);
+                        throw new StorageQuotaExceededException(
+                            $"存储空间已用完（用户配额 {Config.MaxUserBytes / 1024 / 1024 / 1024}GB / 全站 {Config.MaxTotalBytes / 1024 / 1024 / 1024}GB），请清理后重试");
+                    }
+
                     _data.Files[id] = meta;
                     _hashIndex[sha] = meta;
                 }
@@ -207,6 +233,12 @@ public sealed class FileStore
     }
 
     /* ---------------- 定时清理 ---------------- */
+
+    /// <summary>存储配额已用完：控制器捕获后回 413，避免裸 500。</summary>
+    public sealed class StorageQuotaExceededException : Exception
+    {
+        public StorageQuotaExceededException (string message) : base(message) { }
+    }
 
     /// <summary>清理超过保留期的文件（后台服务每小时跑一次）。</summary>
     public int CleanupExpired ()

@@ -425,8 +425,13 @@
   const bgDark = computed(() => resolveDark(theme.mode))
   const bgStyle = computed(() => {
     if (bgMode.value === 'image' && bgImage.value) {
-      return {
-        background: `url('${bgImage.value}') center/cover no-repeat`,
+      // 服务端下发的背景地址插进 CSS url('')：先消毒（只允许站内绝对路径 / http(s)，
+      // 剥掉引号/括号），否则含 ' 或 ) 的值可注入任意 CSS
+      const u = bgImage.value.replace(/['"()\\]/g, '')
+      if (/^(https?:\/\/|\/)[^\s]*$/.test(u)) {
+        return {
+          background: `url('${u}') center/cover no-repeat`,
+        }
       }
     }
     if (bgMode.value === 'color') {
@@ -584,6 +589,8 @@
     loading.value = true
     try {
       await auth.login(account.value.trim(), password.value, captchaId.value, captchaInput.value.trim(), passToken.value)
+      // 换号护栏：同浏览器上一账号没走登出时，先进来把残留缓存清干净再加载
+      if (auth.user?.id) { try { await auth.accountSwitchGuard(auth.user.id) } catch { /* 忽略 */ } }
       await enterApp()
       snackOkMsg.value = t('login.ok')
       snackOk.value = true

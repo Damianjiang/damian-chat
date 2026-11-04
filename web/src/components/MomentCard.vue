@@ -126,7 +126,9 @@
     resolvedImages.value = resolvedImages.value.filter(u => u.length > 0)
   }
 
-  watch(() => props.moment, () => { void resolveImages() }, { deep: true })
+  // 只盯 images 引用（点赞/评论会改 moment 的其他字段）：deep 侦听整个 moment
+  // 会在每次点赞/评论时把评论+点赞数组整体走一遍再全量重解析图片
+  watch(() => props.moment.images, () => { void resolveImages() }, { deep: true })
   onMounted(resolveImages)
 
   /** 手机 3 列 / iPad 4 列 / 电脑 5 列 */

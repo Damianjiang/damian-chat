@@ -358,6 +358,7 @@
   import { sendTyping } from '@/lib/signalr'
   import { avatarColor, messageSummary, timeLabel } from '@/lib/utils'
   import { useAuthStore } from '@/stores/auth'
+  import { useContactsStore } from '@/stores/contacts'
   import { useConversationsStore } from '@/stores/conversations'
   import { usePollsStore } from '@/stores/polls'
 
@@ -365,6 +366,7 @@
   const router = useRouter()
   const store = useConversationsStore()
   const auth = useAuthStore()
+  const contacts = useContactsStore()
 
   const isMobile = isPageMode
   const meId = computed(() => auth.user?.id ?? 'me')
@@ -1043,6 +1045,14 @@
 
   async function loadNames () {
     if (isGroup.value || !session.value) return
+    // 优先读本地联系人 store（登录时已拉全量）：此前每次切会话都全量 GET /contacts，
+    // 慢网络下白加一个来回；store 为空才回退拉一次
+    const local = contacts.items.find(c => c.user?.id === session.value!.memberId)
+    if (local) {
+      nameMap.value[local.user.id] = local.remark || local.user.nickname
+      avatarMap.value[local.user.id] = local.user.avatar
+      return
+    }
     const res = await api.get('/contacts').catch(() => null)
     if (res) {
       for (const c of res.data) {

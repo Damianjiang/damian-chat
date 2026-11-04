@@ -76,6 +76,9 @@
       if (router.currentRoute.value.name !== 'login') await router.push({ name: 'login' })
       return
     }
+    // 换号护栏：同浏览器换了账号（前一个没走登出/token 静默过期）→ 在拉取/回填任何
+    // 会话数据之前先清掉上一个账号的内存 store 与 IDB 残留
+    try { await auth.accountSwitchGuard(auth.user!.id) } catch { /* 忽略 */ }
     await Promise.allSettled([conversations.loadSessions(), contacts.load(), contacts.loadRequests()])
     // 登录/刷新后自动拉取服务端「最近 1 周」聊天记录，灌入浏览器缓存（IDB），
     // 之后可离线查看 + 打开会话秒开；并发受 pullRecentHistoryIntoCache 内部限流。

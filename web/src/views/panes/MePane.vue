@@ -109,7 +109,6 @@
   import UserAvatar from '@/components/UserAvatar.vue'
   import { isPageMode } from '@/lib/device'
   import { t } from '@/lib/i18n'
-  import { stopRealtime } from '@/lib/realtime'
   import { useAuthStore } from '@/stores/auth'
 
   const router = useRouter()
@@ -132,7 +131,11 @@
 
   async function logout () {
     logoutDialog.value = false
-    stopRealtime()
+    // 动态取 realtime 模块：静态 import 会把 55KB 的 SignalR chunk 拖进「我」页
+    //（其余入口都已是动态加载，唯独这里破功）
+    try {
+      (await import('@/lib/realtime')).stopRealtime()
+    } catch { /* 未连接则忽略 */ }
     await auth.logout()
     router.replace({ name: 'login' })
   }

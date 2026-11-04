@@ -20,7 +20,7 @@
       />
     </div>
 
-    <div ref="feedRef" class="flex-grow-1 overflow-y-auto wx-scroll pa-3" @scroll="onFeedScroll">
+    <div ref="feedRef" class="flex-grow-1 overflow-y-auto wx-scroll pa-3" @scroll.passive="onFeedScroll">
       <div class="wx-stagger">
         <v-card class="mb-3 pa-2" color="background" variant="tonal">
           <div class="d-flex align-center gap-2">
@@ -162,7 +162,7 @@
 
 <script setup lang="ts">
   import type { Moment } from '@/types'
-  import { computed, onMounted, ref } from 'vue'
+  import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
   import { useRouter } from 'vue-router'
   import MediaPreviewer from '@/components/MediaPreviewer.vue'
   import MomentCard from '@/components/MomentCard.vue'
@@ -229,12 +229,21 @@
 
   const canPost = computed(() => postText.value.trim().length > 0 || postImages.value.length > 0)
 
+  /** 无限滚动：rAF 合帧 + passive（与聊天区同款），避免每秒上百次强制布局 */
+  let feedScrollRaf = 0
   function onFeedScroll (e: Event) {
-    const el = e.target as HTMLElement
-    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 80) {
-      moments.load(true).catch(() => {})
-    }
+    if (feedScrollRaf) return
+    feedScrollRaf = requestAnimationFrame(() => {
+      feedScrollRaf = 0
+      const el = e.target as HTMLElement
+      if (el.scrollTop + el.clientHeight >= el.scrollHeight - 80) {
+        moments.load(true).catch(() => {})
+      }
+    })
   }
+  onBeforeUnmount(() => {
+    if (feedScrollRaf) cancelAnimationFrame(feedScrollRaf)
+  })
 
   function openPreview (url: string) {
     previewUrl.value = url

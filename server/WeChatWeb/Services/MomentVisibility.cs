@@ -15,7 +15,10 @@ namespace WeChatWeb.Services;
 /// </summary>
 public static class MomentVisibility
 {
-    private const int StrangerWindow = 10;
+    /// <summary>陌生人可见的公开动态窗口大小（Timeline 预聚合路径复用同一常量）。</summary>
+    public const int StrangerWindowSize = 10;
+
+    private const int StrangerWindow = StrangerWindowSize;
 
     public static bool IsVisible (DataStore store, Models.Moment m, string me)
     {
