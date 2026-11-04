@@ -663,20 +663,26 @@ html.wx-low-perf body.wx-has-user-bg::after {
 
 /* 2b) 各表面层按 alpha 透明化（top bar / 列表分组 / 卡片 / 详情面板）。
       用 rgba 叠色而非改 Vuetify 变量：不破坏暗色主题计算。 */
+/* Chrome < 111（旧 WebView）不认 color-mix：先给 rgba + calc alpha 的等价回退，
+   再写 color-mix —— 支持的浏览器后者覆盖前者，不支持的用前者，半透明不整条丢失。 */
 .wx-pane-header,
 .wx-chat-bar {
+  background: rgba(237, 237, 237, calc(var(--wx-alpha, 100) * 0.01)) !important;
   background: color-mix(in srgb, #ededed calc(var(--wx-alpha) * 1%), transparent) !important;
 }
 .v-theme--dark .wx-pane-header,
 .v-theme--dark .wx-chat-bar {
+  background: rgba(43, 43, 43, calc(var(--wx-alpha, 100) * 0.01)) !important;
   background: color-mix(in srgb, #2b2b2b calc(var(--wx-alpha) * 1%), transparent) !important;
 }
 .wx-settings-group,
 .wx-profile-card {
+  background-color: rgba(255, 255, 255, calc(var(--wx-alpha, 100) * 0.01));
   background-color: color-mix(in srgb, #ffffff calc(var(--wx-alpha) * 1%), transparent);
 }
 .v-theme--dark .wx-settings-group,
 .v-theme--dark .wx-profile-card {
+  background-color: rgba(28, 29, 32, calc(var(--wx-alpha, 100) * 0.01));
   background-color: color-mix(in srgb, #1c1d20 calc(var(--wx-alpha) * 1%), transparent);
 }
 

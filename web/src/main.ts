@@ -15,7 +15,6 @@ import { installHooks, mark as logMark } from '@/lib/clientlog'
 // 首屏即设置 <html lang>（language store 模块副作用，按 localStorage/navigator 自动识别），避免语言闪烁
 import '@/stores/language'
 import 'unfonts.css'
-import '@puzzle-style'
 import '@/styles/wechat.scss'
 
 // 客户端日志采集：最早就 hook console + 全局错误（开发者模式面板 / 问题反馈都依赖它）
@@ -25,9 +24,14 @@ try {
   const app = createApp(App)
   registerPlugins(app)
 
-  // 主题：先写入 CSS 变量，避免首屏闪烁成默认绿
+  // 主题 + 低端设备自适应：两个小模块并行取（串行动态 import 在高 RTT 手机上多一跳瀑布）。
+  // 都在挂载前写入 <html> 属性，避免首屏闪烁（主题变量 / .wx-low-perf 关磨砂与动效）。
+  const [themeMod, perfMod] = await Promise.all([
+    import('@/lib/theme').catch(() => null),
+    import('@/lib/perf').catch(() => null),
+  ])
   try {
-    const { currentPreset, getThemeId, resolveDark } = await import('@/lib/theme')
+    const { currentPreset, getThemeId, resolveDark } = themeMod!
     const p = currentPreset()
     const root = document.documentElement
     root.style.setProperty('--dm-primary', p.primary)
@@ -38,11 +42,8 @@ try {
     root.dataset.dmMode = resolveDark() ? 'dark' : 'light'
   } catch { /* 主题失败不影响启动 */ }
 
-  // 低端设备自适应（手机 / 平板 / 旧电脑）：在挂载前写入 <html> 的 data-wx-perf + .wx-low-perf，
-  // 让 CSS 一帧就接管（关 backdrop-filter 磨砂、登录页动波纹/3D），避免首屏闪烁。见 lib/perf.ts。
   try {
-    const { applyPerf } = await import('@/lib/perf')
-    applyPerf()
+    perfMod?.applyPerf()
   } catch { /* 忽略 */ }
 
   app.mount('#app')

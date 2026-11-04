@@ -159,6 +159,7 @@
   import { api } from '@/lib/api'
   import { isPageMode } from '@/lib/device'
   import { fileUrl } from '@/lib/files'
+  import { compressImage } from '@/lib/imgCompress'
   import { t } from '@/lib/i18n'
   import { useAuthStore } from '@/stores/auth'
   import { useMomentsStore } from '@/stores/moments'
@@ -293,12 +294,14 @@
     uploading.value = true
     try {
       for (const file of Array.from(input.files ?? [])) {
-        if (file.size > 20 * 1024 * 1024) {
+        // 朋友圈图先本地压缩（长边 1600）：原图上传/解码对老手机不友好；压完再检 20MB
+        const img = await compressImage(file)
+        if (img.size > 20 * 1024 * 1024) {
           showError(t('moments.img.tooBig', { name: file.name }))
           continue
         }
         const form = new FormData()
-        form.append('file', file)
+        form.append('file', img)
         form.append('kind', 'image')
         const res = await api.post('/files/upload', form, { headers: { 'Content-Type': 'multipart/form-data' } })
         const signed = await fileUrl(res.data.id)

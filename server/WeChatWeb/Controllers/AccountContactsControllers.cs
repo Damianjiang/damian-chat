@@ -255,6 +255,7 @@ public class UsersController : ControllerBase
     internal static PublicUserDto PublicProfile (Models.User u, bool isFriend)
     {
         bool Allow(string key) => isFriend && (!u.Privacy.TryGetValue(key, out var v) || v);
+        // 个性签名此前无条件下发：「个性签名对他人可见」开关只在设置页存了值，服务端从不校验
         return new PublicUserDto
         {
             Id = u.Id,
@@ -262,7 +263,8 @@ public class UsersController : ControllerBase
             Avatar = u.Avatar,
             Phone = Allow("phone") ? u.Phone : null,
             WxId = Allow("wxId") ? u.WxId : null,
-            Signature = u.Signature,
+            Signature = (isFriend || !u.Privacy.TryGetValue("signatureVisible", out var sv) || sv)
+                ? u.Signature : "",
             Region = u.Region,
             Gender = u.Gender,
         };
@@ -456,23 +458,32 @@ public class ContactsController : ControllerBase
         {
             var phone = (req.Phone ?? "").Trim();
             var wxId = (req.WxId ?? "").Trim();
+            // 隐私开关默认都开（字典缺键 = 允许）。
             // 搜索隐私（微信「添加我的方式」）：
+            //  · searchable 总开关（「允许通过账号/大面号搜索到我」）此前从未被服务端
+            //    读取 —— 关了照样能搜到，形同虚设。现在总闸关 = 任何输入搜索都搜不到；
             //  · 随机生成的大面号（WxIdCustom=false）搜不到 —— 与微信随机 wxid 一致，防批量加人；
             //  · 自定义大面号可搜，但对方可关（privacy.searchByWxId，默认开）；
             //  · 手机号搜索对方可关（privacy.searchByPhone，默认开）。
+            bool PrivacyOn (User u, string key) => !u.Privacy.TryGetValue(key, out var v) || v;
+            bool Searchable (User u, string key) => PrivacyOn(u, "searchable") && PrivacyOn(u, key);
             if (!string.IsNullOrEmpty(req.UserId))
             {
-                target = _store.Users.Values.FirstOrDefault(u => u.Id == req.UserId);
+                // 凭用户 Id 加人（资料卡/朋友圈作者信息等入口）：不是「搜索」，但对方把
+                // 全部添加方式都关掉时同样不放行 —— 否则隐私开关对 Id 通道形同虚设
+                var t = _store.Users.Values.FirstOrDefault(u => u.Id == req.UserId);
+                if (t != null && !PrivacyOn(t, "searchable")
+                    && !PrivacyOn(t, "searchByPhone") && !PrivacyOn(t, "searchByWxId"))
+                    t = null;
+                target = t;
             }
             else
             {
-                bool Searchable (User u, string key)
-                    => !u.Privacy.TryGetValue(key, out var v) || v;
                 // 手机号只在标准 11 位输入时参与匹配：直接注册的账号名存在 Phone 字段，
                 // 若按账号名（看起来像"名字"）也能搜到人，既不符合"按大面号加好友"的预期，
                 // 又会在账号名撞上别人大面号时搜错对象（重复/张冠李戴）。
                 // 搜索语义：输入 = 对方的大面号 或 注册账号（直接注册用户两者相同）；
-                // 11 位数字则同时可命中手机号。受对方「添加我的方式」隐私开关约束。
+                // 11 位数字则同时可命中手机号。受「可被搜索」总开关 + 分方式开关双重约束。
                 // （随机大面号 WxIdCustom=false 的邮箱注册用户永远搜不到 —— 防批量加人）
                 var isPhoneQuery = System.Text.RegularExpressions.Regex.IsMatch(phone, @"^1[3-9]\d{9}$");
                 var isAccountQuery = Validate.IsAccount(phone);

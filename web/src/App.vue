@@ -40,7 +40,6 @@
   import BrowserGate from '@/components/BrowserGate.vue'
   import { confirmState, resolveConfirm } from '@/lib/confirm'
   import { clearTokens, getAccessToken } from '@/lib/api'
-  import { initRealtime } from '@/lib/realtime'
   import { watchSystemTheme } from '@/lib/theme'
   import { useAuthStore } from '@/stores/auth'
   import { useContactsStore } from '@/stores/contacts'
@@ -81,7 +80,11 @@
     // 登录/刷新后自动拉取服务端「最近 1 周」聊天记录，灌入浏览器缓存（IDB），
     // 之后可离线查看 + 打开会话秒开；并发受 pullRecentHistoryIntoCache 内部限流。
     void conversations.pullRecentHistoryIntoCache().catch(() => {})
-    initRealtime()
+    // 动态取实时通道模块：SignalR（55KB）不该在登录页就解析——刷新恢复场景走到这里才需要
+    try {
+      const { initRealtime } = await import('@/lib/realtime')
+      initRealtime()
+    } catch (e) { console.warn('[realtime] 初始化失败', e) }
     if (router.currentRoute.value.name === 'login') await router.push({ name: 'chat' })
   }
 

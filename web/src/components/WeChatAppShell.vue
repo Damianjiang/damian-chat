@@ -122,29 +122,43 @@
 </template>
 
 <script setup lang="ts">
-  import { computed, ref, watch } from 'vue'
+  import { computed, defineAsyncComponent, ref, watch } from 'vue'
   import { useRoute, useRouter } from 'vue-router'
 
   import { api } from '@/lib/api'
   import { layoutMode } from '@/lib/device'
   import { t } from '@/lib/i18n'
   import { useAuthStore } from '@/stores/auth'
-  import BlockedUsersPane from '@/views/panes/BlockedUsersPane.vue'
-  import ChatDetailPane from '@/views/panes/ChatDetailPane.vue'
-  import ChatListPane from '@/views/panes/ChatListPane.vue'
-  import ContactProfilePane from '@/views/panes/ContactProfilePane.vue'
-  import ContactsPane from '@/views/panes/ContactsPane.vue'
-  import DiscoveryPane from '@/views/panes/DiscoveryPane.vue'
-  import EmojiStorePane from '@/views/panes/EmojiStorePane.vue'
-  import FavoritesPane from '@/views/panes/FavoritesPane.vue'
-  import GroupPane from '@/views/panes/GroupPane.vue'
-  import MePane from '@/views/panes/MePane.vue'
-  import MomentDetailPane from '@/views/panes/MomentDetailPane.vue'
-  import MomentsPane from '@/views/panes/MomentsPane.vue'
-  import PersonalizePane from '@/views/panes/PersonalizePane.vue'
-  import ProfilePane from '@/views/panes/ProfilePane.vue'
-  import SearchPane from '@/views/panes/SearchPane.vue'
-  import SettingsPane from '@/views/panes/SettingsPane.vue'
+
+  /**
+   * 面板全部异步加载：此前 16 个 pane 静态打进 shell 主 chunk，登录后整包解析
+   * （连带 qrcode/jsqr 等 lib 一起进首屏）。拆开后随用随取——登录后先只拉聊天列表，
+   * 朋友圈/设置/扫码等进入对应页才取各自代码与依赖，老手机内存与解析开销大幅下降。
+   * chunk 加载失败由 router 里全局 vite:preloadError 自愈（整页刷新）兜底。
+   */
+  const pane = (load: () => Promise<any>) => defineAsyncComponent(load)
+
+  const sectionPanes: Record<string, any> = {
+    chat: pane(() => import('@/views/panes/ChatListPane.vue')),
+    contacts: pane(() => import('@/views/panes/ContactsPane.vue')),
+    moments: pane(() => import('@/views/panes/MomentsPane.vue')),
+    discovery: pane(() => import('@/views/panes/DiscoveryPane.vue')),
+    search: pane(() => import('@/views/panes/SearchPane.vue')),
+    me: pane(() => import('@/views/panes/MePane.vue')),
+  }
+
+  const detailPanes: Record<string, any> = {
+    chat: pane(() => import('@/views/panes/ChatDetailPane.vue')),
+    group: pane(() => import('@/views/panes/GroupPane.vue')),
+    contact: pane(() => import('@/views/panes/ContactProfilePane.vue')),
+    moments: pane(() => import('@/views/panes/MomentDetailPane.vue')),
+    settings: pane(() => import('@/views/panes/SettingsPane.vue')),
+    personalize: pane(() => import('@/views/panes/PersonalizePane.vue')),
+    blocked: pane(() => import('@/views/panes/BlockedUsersPane.vue')),
+    profile: pane(() => import('@/views/panes/ProfilePane.vue')),
+    emojis: pane(() => import('@/views/panes/EmojiStorePane.vue')),
+    favorites: pane(() => import('@/views/panes/FavoritesPane.vue')),
+  }
 
   const route = useRoute()
   const router = useRouter()
@@ -155,33 +169,11 @@
    */
   const mode = layoutMode
 
-  const sectionPanes: Record<string, any> = {
-    chat: ChatListPane,
-    contacts: ContactsPane,
-    moments: MomentsPane,
-    discovery: DiscoveryPane,
-    search: SearchPane,
-    me: MePane,
-  }
-
-  const detailPanes: Record<string, any> = {
-    chat: ChatDetailPane,
-    group: GroupPane,
-    contact: ContactProfilePane,
-    moments: MomentDetailPane,
-    settings: SettingsPane,
-    personalize: PersonalizePane,
-    blocked: BlockedUsersPane,
-    profile: ProfilePane,
-    emojis: EmojiStorePane,
-    favorites: FavoritesPane,
-  }
-
   const section = computed(() => (route.meta.section as string) ?? 'chat')
   const detail = computed(() => route.meta.detail as string | undefined)
   const hideBottom = computed(() => !!route.meta.hideBottom)
 
-  const sectionPane = computed(() => sectionPanes[section.value] ?? ChatListPane)
+  const sectionPane = computed(() => sectionPanes[section.value] ?? sectionPanes.chat)
   const detailPane = computed(() => (detail.value ? detailPanes[detail.value] : undefined))
   /** 手机整页切换的过渡 key：section + detail 任一变化即重放过渡 */
   const phoneKey = computed(() => `${section.value}:${detail.value ?? ''}`)

@@ -15,15 +15,9 @@ public class MomentsController : ControllerBase
 
     public MomentsController (DataStore store) => _store = store;
 
-    /// <summary>动态可见性：自己 / 公开 / 好友可见；private 仅自己。</summary>
-    private bool CanView (Moment m, string me)
-    {
-        if (m.AuthorId == me) return true;
-        if (m.Scope == "private") return false;
-        if (m.Scope == "friends")
-            return _store.Contacts.TryGetValue(me, out var mine) && mine.Any(c => c.OtherUserId == m.AuthorId);
-        return true;
-    }
+    /// <summary>动态可见性：自己 / 公开 / 好友可见；private 仅自己。
+    /// 公开动态额外受作者「允许陌生人查看十条朋友圈」约束（统一走 MomentVisibility）。</summary>
+    private bool CanView (Moment m, string me) => MomentVisibility.IsVisible(_store, m, me);
 
     /// <summary>作者只给公开字段（此前序列化整个 User，手机号会被朋友圈批量拖走）。
     /// 微信号（WxId）属隐私字段，须受「好友且对方允许」控制 —— 朋友圈作者信息里干脆不下发。</summary>

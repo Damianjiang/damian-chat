@@ -1,0 +1,24 @@
+name: Feature request / 功能建议
+description: 建议一个新功能或改进 / Suggest an idea
+labels: [ "enhancement" ]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / 想解决的问题
+      description: What do you want to achieve? / 你希望做到什么？目前哪里不方便？
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution / 期望的方案
+      description: How should it work (ideally like WeChat/QQ if applicable)? / 它应该怎么表现？（如适用，最好对齐微信/QQ 的行为）
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives / 其他备选
+    validations:
+      required: false

@@ -11,12 +11,12 @@ namespace WeChatWeb.Services;
 /// </summary>
 public sealed class CaptchaService
 {
-    private sealed record Entry (string Code, DateTime ExpiresAt);
+    private sealed record Entry (string Code, string Ip, DateTime ExpiresAt);
 
     private readonly Dictionary<string, Entry> _entries = new();
     private readonly object _lock = new();
 
-    public (string Id, string DataUrl) Generate ()
+    public (string Id, string DataUrl) Generate (string? clientIp)
     {
         const string chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
         Span<char> buf = stackalloc char[4];
@@ -28,13 +28,16 @@ public sealed class CaptchaService
         lock (_lock)
         {
             CleanupLocked();
-            _entries[id] = new Entry(code, DateTime.UtcNow.AddMinutes(5));
+            _entries[id] = new Entry(code, clientIp ?? "", DateTime.UtcNow.AddMinutes(5));
         }
         return (id, "data:image/png;base64," + Convert.ToBase64String(Render(code)));
     }
 
-    /// <summary>一次性验证：取出即删除，失败也作废，防止穷举重放。</summary>
-    public bool Verify (string? id, string? code)
+    /// <summary>一次性验证：取出即删除，失败也作废，防止穷举重放。
+    /// 校验请求须与签发同 IP —— 防「A 取图、B 远程提交」的打码平台分工模式
+    /// （滑块 pass token 同规则）。本服务不信任 X-Forwarded-For，反代后所有客户端
+    /// 同 IP 的部署形态本就不适用此校验。</summary>
+    public bool Verify (string? id, string? code, string? clientIp)
     {
         if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(code)) return false;
         lock (_lock)
@@ -42,6 +45,7 @@ public sealed class CaptchaService
             if (!_entries.TryGetValue(id, out var e)) return false;
             _entries.Remove(id);
             if (e.ExpiresAt < DateTime.UtcNow) return false;
+            if (!string.Equals(e.Ip, clientIp ?? "", StringComparison.Ordinal)) return false;
             return string.Equals(e.Code, code.Trim(), StringComparison.OrdinalIgnoreCase);
         }
     }

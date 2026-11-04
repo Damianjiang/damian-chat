@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.AspNetCore.RateLimiting;
 using System.Threading.RateLimiting;
 using Microsoft.IdentityModel.Tokens;
@@ -10,6 +11,14 @@ using WeChatWeb.Services;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
+// 响应压缩：此前 JS/CSS bundle 全裸传（登录页约 1.4 MB 文本资源，移动网络首屏主要开销）。
+// br/gzip 对文本类资源约砍 70-75%。只压文本 MIME：图片/音视频/woff2 本身已压缩，
+// 再压纯耗 CPU 无收益；text/event-stream（SignalR SSE 降级传输）不在列表内，不受影响。
+builder.Services.AddResponseCompression(o =>
+{
+    o.EnableForHttps = true;
+    o.MimeTypes = ResponseCompressionDefaults.MimeTypes.Concat(new[] { "image/svg+xml" });
+});
 // 说明：上传体积的硬上限由 Kestrel 的 MaxRequestBodySize（已在下方 ConfigureKestrel 设为 1GB）
 // 统一控制；.NET 8 没有独立的多部分表单 30MB 限制项，无需额外配置。
 builder.Services.AddEndpointsApiExplorer();
@@ -348,6 +357,9 @@ if (httpsEnabled)
 // 限流：必须在 UseRouting 之前、且 UseRateLimiter 必须真正挂上，
 // 否则 [EnableRateLimiting("captcha")] 之类的特性是死代码（曾导致验证码接口完全不限流）。
 app.UseRateLimiter();
+
+// 压缩中间件须早挂（包住控制器 + 静态文件）：只压响应体，不影响认证/限流逻辑
+app.UseResponseCompression();
 
 app.UseMiddleware<AuthRateLimitMiddleware>();
 app.UseAuthentication();

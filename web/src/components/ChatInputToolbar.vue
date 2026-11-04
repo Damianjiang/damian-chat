@@ -145,6 +145,7 @@
   import EmojiPanel from '@/components/EmojiPanel.vue'
   import { api } from '@/lib/api'
   import { markEmojiUsed } from '@/lib/emoji'
+  import { compressImage } from '@/lib/imgCompress'
   import { t } from '@/lib/i18n'
   import { avatarColor } from '@/lib/utils'
 
@@ -413,8 +414,11 @@
     // 安全不靠"拒收文件"，而靠"不内联渲染不可信内容 + 服务端 nosniff/attachment"。
     const isSafeImage = SAFE_IMAGE_EXTS.includes(extOf(file.name))
     const kind = isSafeImage ? 'image' : 'file'
+    // 位图图片先本地压缩（长边 1600 JPEG）：相机原图 3-8MB，气泡实际只显示 240px 宽，
+    // 全尺寸上传/解码是老手机又慢又卡的主因；压不出收益（动图/小图）就原样传。文件消息不压。
+    const upload = isSafeImage ? await compressImage(file) : file
     // 大小预检（与后端 1GB 上限对齐），超限直接提示，不上传白耗流量
-    if (file.size > MAX_UPLOAD) {
+    if (upload.size > MAX_UPLOAD) {
       const capLabel = MAX_UPLOAD >= 1024 * 1024 * 1024
         ? `${Math.floor(MAX_UPLOAD / 1024 / 1024 / 1024)}GB`
         : `${Math.floor(MAX_UPLOAD / 1024 / 1024)}MB`
@@ -423,7 +427,7 @@
       return
     }
     const form = new FormData()
-    form.append('file', file)
+    form.append('file', upload)
     form.append('kind', kind)
     uploading.value = true
     uploadPercent.value = 0

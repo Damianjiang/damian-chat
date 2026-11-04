@@ -132,8 +132,6 @@ export default defineConfig({
           if (id.includes('@mdi')) return 'mdi'
           if (id.includes('signalr')) return 'signalr'
           if (id.includes('qrcode') || id.includes('jsqr')) return 'qrcode'
-          if (id.includes('captcha')) return 'captcha'
-          if (id.includes('vue-sliding-puzzle')) return 'slider'
           return 'libs'
         },
       },
@@ -143,8 +141,6 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('src', import.meta.url)),
-      // 该包的 exports 未声明 CSS 子路径，这里直接指向 dist 里的样式文件
-      '@puzzle-style': fileURLToPath(new URL('node_modules/vue-sliding-puzzle/dist/main.css', import.meta.url)),
     },
     extensions: [
       '.js',

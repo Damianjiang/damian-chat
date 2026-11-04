@@ -594,6 +594,7 @@
   import { useRoute, useRouter } from 'vue-router'
   import { api } from '@/lib/api'
   import { fileUrl } from '@/lib/files'
+  import { compressImage } from '@/lib/imgCompress'
   import { t } from '@/lib/i18n'
   import { avatarColor } from '@/lib/utils'
   import { isPageMode } from '@/lib/device'
@@ -699,14 +700,16 @@
     if (file.size > 5 * 1024 * 1024) {
       snackMsg.value = t('group.avatar.tooBig'); snack.value = true; return
     }
+    // 头像显示极小：上传前压到长边 640，相机原图不再全尺寸入库/传输
+    const upload = await compressImage(file, 640)
     if (avatarObjectUrl) { URL.revokeObjectURL(avatarObjectUrl); avatarObjectUrl = '' }
-    avatarObjectUrl = URL.createObjectURL(file)
+    avatarObjectUrl = URL.createObjectURL(upload)
     avatarPreview.value = avatarObjectUrl
 
     avatarBusy.value = true
     try {
       const form = new FormData()
-      form.append('file', file)
+      form.append('file', upload)
       form.append('kind', 'avatar')
       const res = await api.post('/files/upload', form, {
         headers: { 'Content-Type': 'multipart/form-data' },

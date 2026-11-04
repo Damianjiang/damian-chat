@@ -432,16 +432,31 @@
   const nameMap = ref<Record<string, string>>({})
   const avatarMap = ref<Record<string, string>>({})
 
-  // 窗口化渲染：默认显示最近 60 条，「显示更早的消息」按 60 条增量向上拉取
+  // 窗口化渲染：默认显示最近 60 条，「显示更早的消息」按 60 条增量向上拉取。
+  // 渲染上限 RENDER_CAP（300）：此前无上限，长会话一路翻下去 DOM 里会堆两三千个
+  // 气泡子树（每条带头像 img/菜单/时间判断），低端机一帧 diff 就卡死。
+  // 到上限后继续向上翻 → 窗口整体上滑（顶部进更早 60 条、底部让出 60 条，DOM 恒 ≤ 上限）；
+  // 滚回窗口底部附近再逐步下滑补回最新消息；收到新消息时直接回贴尾模式。
+  const RENDER_CAP = 300
   const displayLimit = ref(60) // 窗口化：首屏 60 条，「更早」按 60 增量
+  /** 渲染窗口起点下标；-1 = 贴尾模式（始终渲染最新一段，未翻到上限前不走滑动） */
+  const winStart = ref(-1)
   const allMessages = computed<Message[]>(() => store.messagesByConv[convId.value] ?? [])
-  const visibleMessages = computed(() =>
-    allMessages.value.length > displayLimit.value
-      ? allMessages.value.slice(allMessages.value.length - displayLimit.value)
-      : allMessages.value)
+  const visibleMessages = computed(() => {
+    const all = allMessages.value
+    if (winStart.value < 0)
+      return all.length > displayLimit.value
+        ? all.slice(all.length - displayLimit.value)
+        : all
+    // 滑动窗口：[winStart, winStart + displayLimit)
+    const start = Math.max(0, winStart.value)
+    return all.slice(start, Math.min(all.length, start + displayLimit.value))
+  })
 
-  const hasMoreHistory = computed(() =>
-    allMessages.value.length > displayLimit.value || !!store.historyHasMore[convId.value])
+  const hasMoreHistory = computed(() => {
+    if (winStart.value > 0) return true   // 滑动窗口上方还有未渲染的存量
+    return allMessages.value.length > displayLimit.value || !!store.historyHasMore[convId.value]
+  })
 
   /**
    * 首屏加载中：一条消息都还没有、且（首次打开未完成 或 正在拉历史）→ 显示骨架。
@@ -462,15 +477,28 @@
     const beforeH = list?.scrollHeight ?? 0
     suppressScroll = true
     try {
-      if (store.historyHasMore[convId.value]) {
-        const oldestVisible = allMessages.value.length > displayLimit.value
-          ? allMessages.value[allMessages.value.length - displayLimit.value]
-          : allMessages.value[0]
+      const lenBefore = allMessages.value.length
+      const winBefore = winStart.value
+      // 窗口顶已到 store 开头（或贴尾存量不够一屏）、服务端还有更早的 → 先翻服务端页（前插进 store）
+      if (store.historyHasMore[convId.value]
+        && (winBefore <= 0 || allMessages.value.length <= displayLimit.value)) {
+        const oldestVisible = visibleMessages.value[0]
         // cap 放大到「可见窗口 + 本页余量」：否则内存 500 条封顶时，
         // 刚拉回来的更早消息会被 keep-newest 淘汰掉，翻页永远不刷新
         await store.loadHistory(convId.value, oldestVisible?.id, { cap: displayLimit.value + 90 })
       }
-      displayLimit.value += 60
+      const shifted = allMessages.value.length - lenBefore   // 服务端前插导致的下标位移量
+      if (winBefore < 0) {
+        // 贴尾窗口：先扩容（最多 RENDER_CAP）；到上限后切滑动窗口整体上移
+        if (allMessages.value.length > displayLimit.value && displayLimit.value < RENDER_CAP) {
+          displayLimit.value = Math.min(RENDER_CAP, displayLimit.value + 60)
+        } else {
+          winStart.value = Math.max(0, allMessages.value.length - displayLimit.value - 60)
+        }
+      } else {
+        // 滑动窗口：起点上移 60 条（若服务端刚前插过，先补位移再上移）
+        winStart.value = Math.max(0, winBefore + shifted - 60)
+      }
       await nextTick(() => {
         const el = listRef.value
         if (!el) return
@@ -484,6 +512,29 @@
       suppressScroll = false
       loadingEarlier.value = false
     }
+  }
+
+  /**
+   * 滑动窗口下滑一页：顶部丢 60 条、底部补 60 条，DOM 数量不涨。
+   * 窗口尾已触及最新消息 → 回贴尾模式。视口锚定：顶部变矮多少，scrollTop 补回多少。
+   */
+  async function slideWindowDown () {
+    const el = listRef.value
+    if (!el) {
+      winStart.value = -1
+      return
+    }
+    const beforeH = el.scrollHeight
+    const beforeTop = el.scrollTop
+    const all = allMessages.value
+    suppressScroll = true
+    const next = winStart.value + 60
+    winStart.value = next + displayLimit.value >= all.length ? -1 : next
+    await nextTick(() => {
+      const shrunk = beforeH - el.scrollHeight
+      el.scrollTop = Math.max(0, beforeTop - shrunk)
+    })
+    suppressScroll = false
   }
 
   /** 距离上一条消息超过 5 分钟才显示时间戳，避免每条都带时间很吵 */
@@ -548,6 +599,7 @@
       // 否则本地 IDB 里还留着旧消息，重开会话会被 idbGetMessages 回填 → "清空后又刷回来"。
       store.clearConversationLocal(convId.value)
       displayLimit.value = 60
+      winStart.value = -1
       clearDialog.value = false
       snackMsg.value = t('chat.clear.ok')
     } catch {
@@ -1033,18 +1085,29 @@
   const newCount = ref(0)
 
   function onMsgScroll () {
-    const el = listRef.value
-    if (!el) return
-    const distance = el.scrollHeight - el.scrollTop - el.clientHeight
-    atBottom.value = distance < 60
-    if (atBottom.value) newCount.value = 0
-    // 滚到顶部附近（< 140px）自动翻上一页历史：不再要求用户手动点「显示更早的消息」
-    if (el.scrollTop < 140 && hasMoreHistory.value && !firstLoading.value) {
-      void loadEarlier()
-    }
+    // rAF 合帧：scroll 事件每秒可触发上百次，逐次读 scrollHeight 会强制同步布局，
+    // 低端机上图片陆续加载高度抖动时尤其致命；合到一帧只量一次
+    if (scrollRaf) return
+    scrollRaf = requestAnimationFrame(() => {
+      scrollRaf = 0
+      const el = listRef.value
+      if (!el || suppressScroll) return
+      const distance = el.scrollHeight - el.scrollTop - el.clientHeight
+      atBottom.value = distance < 60
+      if (atBottom.value) newCount.value = 0
+      // 滑动窗口回补：滚到窗口底部附近 → 下滑一页补回更新的消息（DOM 不涨），
+      // 补到窗口尾触及最新消息后自动回贴尾模式，行为与普通聊天一致
+      if (distance < 60 && winStart.value > 0) void slideWindowDown()
+      // 滚到顶部附近（< 140px）自动翻上一页历史：不再要求用户手动点「显示更早的消息」
+      if (el.scrollTop < 140 && hasMoreHistory.value && !firstLoading.value) {
+        void loadEarlier()
+      }
+    })
   }
 
   function jumpToNew () {
+    // 滑动窗口里「窗口底」之下可能还有未渲染的最新消息：先回贴尾模式再滚
+    if (winStart.value !== -1) winStart.value = -1
     scrollBottom()
   }
 
@@ -1055,6 +1118,8 @@
   }
 
   let suppressScroll = false
+  /** scroll 事件的 rAF 合帧句柄（0 = 当前无挂起回调） */
+  let scrollRaf = 0
   /** 上一次「长度|最后一条id」签名：字符串原始值，拿旧值比对，避免每次新对象触发空跑 */
   const lastSignatureRef = ref<string | null>(null)
   watch(() => {
@@ -1085,6 +1150,9 @@
       const el = listRef.value
       if (!el) return
       if (atBottom.value) {
+        // 滑动窗口里「窗口底」不是真底：新消息直接回贴尾模式再跟随，
+        // 否则新消息落在窗口外，用户看着"已到底"却收不到
+        if (winStart.value !== -1) winStart.value = -1
         scrollBottom() // 贴着底部：跟随新消息（平滑推上来）
       } else {
         newCount.value += delta // 正在看历史：只提示，不抢滚动
@@ -1113,6 +1181,7 @@
     noticeConfirmedMe.value = false
     noticeDialog.value = false
     displayLimit.value = 60
+    winStart.value = -1
     group.value = null
     initializing.value = true
     searchOn.value = route.query.search === '1'
@@ -1189,6 +1258,10 @@
   }
 
   onBeforeUnmount(() => {
+    if (scrollRaf) {
+      cancelAnimationFrame(scrollRaf)
+      scrollRaf = 0
+    }
     listRef.value?.removeEventListener('load', onMediaLoad, true)
     document.removeEventListener('visibilitychange', onTabVisible)
     window.removeEventListener('focus', onWinFocus)

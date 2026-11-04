@@ -1,0 +1,53 @@
+name: Bug report / 问题反馈
+description: 报告一个可以复现的问题 / Report something that works incorrectly
+labels: [ "bug" ]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug. / 感谢反馈，请尽量填写完整，便于定位。
+        **Never post passwords, tokens, or `admin.key` / 请勿贴出密码、令牌或 admin.key。**
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened? / 发生了什么
+      description: Expected vs actual behavior. / 期望的表现 vs 实际的表现
+      placeholder: A clear description... / 清楚地描述一下
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce / 复现步骤
+      placeholder: |
+        1. Open ... / 打开...
+        2. Click ... / 点击...
+        3. See error / 出现错误
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version / 版本号
+      description: The badge on the login page, or Settings → About. / 登录页徽标或 设置 → 关于
+      placeholder: e.g. v1.5.7
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform / 平台
+      options:
+        - "Android (WebView / browser) / 安卓"
+        - "iOS / iPhone"
+        - "Windows / macOS / Linux desktop browser / 桌面浏览器"
+        - "Server deployment / 服务端部署问题"
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Console / log output / 控制台或日志
+      description: Browser console output or server logs, if any. 截图或文本均可（隐去敏感信息）
+    validations:
+      required: false

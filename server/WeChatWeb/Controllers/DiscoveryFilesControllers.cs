@@ -14,15 +14,8 @@ public class DiscoveryController : ControllerBase
     private readonly LogService _log;
     private readonly FeedbackStore _feedback;
 
-    /// <summary>朋友圈可见性（与 MomentsController.CanView 同语义）：自己/公开/好友可见。</summary>
-    private bool MomentVisibleTo (Models.Moment m, string me)
-    {
-        if (m.AuthorId == me) return true;
-        if (m.Scope == "private") return false;
-        if (m.Scope == "friends")
-            return _store.Contacts.TryGetValue(me, out var mine) && mine.Any(c => c.OtherUserId == m.AuthorId);
-        return true;
-    }
+    /// <summary>朋友圈可见性：统一走 MomentVisibility（含「陌生人十条」开关强制）。</summary>
+    private bool MomentVisibleTo (Models.Moment m, string me) => MomentVisibility.IsVisible(_store, m, me);
 
     public DiscoveryController(DataStore store, LogService log, FeedbackStore feedback)
     {
@@ -113,15 +106,9 @@ public class DiscoveryController : ControllerBase
 [Authorize] // 文件读写一律要求登录：此前匿名可凭 id 下载任意人的文件
 public class FilesController : ControllerBase
 {
-    /// <summary>朋友圈可见性（与 MomentsController.CanView 同语义）：自己/公开/好友可见。</summary>
-    private bool MomentVisibleTo (Models.Moment m, string me)
-    {
-        if (m.AuthorId == me) return true;
-        if (m.Scope == "private") return false;
-        if (m.Scope == "friends")
-            return _store.Contacts.TryGetValue(me, out var mine) && mine.Any(c => c.OtherUserId == m.AuthorId);
-        return true;
-    }
+    /// <summary>朋友圈可见性：统一走 MomentVisibility（含「陌生人十条」开关强制）。</summary>
+    private bool MomentVisibleTo (Models.Moment m, string me) => MomentVisibility.IsVisible(_store, m, me);
+
     private readonly DataStore _store;
     private readonly WeChatWeb.Services.FileStore _files;
     private readonly SensitiveWordService _sw;

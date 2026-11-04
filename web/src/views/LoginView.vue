@@ -327,7 +327,6 @@
   import LoginRippleBg from '@/components/LoginRippleBg.vue'
   import { api } from '@/lib/api'
   import { t } from '@/lib/i18n'
-  import { initRealtime } from '@/lib/realtime'
   import { resolveDark } from '@/lib/theme'
   import { getFx } from '@/lib/personalize'
   import { isLowPerf } from '@/lib/perf'
@@ -725,7 +724,11 @@
   async function enterApp () {
     await Promise.allSettled([conversations.loadSessions(), contacts.load(), contacts.loadRequests()])
     void conversations.pullRecentHistoryIntoCache().catch(() => {})
-    initRealtime()
+    // 动态取实时通道模块：SignalR（55KB）解析成本留给真正要连的时候，登录页不背
+    try {
+      const { initRealtime } = await import('@/lib/realtime')
+      initRealtime()
+    } catch (e) { console.warn('[realtime] 初始化失败', e) }
     const redirect = route.query.redirect
     const target = typeof redirect === 'string' && redirect.startsWith('/') && !redirect.startsWith('//')
       ? redirect
@@ -898,6 +901,8 @@ html[data-dm-mode='dark'] .wx-ms-brand-sub,
 .wx-login-card :deep(.v-field .v-label) { font-size: 12px; color: rgba(0, 0, 0, 0.6); }
 .wx-login-card :deep(.v-field--focused) {
   border-color: rgb(var(--v-theme-primary));
+  /* Chrome < 111 无 color-mix：rgba 回退（--v-theme-primary 是 "r, g, b" 三元组） */
+  box-shadow: 0 0 0 2px rgba(var(--v-theme-primary), 0.2);
   box-shadow: 0 0 0 2px color-mix(in srgb, rgb(var(--v-theme-primary)) 20%, transparent);
 }
 html[data-dm-mode='dark'] .wx-login-card :deep(.v-field),

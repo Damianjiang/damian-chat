@@ -80,7 +80,7 @@ public sealed class SecuritySettings
     /// 既往版本文档/代码里出现过的注册密钥（等同公开）。启动时检测到一律自动轮换，
     /// 防止部署到互联网后攻击者按文档默认值直接注册。
     /// </summary>
-    private static readonly string[] KnownCompromisedKeys = { "newregpass888", "wx2026" };
+    private static readonly string[] KnownCompromisedKeys = { "newregpass888", "wx2026", "damian123" };
 
     public static SecuritySettings Load ()
     {

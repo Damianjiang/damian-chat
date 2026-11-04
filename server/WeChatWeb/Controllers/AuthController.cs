@@ -110,7 +110,7 @@ public class AuthController : ControllerBase
     [HttpGet("captcha")]
     public IActionResult GetCaptcha ()
     {
-        var (id, dataUrl) = _captcha.Generate();
+        var (id, dataUrl) = _captcha.Generate(Ip);
         return Ok(new { captchaId = id, image = dataUrl });
     }
 
@@ -131,7 +131,7 @@ public class AuthController : ControllerBase
     {
         // 不看注册开关：已注册用户「绑定邮箱」也走本接口；滥用由验证码+节流兜底
         // 图形验证码（若开启）：挡脚本批量发信
-        if (_sec.EnableCaptcha && !_captcha.Verify(req.CaptchaId, req.Captcha))
+        if (_sec.EnableCaptcha && !_captcha.Verify(req.CaptchaId, req.Captcha, Ip))
             return BadRequest(new { error = "图形验证码错误或已过期，请刷新重试" });
         var err = _emailCode.Send(req.Email, Ip, "register");
         if (err != null)
@@ -152,9 +152,11 @@ public class AuthController : ControllerBase
         if (blocked != null) return StatusCode(StatusCodes.Status429TooManyRequests, new { error = blocked });
 
         // 双重人机验证 ①：图形验证码（原有逻辑，保留）
-        if (_sec.EnableCaptcha && !_captcha.Verify(req.CaptchaId, req.Captcha))
+        if (_sec.EnableCaptcha && !_captcha.Verify(req.CaptchaId, req.Captcha, Ip))
         {
-            _guard.RecordFailure(Ip, account, _sec);
+            // 验证码错 ≠ 密码错：不能把失败记到「账号」上，否则任何人不用密码
+            // 就能连环触发对受害者的账号锁定（Register 分支同款修复，见下）
+            _guard.RecordFailure(Ip, "", _sec);
             _log.Write("auth", new { ts = DateTime.UtcNow, result = "captcha-fail", account, ip = Ip, ua = Ua });
             return BadRequest(new { error = "图形验证码错误或已过期，请刷新重试" });
         }
@@ -163,7 +165,8 @@ public class AuthController : ControllerBase
         // 管理端可关（EnableSlider）：关闭后不再要求 passToken（图形验证码仍在）。
         if (_sec.EnableSlider && !_slider.ConsumePass(req.PassToken, Ip))
         {
-            _guard.RecordFailure(Ip, account, _sec);
+            // 同上：没过滑块说明还没走到「猜密码」那一步，只计 IP 不记账号
+            _guard.RecordFailure(Ip, "", _sec);
             _log.Write("auth", new { ts = DateTime.UtcNow, result = "slider-missing", account, ip = Ip, ua = Ua });
             return BadRequest(new { error = "请先完成滑块验证" });
         }
@@ -233,7 +236,7 @@ public class AuthController : ControllerBase
             return StatusCode(StatusCodes.Status403Forbidden, new { error = "注册未开放，请联系管理员获取注册密钥" });
 
         // 双重人机验证 ①：图形验证码（原有逻辑，保留）
-        if (_sec.EnableCaptcha && !_captcha.Verify(req.CaptchaId, req.Captcha))
+        if (_sec.EnableCaptcha && !_captcha.Verify(req.CaptchaId, req.Captcha, Ip))
         {
             // 人机验证失败只计 IP：把攻击者的失败记到「账号」上会让任何人恶意锁死受害者登录
             _guard.RecordFailure(Ip, "", _sec);

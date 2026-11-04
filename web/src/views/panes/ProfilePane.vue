@@ -293,6 +293,7 @@
   import { isPageMode } from '@/lib/device'
   import { useSmartBack } from '@/lib/nav'
   import { fileUrl } from '@/lib/files'
+  import { compressImage } from '@/lib/imgCompress'
   import { avatarColor } from '@/lib/utils'
   import { useAuthStore } from '@/stores/auth'
 
@@ -386,17 +387,19 @@
       return
     }
 
+    // 头像显示极小（≤72px）：上传前压到长边 640，相机原图不再全尺寸入库/传输
+    const upload = await compressImage(file, 640)
     // 先清理上一份预览
     if (avatarObjectUrl) {
       URL.revokeObjectURL(avatarObjectUrl); avatarObjectUrl = ''
     }
-    avatarObjectUrl = URL.createObjectURL(file)
+    avatarObjectUrl = URL.createObjectURL(upload)
     avatarPreview.value = avatarObjectUrl
 
     avatarBusy.value = true
     try {
       const form = new FormData()
-      form.append('file', file)
+      form.append('file', upload)
       form.append('kind', 'avatar')
       const res = await api.post('/files/upload', form, {
         headers: { 'Content-Type': 'multipart/form-data' },
