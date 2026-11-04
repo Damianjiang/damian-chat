@@ -205,11 +205,25 @@ public sealed class FileStore
                     // 存储配额：单用户 + 全站两道闸（此前上传字节完全不计入防火墙，
                     // 单账号可每分钟灌数百 GB 直到磁盘写满、整站瘫痪）。去重命中
                     // 不占新空间，已在上面的复用分支提前返回，不会走到这里。
-                    long userUsed = 0, totalUsed = 0;
+                    // 全站口径按「唯一内容（Hash）」计：同一份字节被 N 个人引用时
+                    // 磁盘上只有一份，按条目累加会把配额虚报 N 倍。Hash 为空的异常
+                    // 条目退回按 Id 计（宁可高估不可低估）。
+                    long totalUsed = 0;
+                    var seenContent = new System.Collections.Generic.HashSet<string>(StringComparer.Ordinal);
                     foreach (var f in _data.Files.Values)
                     {
+                        var key = string.IsNullOrEmpty(f.Hash) ? f.Id : f.Hash;
+                        if (!seenContent.Add(key)) continue;
                         totalUsed += f.Size;
-                        if (f.UploaderId == uploaderId) userUsed += f.Size;
+                    }
+                    long userUsed = 0;
+                    var userContent = new System.Collections.Generic.HashSet<string>(StringComparer.Ordinal);
+                    foreach (var f in _data.Files.Values)
+                    {
+                        if (f.UploaderId != uploaderId) continue;
+                        var key = string.IsNullOrEmpty(f.Hash) ? f.Id : f.Hash;
+                        if (!userContent.Add(key)) continue;
+                        userUsed += f.Size;
                     }
                     if (totalUsed + meta.Size > Config.MaxTotalBytes || userUsed + meta.Size > Config.MaxUserBytes)
                     {

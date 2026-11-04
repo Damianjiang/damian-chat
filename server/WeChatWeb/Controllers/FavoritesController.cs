@@ -72,11 +72,10 @@ public class FavoritesController : ControllerBase
             {
                 var mom = _store.Moments.FirstOrDefault(m => m.Id == req.TargetId);
                 if (mom == null) return NotFound();
-                // 可见性：private 仅自己、friends 仅好友（防止收藏不可见内容后长期留存）
-                if (mom.Scope == "private" && mom.AuthorId != me) return NotFound();
-                if (mom.Scope == "friends"
-                    && (!_store.Contacts.TryGetValue(me, out var mine) || !mine.Any(c => c.OtherUserId == mom.AuthorId)))
-                    return NotFound();
+                // 可见性与朋友圈主链路同规（MomentVisibility）：此前这里自写了一份
+                // 只有 private/friends 的简化版，漏了「陌生人十条」开关 —— 陌生人可以
+                // 收藏一条自己永远不可见的公开动态，长期留存服务端
+                if (!MomentVisibility.IsVisible(_store, mom, me)) return NotFound();
             }
 
             _store.Favorites.Add(new Favorite

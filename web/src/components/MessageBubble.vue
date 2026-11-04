@@ -211,6 +211,7 @@
   import { downloadFile as downloadFileById, fileUrl } from '@/lib/files'
   import { t } from '@/lib/i18n'
   import { avatarColor, formatFileSize, timeLabel } from '@/lib/utils'
+  import { mediaKindOf } from '@/lib/media'
   import ContextMenu from '@/components/ContextMenu.vue'
   import PollCard from '@/components/PollCard.vue'
 
@@ -301,21 +302,13 @@
   })
   const mediaFile = computed(() => {
     if (props.message.type !== 'file') return false
-    const video = ['mp4', 'webm', 'mov', 'm4v', 'mkv', 'avi', '3gp', 'flv', 'ogv']
-    const audio = ['mp3', 'm4a', 'webm', 'ogg', 'wav', 'aac', 'flac']
-    const f = extName.value
-    if (video.includes(f)) {
-      return true
-    }
-    if (audio.includes(f) && f !== 'webm') {
-      return true
-    }
-    return false
+    // 扩展名清单统一在 lib/media.ts（此前这里与 ChatDetailPane 各抄一份且已漂移）
+    const kind = mediaKindOf(props.message.fileName)
+    return kind === 'video' || kind === 'audio'
   })
   const mediaIcon = computed(() => {
     if (!mediaFile.value) return 'mdi-file-document-outline'
-    if (['mp4', 'webm', 'mov', 'm4v', 'mkv', 'avi', '3gp', 'flv', 'ogv'].includes(extName.value)) return 'mdi-video'
-    return 'mdi-music'
+    return mediaKindOf(props.message.fileName) === 'video' ? 'mdi-video' : 'mdi-music'
   })
 
   const src = ref('')

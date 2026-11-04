@@ -9,6 +9,7 @@ import { idbClearMedia, idbClearMessages } from '@/lib/idb'
 import { useContactsStore } from '@/stores/contacts'
 import { useConversationsStore } from '@/stores/conversations'
 import { useMomentsStore } from '@/stores/moments'
+import { usePollsStore } from '@/stores/polls'
 
 export interface AuthPayload {
   accessToken: string
@@ -57,6 +58,26 @@ export const useAuthStore = defineStore('auth', {
       return res.data as User
     },
 
+    /**
+     * 清空本地业务数据（logout 与换号护栏共用的同一套清理，此前两处各抄一份
+     * 且都漏了 polls store —— 账号 B 会继承账号 A 的群投票快照）。
+     * 同时清 IDB 消息缓存与模块级防抖定时器（$reset 只清内存 store，
+     * 400ms 内的遗留 IDB 写可能把上一个账号的消息写进新会话缓存）。
+     */
+    async clearLocalAccountData () {
+      useConversationsStore().$reset()
+      try {
+        (await import('@/stores/conversations')).clearConversationCache()
+      } catch { /* 模块未加载则忽略 */ }
+      useContactsStore().$reset()
+      useMomentsStore().$reset()
+      usePollsStore().$reset()
+      // 浏览器缓存（IDB 聊天记录 + 媒体 blob）一并清除：
+      // 防止同浏览器换账号后看到上一账号缓存的消息 / 文件内容
+      void idbClearMessages().catch(() => {})
+      void clearMediaCache().catch(() => {})
+    },
+
     /** 退出：断开实时连接 + 吊销 refresh token + 清本地 */
     async logout () {
       // 动态 import 避免与 realtime.ts 的循环依赖
@@ -70,19 +91,7 @@ export const useAuthStore = defineStore('auth', {
       } catch { /* 网络失败也继续本地登出 */ }
       clearTokens()
       this.user = null
-      // 清空本地业务数据：换账号登录不得看到上一个账号的会话/联系人/朋友圈残留。
-      // 同时清 IDB 消息缓存与模块级防抖定时器（$reset 只清内存 store，
-      // 400ms 内的遗留 IDB 写可能把上一个账号的消息写进新会话缓存）
-      useConversationsStore().$reset()
-      try {
-        (await import('@/stores/conversations')).clearConversationCache()
-      } catch { /* 模块未加载则忽略 */ }
-      useContactsStore().$reset()
-      useMomentsStore().$reset()
-      // 浏览器缓存（IDB 聊天记录 + 媒体 blob）也随登出清除：
-      // 防止同浏览器换账号后看到上一账号缓存的消息 / 文件内容
-      void idbClearMessages().catch(() => {})
-      void clearMediaCache().catch(() => {})
+      await this.clearLocalAccountData()
     },
 
     /**
@@ -96,14 +105,7 @@ export const useAuthStore = defineStore('auth', {
       try { last = localStorage.getItem('wx_last_uid') ?? '' } catch { /* 忽略 */ }
       try { localStorage.setItem('wx_last_uid', userId) } catch { /* 忽略 */ }
       if (!last || last === userId) return
-      useConversationsStore().$reset()
-      try {
-        (await import('@/stores/conversations')).clearConversationCache()
-      } catch { /* 模块未加载则忽略 */ }
-      useContactsStore().$reset()
-      useMomentsStore().$reset()
-      void idbClearMessages().catch(() => {})
-      void clearMediaCache().catch(() => {})
+      await this.clearLocalAccountData()
     },
   },
 })

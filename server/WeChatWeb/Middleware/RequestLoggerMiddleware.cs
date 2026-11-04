@@ -30,8 +30,11 @@ public sealed class RequestLoggerMiddleware
         // ★ 高频轮询端点不入请求日志：GUI 管理端每隔几秒就 GET /api/admin/online
         //   刷新在线用户数；本地 IP 一直刷 → requests.jsonl 无限膨胀。
         //   这些端点没有"审计价值"（只读计数），跳过即可。
+        //   收窄：只跳 GET 轮询 —— 管理端的写操作（删用户/改安全配置）必须留
+        //   请求级审计（IP/耗时/状态码），此前整个 /api/admin/* 都不落日志。
         var path = context.Request.Path.Value ?? "";
-        if (IsHighFrequency(path))
+        var isGet = HttpMethods.IsGet(context.Request.Method);
+        if (isGet && IsHighFrequency(path))
         {
             await _next(context);
             return;

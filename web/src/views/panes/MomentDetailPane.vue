@@ -145,21 +145,29 @@
     router.push({ name: 'moments' })
   }
 
-  /** 深链兜底：列表里找不到就单独拉取这一条（GET /moments/{id}） */
+  /** 深链兜底：列表里找不到就单独拉取这一条（GET /moments/{id}）。
+   *  带切换令牌：pane 不按 id 重挂载，快速 A→B 时慢响应会把 A 的动态/错误态
+   *  写进 B 的页面（与 ChatDetailPane convSwitchSeq 同款）。 */
+  let loadSeq = 0
   async function ensureLoaded () {
-    if (moment.value || notFound.value) return
+    const seq = ++loadSeq
+    const mid = momentId.value
+    if (!mid) return
     try {
-      await moments.fetchOne(momentId.value)
+      await moments.fetchOne(mid)
+      if (seq !== loadSeq || mid !== momentId.value) return
+      notFound.value = false
     } catch {
+      if (seq !== loadSeq || mid !== momentId.value) return
       notFound.value = true
     }
   }
 
   watch(momentId, () => {
     notFound.value = false
-    ensureLoaded()
+    void ensureLoaded()
   })
-  onMounted(ensureLoaded)
+  onMounted(() => { void ensureLoaded() })
 </script>
 
 <style scoped>

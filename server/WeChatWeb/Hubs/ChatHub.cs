@@ -16,8 +16,10 @@ namespace WeChatWeb.Hubs;
 public sealed class ChatHub : Hub
 {
     private readonly DataStore _store;
-    /// <summary>SendTyping 服务端节流表：connectionId → 上次转发时间（Environment.TickCount64 ms）。</summary>
-    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, long> _lastTyping = new();
+    /// <summary>SendTyping 服务端节流表：connectionId → 上次转发时间（TickCount64 ms）。
+    /// 必须是 static：SignalR 每次方法调用都新建 Hub 实例，实例字段会随调用结束丢弃，
+    /// 节流整个失效（v1.6.0 的实现踩了这个坑，防放大完全没生效）。</summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, long> _lastTyping = new();
 
     /// <summary>
     /// 连接上限（WS-PERF-001 / BIZ-SEC-024）：
@@ -80,37 +82,9 @@ public sealed class ChatHub : Hub
             }
         }
 
-        // 连接上限：全局 + 单用户。超限直接 Abort（关闭这条连接，不影响其它连接）。
-        lock (_store)
-        {
-            if (_store.Connections.Count >= _maxConnections)
-            {
-                _log.Write("auth", new
-                {
-                    ts = DateTime.UtcNow,
-                    result = "ws-global-cap",
-                    cap = _maxConnections,
-                    user,
-                });
-                Context.Abort();
-                return;
-            }
-
-            var mine = _store.Connections.Values.Count(c => c.UserId == user);
-            if (mine >= _maxPerUser)
-            {
-                _log.Write("auth", new
-                {
-                    ts = DateTime.UtcNow,
-                    result = "ws-user-cap",
-                    cap = _maxPerUser,
-                    user,
-                });
-                Context.Abort();
-                return;
-            }
-        }
-
+        // 连接上限检查已合并进下方「检查+登记同一把锁」的 RegisterConnectionWithinCaps
+        //（此前这里还有一段先查后登记的两段式预检：两段加锁之间可被并发握手穿透，
+        //  且与原子版重复 —— 原子版才是权威检查，超限在登记时即被摘除断开）。
         if (!string.IsNullOrEmpty(user))
         {
             // 检查+登记放进同一把锁（此前两段加锁之间可被并发握手穿透上限）：

@@ -356,7 +356,11 @@ internal sealed class MainForm : Form
                     if (resp.IsSuccessStatusCode)
                     {
                         var bytes = await resp.Content.ReadAsByteArrayAsync();
+                        // 换图前释放旧 GDI+ Image（IDisposable）：长时间挂机反复选中预览
+                        // 会让被替换的 Image 堆积 GDI 句柄直到 GC
+                        var old = _loginPreview.Image;
                         _loginPreview.Image = Image.FromStream(new MemoryStream(bytes));
+                        old?.Dispose();
                     }
                 }
                 catch { /* 预览失败忽略 */ }
@@ -1056,6 +1060,14 @@ internal sealed class MainForm : Form
             }
         }
         catch { /* 读不到就走回退 */ }
+        // 回退到历史固定值：仅为兼容既有部署的旧证书。新部署请务必写 cert.pass，
+        // 否则「拿到仓库 + 证书文件」仍可导入 —— 这里显式告警提醒。
+        try
+        {
+            if (File.Exists(Path.Combine(G.WebProject, "Data", "certs", "selfsigned.pfx")))
+                Console.Error.WriteLine("[HTTPS] 警告：Data/certs/cert.pass 不存在，证书口令使用源码内历史默认值。请生成 cert.pass（内容=证书口令）消除此告警。");
+        }
+        catch { /* 忽略 */ }
         return "wxchat2026";   // 历史证书兼容（该口令随旧证书文件，仅自签名传输证书）
     }
 

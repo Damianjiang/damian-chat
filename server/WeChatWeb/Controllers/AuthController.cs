@@ -225,7 +225,11 @@ public class AuthController : ControllerBase
         lock (_store)
         {
             if (user.PasswordChangedAt != pwdChangedSnapshot)
+            {
+                // 与密码失败同规写审计（此前该分支静默 401，攻击痕迹凭空消失）
+                _log.Write("auth", new { ts = DateTime.UtcNow, result = "fail-stale-password", user = user.Id, account, ip = Ip, ua = Ua });
                 return Unauthorized(new { error = "账号或密码错误，请重试" });
+            }
             // 盗号检测：本机（同 UA）此前从未登录过 = 新设备。须在 CreateSessionTokens
             // 登记会话之前判定。老账号的第一个会话不算（首次登录没得提醒）。
             var sessions = _store.LoginSessions.TryGetValue(user.Id, out var l) ? l! : new();
@@ -339,7 +343,7 @@ public class AuthController : ControllerBase
             // 邮箱注册：大面号随机生成（WxIdCustom=false → 不可被搜索），昵称给个默认
             if (_sec.RegisterMode == "email")
             {
-                user.WxId = Validate.GenerateUniqueWxId(_store);
+                user.WxId = _store.GenerateUniqueWxIdLocked();
                 user.WxIdCustom = false;
                 user.Nickname = "用户" + user.WxId[^4..];
             }

@@ -124,19 +124,20 @@ public class MomentsController : ControllerBase
             return BadRequest(new { error = $"最多 {Validate.MaxImagesPerMoment} 张图片" });
         if (images.Any(i => !Validate.IsFileId(i)))
             return BadRequest(new { error = "图片无效，请重新上传" });
-        // 归属校验：只允许引用「本人上传」的文件。此前只验 32 位 hex 格式，任何人可以把
-        // （别人私发的、或已对其撤权的）文件 id 塞进自己的公开朋友圈 —— 下载侧的
-        // 「出现在我可公开看见的朋友圈里则可读」豁免会让该文件对所有人恢复可下载。
-        foreach (var imgId in images)
-        {
-            if (!_store.Files.TryGetValue(imgId, out var fm) || fm.UploaderId != me)
-                return BadRequest(new { error = "图片无效，请重新上传" });
-        }
         var scope = req.Scope is "all" or "friends" or "private" ? req.Scope : "all";
 
         Moment created;
         lock (_store)
         {
+            // 归属校验：只允许引用「本人上传」的文件。此前只验 32 位 hex 格式，任何人可以把
+            // （别人私发的、或已对其撤权的）文件 id 塞进自己的公开朋友圈 —— 下载侧的
+            // 「出现在我可公开看见的朋友圈里则可读」豁免会让该文件对所有人恢复可下载。
+            // 必须持锁校验：文件清理/删除端点在锁内改 Files 字典，锁外读会偶发 500
+            foreach (var imgId in images)
+            {
+                if (!_store.Files.TryGetValue(imgId, out var fm) || fm.UploaderId != me)
+                    return BadRequest(new { error = "图片无效，请重新上传" });
+            }
             // 每用户动态数上限：此前无界，脚本可无限发（Timeline 过滤成本随之线性涨）
             if (_store.Moments.Count(m => m.AuthorId == me) >= 500)
                 return BadRequest(new { error = "你的动态已达上限（500 条），请先删除部分旧动态" });

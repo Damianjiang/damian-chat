@@ -658,12 +658,20 @@
     convStore.loadSessions().catch(() => {})
   })
 
+  /** 会话切换守卫：pane 不按 id 重挂载（:key=detail），快速 A→B 切换时
+   *  慢的旧响应会把 A 的群数据渲染到 B 的页面下。与 ChatDetailPane 的
+   *  convSwitchSeq 同款令牌：过期运行直接放弃写状态。 */
+  let loadSeq = 0
   async function load () {
+    const seq = ++loadSeq
+    const gid = groupId.value
     try {
-      const res = await api.get(`/groups/${groupId.value}`)
+      const res = await api.get(`/groups/${gid}`)
+      if (seq !== loadSeq || gid !== groupId.value) return
       group.value = res.data
       removeMode.value = false
     } catch {
+      if (seq !== loadSeq || gid !== groupId.value) return
       snackMsg.value = t('group.load.fail')
       snack.value = true
     }
@@ -1189,7 +1197,7 @@
   watch(groupId, () => {
     void load()
   })
-  onMounted(load)
+  onMounted(() => { void load() })
 </script>
 
 <style scoped>

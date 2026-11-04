@@ -354,6 +354,7 @@
   import { confirm } from '@/lib/confirm'
   import { isPageMode } from '@/lib/device'
   import { fileUrl } from '@/lib/files'
+  import { mediaKindOf } from '@/lib/media'
   import { t } from '@/lib/i18n'
   import { sendTyping } from '@/lib/signalr'
   import { avatarColor, messageSummary, timeLabel } from '@/lib/utils'
@@ -483,17 +484,21 @@
     const list = listRef.value
     const beforeH = list?.scrollHeight ?? 0
     suppressScroll = true
+    // 会话切换守卫：await 期间用户切到别的会话时，convId 会变 —— 过期运行
+    // 直接退出，否则会把 A 会话的位移量/窗口状态算到 B 会话头上（跳屏+错窗口）
+    const conv = convId.value
     try {
       const lenBefore = allMessages.value.length
       const winBefore = winStart.value
       // 窗口顶已到 store 开头（或贴尾存量不够一屏）、服务端还有更早的 → 先翻服务端页（前插进 store）
-      if (store.historyHasMore[convId.value]
+      if (store.historyHasMore[conv]
         && (winBefore <= 0 || allMessages.value.length <= displayLimit.value)) {
         const oldestVisible = visibleMessages.value[0]
         // cap 放大到「可见窗口 + 本页余量」：否则内存 500 条封顶时，
         // 刚拉回来的更早消息会被 keep-newest 淘汰掉，翻页永远不刷新
-        await store.loadHistory(convId.value, oldestVisible?.id, { cap: displayLimit.value + 90 })
+        await store.loadHistory(conv, oldestVisible?.id, { cap: displayLimit.value + 90 })
       }
+      if (convId.value !== conv) return
       const shifted = allMessages.value.length - lenBefore   // 服务端前插导致的下标位移量
       if (winBefore < 0) {
         // 贴尾窗口：先扩容（最多 RENDER_CAP）；到上限后切滑动窗口整体上移
@@ -508,7 +513,7 @@
       }
       await nextTick(() => {
         const el = listRef.value
-        if (!el) return
+        if (!el || convId.value !== conv) return
         // 锚定视口：新内容从顶部插入，把新增高度补回 scrollTop，视线不跳
         //（此前直接归零 scrollTop，每次翻页都"闪"回最顶部）
         const delta = el.scrollHeight - beforeH
@@ -726,7 +731,11 @@
           muted: false,
         } as Conversation
       }
-      store.send(s, { type: 'poll', content: res.data.id } as Partial<Message>).catch(() => {})
+      // 发送失败要提示原因（禁言/被拒等）——静默吞掉会留下一个永远转圈的待定气泡
+      store.send(s, { type: 'poll', content: res.data.id } as Partial<Message>).catch((err: any) => {
+        snackMsg.value = err?.response?.data?.error ?? t('msg.send.failed')
+        snack.value = true
+      })
       usePollsStore().load(convId.value)
       snackMsg.value = t('poll.create.ok')
       snack.value = true
@@ -903,16 +912,11 @@
     }
   }
 
-  /** 消息对应的媒体类型：image → image；file 按扩展名分 video/audio。 */
+  /** 消息对应的媒体类型：image → image；file 按扩展名分 video/audio（清单在 lib/media.ts）。 */
   function mediaKind (m: Message): 'image' | 'video' | 'audio' {
     if (m.type === 'image') return 'image'
     if (m.type !== 'file') return 'image'
-    const n = (m.fileName ?? '').toLowerCase()
-    const i = n.lastIndexOf('.')
-    const ext = i > 0 ? n.slice(i + 1) : ''
-    if (['mp4', 'webm', 'mov', 'm4v', 'mkv', 'avi', '3gp', 'flv', 'ogv'].includes(ext)) return 'video'
-    if (['mp3', 'm4a', 'ogg', 'wav', 'aac', 'flac'].includes(ext)) return 'audio'
-    return 'image'
+    return mediaKindOf(m.fileName)
   }
 
   function onForward (m: Message) {
@@ -1197,6 +1201,10 @@
     noticeDialog.value = false
     displayLimit.value = 60
     winStart.value = -1
+    // 群昵称/头像映射随会话切换重置：不清的话上一个群的群昵称会串进私聊/别的群，
+    // 且 map 只增不减（每个会话条目常驻内存）
+    nameMap.value = {}
+    avatarMap.value = {}
     group.value = null
     initializing.value = true
     searchOn.value = route.query.search === '1'

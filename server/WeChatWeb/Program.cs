@@ -361,21 +361,39 @@ app.UseRateLimiter();
 // 请求体分级上限：此前 1GB 的 Kestrel 上限对所有路由生效 —— 持一个合法 token 就能对
 // 任意纯 JSON 端点（登录/发消息/朋友圈…）发 1GB body，Kestrel 全量缓冲制造内存/磁盘尖峰
 // （防火墙此前也只统计响应字节）。分级：文件上传维持 1GB（云盘定位）、管理端背景图 64MB、
-// 其余一律 2MB 快速失败（413）。
+// 其余一律 2MB 快速失败（413）。chunked（无 Content-Length）请求同样按路由上限处理：
+// 非上传路由直接拒（正常 JSON 客户端都带 Content-Length；chunked 出现在这里本身就是滥用信号）。
 app.Use(async (ctx, next) =>
 {
-    var len = ctx.Request.ContentLength;
-    if (len.HasValue)
+    if (ctx.Request.Path.StartsWithSegments("/api"))
     {
         var path = ctx.Request.Path;
-        long cap = path.StartsWithSegments("/api/files/upload") ? 1L * 1024 * 1024 * 1024
+        bool isUpload = path.StartsWithSegments("/api/files/upload");
+        long cap = isUpload ? 1L * 1024 * 1024 * 1024
             : path.StartsWithSegments("/api/admin") ? 64L * 1024 * 1024
             : 2L * 1024 * 1024;
-        if (len.Value > cap)
+        var len = ctx.Request.ContentLength;
+        if (len.HasValue)
         {
-            ctx.Response.StatusCode = StatusCodes.Status413PayloadTooLarge;
-            await ctx.Response.WriteAsJsonAsync(new { error = "请求体过大" });
-            return;
+            if (len.Value > cap)
+            {
+                ctx.Response.StatusCode = StatusCodes.Status413PayloadTooLarge;
+                await ctx.Response.WriteAsJsonAsync(new { error = "请求体过大" });
+                return;
+            }
+        }
+        else
+        {
+            // 无 Content-Length（chunked）：只对「按语义必然带 body」的 POST/PUT 拒收
+            //（除文件上传外），堵「绕过分级上限」的口子。GET/HEAD/DELETE 本就没有 body，
+            // 不能因缺 Content-Length 被误杀（首版就犯过这个错）。
+            bool bodyExpected = HttpMethods.IsPost(ctx.Request.Method) || HttpMethods.IsPut(ctx.Request.Method);
+            if (!isUpload && bodyExpected)
+            {
+                ctx.Response.StatusCode = StatusCodes.Status411LengthRequired;
+                await ctx.Response.WriteAsJsonAsync(new { error = "请求缺少 Content-Length" });
+                return;
+            }
         }
     }
     await next();

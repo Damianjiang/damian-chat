@@ -521,9 +521,9 @@ export const useConversationsStore = defineStore('conversations', {
       await this.loadSessions().catch(() => {})
     },
     /**
-     * 登录/刷新后自动拉取服务端「最近 1 天」聊天记录，灌入浏览器缓存（IDB）。
-     * 并发上限（一次 4 个会话），避免登录瞬间把服务端拉爆；
-     * 每个会话取最新一页（默认 30 条）即够 1 天窗口；已缓存的跳过不重复写。
+     * 登录/刷新后自动拉取服务端「最近 7 天」聊天记录，灌入浏览器缓存（IDB）。
+     * 并发上限（一次 2 个会话），避免登录瞬间把服务端拉爆；
+     * 每个会话取最新一页（100 条）；已缓存的跳过不重复写。
      */
     async pullRecentHistoryIntoCache (limit = 20) {
       if (this.sessions.length === 0) {

@@ -299,12 +299,6 @@ public sealed class DataStore
 
     /* ================= 用户 ================= */
 
-    /// <summary>注册：建用户 + 空联系人表；昵称默认取账号。调用方需持有 lock(store)。</summary>
-    /// <summary>
-    /// 一次性迁移：直接注册的老用户此前拿到随机大面号（wx+8位），按「注册账号」搜不到人。
-    /// 把「没手动改过号、注册账号非邮箱」的用户大面号改成注册账号（幂等；目标号被占则跳过）。
-    /// 调用方需持有全局锁。
-    /// </summary>
     /// <summary>登录设备会话：userId → 会话列表（永久保存）。</summary>
     public Dictionary<string, List<Models.LoginSession>> LoginSessions { get; set; } = new();
     private readonly Dictionary<string, string> _loginTokenIndex = new();
@@ -313,7 +307,7 @@ public sealed class DataStore
     /// refresh 令牌哈希（SHA-256 hex）。落盘的 LoginSession.RefreshToken 与
     /// _loginTokenIndex 只存哈希 —— store.json 一旦外泄，攻击者拿不到可直接
     /// 换取 access token 的明文刷新链（此前明文落盘 = 一次备份泄露全站 7 天会话）。
-    /// 兼容：启动加载时把旧版明文值就地升级为哈希（见 LoadFromSnapshot）。
+    /// 兼容：启动加载时把旧版明文值就地升级为哈希（见 Load）。
     /// </summary>
     internal static string HashRefreshToken (string token)
     {
@@ -494,13 +488,14 @@ public sealed class DataStore
         return n;
     }
 
-    /// <summary>全库唯一大面号（调用方需持有全局锁；注册/建号路径共用）。</summary>
+    /// <summary>全库唯一大面号（调用方需持有全局锁；注册/建号路径共用，此前 Validate.cs
+    /// 还有一份格式不同、比较大小写敏感的副本 —— 已合并到这里，唯一性统一忽略大小写）。</summary>
     public string GenerateUniqueWxIdLocked ()
     {
         for (var i = 0; i < 20; i++)
         {
             var id = "wx" + Guid.NewGuid().ToString("N")[..8];
-            if (!Users.Values.Any(u => u.WxId == id)) return id;
+            if (!Users.Values.Any(u => string.Equals(u.WxId, id, StringComparison.OrdinalIgnoreCase))) return id;
         }
         return "wx" + Guid.NewGuid().ToString("N")[..12];
     }
@@ -601,13 +596,16 @@ public sealed class DataStore
         foreach (var key in Connections.Where(kv => kv.Value.UserId == userId).Select(kv => kv.Key).ToList())
             Connections.Remove(key);
 
-        // ⑨ 它上传的文件：一次性建"仍被引用"的文件集合（消息图片/朋友圈图/收藏封面/用户头像，各扫一遍），
-        // 再 O(1) 判定每个待删文件是否保留字节。避免每文件全表扫（O(文件×消息) 热点，文件多时长时间卡全局锁）
+        // ⑨ 它上传的文件：一次性建"仍被引用"的文件集合（消息图片/朋友圈图/收藏封面/
+        // 用户头像/群头像，各扫一遍），再 O(1) 判定每个待删文件是否保留字节。
+        // 避免每文件全表扫（O(文件×消息) 热点，文件多时长时间卡全局锁）。
+        // 群头像此前漏扫：删掉上传过群头像的用户 → 群头像字节被删，全群裂图。
         var referenced = new HashSet<string>(StringComparer.Ordinal);
         foreach (var m in Messages) if (!string.IsNullOrEmpty(m.ImageId)) referenced.Add(m.ImageId!);
         foreach (var mo in Moments) foreach (var img in mo.Images) if (!string.IsNullOrEmpty(img)) referenced.Add(img);
         foreach (var fc in Favorites) if (!string.IsNullOrEmpty(fc.ImageUrl)) referenced.Add(fc.ImageUrl);
         foreach (var u in Users.Values) if (!string.IsNullOrEmpty(u.Avatar)) referenced.Add(u.Avatar);
+        foreach (var g in Groups.Values) if (!string.IsNullOrEmpty(g.Avatar)) referenced.Add(g.Avatar);
 
         foreach (var f in Files.Values.Where(f => f.UploaderId == userId).ToList())
         {
@@ -832,7 +830,7 @@ public sealed class DataStore
     }
 
     /// <summary>
-    /// 过期消息清理：只保留最近 <paramref name="retention"/> 内的消息（服务端仅存 1 天聊天记录）。
+    /// 过期消息清理：只保留最近 <paramref name="retention"/> 内的消息（默认 7 天，与文件保留期对齐）。
     /// 被删消息同步从会话索引 + 文件引用索引中移除，随后立即落盘。
     ///
     /// 性能：采用「保留集重建索引」而非逐条 Remove（逐条 Remove 是 O(n²)）。
@@ -983,10 +981,6 @@ public sealed class DataStore
 
     /* ================= 在线连接 / 在线状态 ================= */
 
-    /// <summary>
-    /// 登记/更新一条在线连接。可选带上 <paramref name="ctx"/>（HubCallerContext）：
-    /// 封号/删号时经 <c>KickConnections</c> 对其 <c>AbortAsync</c> 即时踢线。
-    /// </summary>
     /// <summary>
     /// 连接上限的原子校验：在全局锁内登记后检查全局/单用户上限，超限摘除并返回 false。
     /// （此前"先锁内检查、后另锁登记"两段不原子，并发握手可穿透上限）

@@ -1,7 +1,7 @@
 /**
  * lib/idb.ts
  *
- * IndexedDB 本地缓存层：服务端只存 1 天聊天记录，更早/离线的「接收聊天记录」与
+ * IndexedDB 本地缓存层：服务端只存最近 7 天聊天记录（与文件保留期对齐），更早/离线的「接收聊天记录」与
  * 「图片/视频/语音」媒体全部落到浏览器缓存（IndexedDB），换机/清缓存可控。
  *
  * 两个 object store：
@@ -317,15 +317,4 @@ export async function idbGetUserBg (): Promise<MediaRecord | null> {
 /** 删除用户背景图。 */
 export async function idbClearUserBg (): Promise<void> {
   await idbRemoveMedia(USER_BG_KEY)
-}
-
-/** 释放某会话在 IDB 里的缓存（清退/登出时）。 */
-export async function idbDropConversation (conversationId: string): Promise<void> {
-  await idbClearMessages() // 简单起见整表清，聊天数据本就按 1 天窗口重建
-  void conversationId
-}
-
-/** 隐私模式 / IDB 不可用时，所有 idb* 操作都安全降级为空。 */
-export function idbAvailable (): boolean {
-  return supported()
 }

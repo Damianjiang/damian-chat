@@ -661,30 +661,34 @@ public class GroupsController : ControllerBase
     public async Task<IActionResult> AcceptJoin(string id, string userId)
     {
         var me = HttpContext.GetUserId();
-        bool ok;
+        bool joined;
         lock (_store)
         {
-            if (!_store.Groups.TryGetValue(id, out var g)) { ok = false; return NotFound(); }
+            if (!_store.Groups.TryGetValue(id, out var g)) return NotFound();
             var actor = g.Members.FirstOrDefault(x => x.UserId == me);
-            if (actor == null || (actor.Role != "owner" && actor.Role != "admin")) { ok = false; return Forbid(); }
+            if (actor == null || (actor.Role != "owner" && actor.Role != "admin")) return Forbid();
             if (!_store.Users.TryGetValue(userId, out var joinUser) || joinUser.Banned)
-            { ok = false; return NotFound(new { error = "该用户不存在或已被停用" }); }
-            if (g.Members.Any(m => m.UserId == userId)) { ok = true; } // 已成员则幂等
+                return NotFound(new { error = "该用户不存在或已被停用" });
+            // 已成员则幂等（不重复加、不再发系统消息）
+            if (g.Members.Any(m => m.UserId == userId))
+            {
+                (g.JoinRequests ??= new()).RemoveAll(r => r.UserId == userId);
+                _store.MarkDirty();
+                return Ok(new { ok = true, already = true });
+            }
             // 只能批准「真实提交过申请」的人：没有申请记录的 userId 一律拒绝
             //（否则任意 admin 可绕过「好友+申请」两道防线把陌生人拉进群）
-            else if ((g.JoinRequests ??= new()).All(r => r.UserId != userId)) { ok = false; return NotFound(new { error = "该用户没有待审批的入群申请" }); }
-            else
-            {
-                if (g.Members.Count >= _store.GroupLimits.MaxMembers) { ok = false; return BadRequest(new { error = "群人数已达上限" }); }
-                g.Members.Add(new GroupMember { UserId = userId });
-            }
-            g.JoinRequests ??= new();
+            if ((g.JoinRequests ??= new()).All(r => r.UserId != userId))
+                return NotFound(new { error = "该用户没有待审批的入群申请" });
+            if (g.Members.Count >= _store.GroupLimits.MaxMembers)
+                return BadRequest(new { error = "群人数已达上限" });
+            g.Members.Add(new GroupMember { UserId = userId });
             g.JoinRequests.RemoveAll(r => r.UserId == userId);
             _store.MarkDirty();
-            ok = true;
+            joined = true;
         }
-        if (ok) await SystemMessages.Post(_hub, _store, id, $"{NicknameOf(userId)} 加入了群聊");
-        return Ok(new { ok });
+        if (joined) await SystemMessages.Post(_hub, _store, id, $"{NicknameOf(userId)} 加入了群聊");
+        return Ok(new { ok = true });
     }
 
     public record RejectJoinRequest(string? Reason);
@@ -809,7 +813,8 @@ public class GroupsController : ControllerBase
             // 更危险的是会让被禁言者一键自解禁）。旧残留由启动迁移清理。
             if (req.Muted.HasValue)
             {
-                var conv0 = _store.Conversations.Values.FirstOrDefault(c => c.Kind == "group" && c.MemberId == id);
+                // 群会话以群 id 为主键直接 O(1) 取（此前线性扫全表）
+                var conv0 = _store.Conversations.TryGetValue(id, out var c0) && c0.Kind == "group" ? c0 : null;
                 if (conv0 != null)
                 {
                     var uf = _store.ConvFlagsFor(conv0, me);
@@ -979,8 +984,6 @@ public class GroupsController : ControllerBase
                 // 权限反转防护：群主不可被任何人禁言；管理员之间互不禁言（只有群主能管管理员）
                 if (m.Role == "owner" || (m.Role == "admin" && actor.Role != "owner"))
                     return Forbid();
-
-                if (userId != me && actor.Role == "member") return Forbid();
                 m.Muted = req.Muted.Value;
                 changed = true;
             }

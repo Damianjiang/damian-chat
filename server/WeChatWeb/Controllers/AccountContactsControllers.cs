@@ -215,19 +215,38 @@ public class UsersController : ControllerBase
 
     public record BindEmailRequest (string Email, string Code, string Password);
 
+    /// <summary>换绑邮箱的密码试错限流：每用户 15 分钟最多 5 次错密码。
+    /// 此前「密码不正确」与「验证码错误」是可区分响应，持任何有效 token 者可
+    /// 无限在线猜受害者密码（唯一减速是通用 300/min 限流，远远不够）。</summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (int Count, DateTime WindowStart)> BindPwdFails = new();
+
     /// <summary>绑定/换绑邮箱：需邮箱验证码 + **账号密码二次验证**（邮箱注册用户换绑同样走这里）。
     /// 盗号防线：邮箱是账号的身份锚点，此前只凭邮箱验证码即可换绑 —— 拿到一个
     /// 泄露的 access token 就能把自己的邮箱绑到别人账号上。</summary>
     [HttpPut("users/me/email")]
     public async Task<IActionResult> BindEmail ([FromBody] BindEmailRequest req)
     {
+        var me = HttpContext.GetUserId();
         var user = HttpContext.FindUser(_store);
         if (user is null) return NotFound();
         var email = (req.Email ?? "").Trim().ToLowerInvariant();
         if (!EmailCodeService.ValidEmail(email)) return BadRequest(new { error = "请输入正确的邮箱地址" });
-        // 密码二次验证：access token（可被窃取/借用设备）不足以变更账号归属凭据
+        // 密码二次验证：access token（可被窃取/借用设备）不足以变更账号归属凭据。
+        // 错密码计入每用户窗口限流（密码对错本身不可作为无限次试错的 oracle）
+        foreach (var kv in BindPwdFails)
+            if ((DateTime.UtcNow - kv.Value.WindowStart).TotalMinutes > 15)
+                BindPwdFails.TryRemove(kv.Key, out _);
+        var (pfails, pstart) = BindPwdFails.GetOrAdd(me, _ => (0, DateTime.UtcNow));
+        var pinWindow = DateTime.UtcNow - pstart < TimeSpan.FromMinutes(15);
+        if (pinWindow && pfails >= 5)
+            return StatusCode(StatusCodes.Status429TooManyRequests, new { error = "密码错误次数过多，请 15 分钟后再试" });
         if (!PasswordHasher.Verify(req.Password ?? "", user.Password))
+        {
+            BindPwdFails[me] = (pinWindow ? pfails + 1 : 1, pinWindow ? pstart : DateTime.UtcNow);
+            _log.Write("auth", new { ts = DateTime.UtcNow, result = "bind-email-wrong-password", user = me, ip = HttpContext.Connection.RemoteIpAddress?.ToString() });
             return BadRequest(new { error = "账号密码不正确" });
+        }
+        BindPwdFails.TryRemove(me, out _);
         var err = _emailCode.Verify(email, req.Code);
         if (err != null) return BadRequest(new { error = err });
         lock (_store)
@@ -472,6 +491,7 @@ public class ContactsController : ControllerBase
     {
         var me = HttpContext.GetUserId();
         User? target;
+        string myNickname = "";
         FriendRequest fr;
         lock (_store)
         {
@@ -541,6 +561,8 @@ public class ContactsController : ControllerBase
             }
             _store.FriendRequests.Add(fr);
             _store.MarkDirty();
+            // 锁内先取自己的昵称：锁外的 Users 字典读会与并发注册/删号撞 "Collection was modified"
+            myNickname = _store.Users.TryGetValue(me, out var fu2) ? fu2.Nickname : "";
         }
         // 实时通知接收方（锁外）：收到好友申请立刻弹/刷新「新的朋友」，不再等手动刷新。
         try
@@ -550,7 +572,7 @@ public class ContactsController : ControllerBase
                 await _hub.Clients.Clients(conns).SendAsync("FriendRequested", new
                 {
                     fr.Id,
-                    from = new { Id = me, Nickname = _store.Users.TryGetValue(me, out var fu) ? fu.Nickname : "" },
+                    from = new { Id = me, Nickname = myNickname },
                     fr.Message,
                 });
         }
@@ -744,11 +766,12 @@ public class ConversationsController : ControllerBase
     public async Task<IActionResult> ClearMessages(string id)
     {
         var me = HttpContext.GetUserId();
-        bool cleared;
+        bool isPrivate;
         lock (_store)
         {
             if (!_store.CanAccessConversation(id, me)) return NotFound();
             if (!_store.Conversations.TryGetValue(id, out var conv)) return NotFound();
+            isPrivate = conv.Kind == "private";
 
             if (conv.Kind == "group")
             {
@@ -768,13 +791,12 @@ public class ConversationsController : ControllerBase
                 //（此前会直接删掉双方共享的全部消息并清掉对方的屏幕 —— 单方销毁他人数据）
                 _store.SetClearWatermark(id, me, DateTime.UtcNow);
             }
-            cleared = true;
         }
-        if (!cleared) return NotFound();
         try
         {
             // 群清空广播全群；私聊水位清空只同步「我自己」的其它端
-            var targets = _store.Conversations.TryGetValue(id, out var c2) && c2.Kind == "private"
+            //（锁内已捕获 isPrivate：锁外不再读 Conversations，防并发修改异常）
+            var targets = isPrivate
                 ? _store.ConnectionsOf(me)
                 : WeChatWeb.Hubs.ChatHub.MemberConnections(_store, id);
             if (targets.Count > 0)
@@ -798,6 +820,8 @@ public class ConversationsController : ControllerBase
     public IActionResult Update(string id, [FromBody] SetFlags req)
     {
         var me = HttpContext.GetUserId();
+        bool broadcastRead = false;
+        IActionResult? result = null;
         lock (_store)
         {
             if (!_store.CanAccessConversation(id, me)) return NotFound();
@@ -843,12 +867,14 @@ public class ConversationsController : ControllerBase
             if (req.Read == true)
             {
                 _store.MarkRead(id, me);
-                _ = BroadcastReadAsync(id, me);
+                broadcastRead = true;   // 锁外再触发（在全局锁里启动后台任务会让未来改动误触共享状态）
             }
             _store.MarkDirty();
             var uf2 = _store.ConvFlagsFor(conv, me);
-            return Ok(new { id, Pinned = uf2.Pinned, Muted = uf2.Muted, Folded = uf2.Folded, Unread = _store.UnreadFor(id, me) });
+            result = Ok(new { id, Pinned = uf2.Pinned, Muted = uf2.Muted, Folded = uf2.Folded, Unread = _store.UnreadFor(id, me) });
         }
+        if (broadcastRead) _ = BroadcastReadAsync(id, me);
+        return result!;
     }
 }
 

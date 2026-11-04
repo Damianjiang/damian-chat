@@ -565,6 +565,8 @@ public class AdminController : ControllerBase
         }
         // 全量落盘在锁外（RemoveUser 只标脏兜底）
         _store.SaveNow();
+        // 被删用户若还挂着 WebSocket（此前只从字典摘除、不断开），立即踢线
+        _store.KickConnections(id);
         _log.Write("auth", new
         {
             ts = DateTime.UtcNow,
