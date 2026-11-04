@@ -32,7 +32,7 @@
 
             <div>
               <div class="text-body-small text-medium-emphasis">{{ c.nickname }}</div>
-              <div class="text-body-medium">{{ c.text }}</div>
+              <div class="text-body-medium wx-comment-text">{{ c.text }}</div>
             </div>
           </div>
         </div>
@@ -41,15 +41,18 @@
       </div>
     </div>
 
-    <!-- 评论输入 -->
-    <div v-if="commenting" class="d-flex gap-2 pa-2" style="border-top: 1px solid rgb(var(--v-theme-wechat-divider))">
-      <v-text-field
+    <!-- 评论输入（底部安全区：全面屏手势条不压按钮） -->
+    <div v-if="commenting" class="d-flex gap-2 pa-2" style="border-top: 1px solid rgb(var(--v-theme-wechat-divider)); padding-bottom: max(8px, env(safe-area-inset-bottom, 0px))">
+      <v-textarea
         v-model="commentText"
         autofocus
+        auto-grow
         hide-details
+        max-rows="4"
+        rows="1"
         :placeholder="t('moments.comment.ph')"
         variant="plain"
-        @keydown.enter="submitComment"
+        @keydown="onCommentKeydown"
       />
 
       <v-btn color="primary" :disabled="!commentText.trim()" size="small" @click="submitComment">{{ t('input.send') }}</v-btn>
@@ -107,6 +110,15 @@
     }
   }
 
+  /** Enter=换行、Shift+Enter=发送（与聊天输入框一致）；输入法组词中的回车是选词，不拦截 */
+  function onCommentKeydown (e: KeyboardEvent) {
+    if (e.isComposing || (e as unknown as { keyCode?: number }).keyCode === 229) return
+    if (e.key === 'Enter' && e.shiftKey) {
+      e.preventDefault()
+      submitComment()
+    }
+  }
+
   async function onLike () {
     if (moment.value) await moments.like(moment.value.id, true).catch(() => {})
   }
@@ -150,5 +162,11 @@
 <style scoped>
 .wx-chat-bar {
   border-bottom: 1px solid rgb(var(--v-theme-wechat-divider));
+}
+
+/* 评论支持多行：换行原样显示 */
+.wx-comment-text {
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 </style>

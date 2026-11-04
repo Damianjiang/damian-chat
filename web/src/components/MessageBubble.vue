@@ -91,7 +91,8 @@
             @click="togglePlay"
           />
 
-          <span class="wx-voice-wave">{{ playing ? '▮▮▮' : message.voiceSeconds ?? 0 }}</span>
+          <!-- 未播放时只显示时长（此前 wave 槽里也塞秒数，出现「5 5″」重影） -->
+          <span class="wx-voice-wave">{{ playing ? '▮▮▮' : '●●●' }}</span>
           <span class="text-body-small">{{ message.voiceSeconds ?? 0 }}″</span>
         </div>
       </div>

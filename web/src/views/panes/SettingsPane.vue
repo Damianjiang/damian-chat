@@ -323,8 +323,8 @@
               <v-icon :icon="s.current ? 'mdi-cellphone-check' : 'mdi-cellphone'" color="primary" />
             </template>
             <template #title>
-              <span>{{ sessionLabel(s.device) }}</span>
-              <v-chip v-if="s.current" class="ml-2" color="primary" size="x-small" variant="flat">{{ t('settings.sessions.current') }}</v-chip>
+              <span class="text-truncate">{{ sessionLabel(s.device) }}</span>
+              <v-chip v-if="s.current" class="ml-2 flex-shrink-0" color="primary" size="x-small" variant="flat">{{ t('settings.sessions.current') }}</v-chip>
             </template>
             <template #subtitle>
               <div>{{ s.lastIp }} · {{ new Date(s.lastSeen).toLocaleString() }}</div>

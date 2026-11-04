@@ -524,12 +524,15 @@
   /* 登录策略（服务端：验证码开关 / 注册开关） */
   const policyLoaded = ref(false)
   const captchaRequired = ref(true)
+  /** 滑块开关此前从未从 policy 读取：管理端关了滑块，登录页仍会强制弹滑块 */
+  const sliderRequired = ref(true)
   const registerOpen = ref(true)
 
   async function loadPolicy () {
     try {
       const res = await api.get('/auth/policy')
       captchaRequired.value = res.data.captcha !== false
+      sliderRequired.value = res.data.slider !== false
       registerOpen.value = !!res.data.registerOpen
       registerMode.value = res.data.registerMode || 'direct'
       policyLoaded.value = true
@@ -560,6 +563,12 @@
     }
     pendingTab.value = tab.value
     passToken.value = ''
+    // 管理端关了滑块 → 直接提交（服务端 EnableSlider 同步关闭时不再要求 passToken）
+    if (!sliderRequired.value) {
+      if (pendingTab.value === 'login') doLogin()
+      else doRegister()
+      return
+    }
     sliderRef.value?.open()
   }
 

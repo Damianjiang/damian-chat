@@ -113,7 +113,9 @@
 
 <style scoped>
 .wx-poll-card {
-  width: min(280px, 72vw);
+  /* 用 100% 而非 vw：卡片在气泡列内渲染，72vw 在 360px 屏上会顶穿列宽盖到头像 */
+  width: min(280px, 100%);
+  max-width: 100%;
   padding: 10px 12px;
   border-radius: 12px;
   background: rgba(127, 127, 127, 0.1);

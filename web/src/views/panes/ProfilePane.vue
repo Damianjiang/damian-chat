@@ -16,8 +16,8 @@
           </span>
         </button>
 
-        <div class="flex-grow-1">
-          <div class="text-headline-small font-weight-medium">{{ auth.user?.nickname }}</div>
+        <div class="flex-grow-1" style="min-width: 0">
+          <div class="text-headline-small font-weight-medium text-truncate">{{ auth.user?.nickname }}</div>
           <div class="text-body-small text-medium-emphasis">{{ t('me.wxid') }}：{{ auth.user?.wxId || '-' }}</div>
 
           <div v-if="auth.user?.signature" class="text-body-small text-medium-emphasis text-truncate">
@@ -76,7 +76,7 @@
         <v-list-item v-if="auth.user?.email">
           <v-list-item-title>{{ t('account.email') }}</v-list-item-title>
           <template #append>
-            <span class="text-body-medium text-medium-emphasis mr-1">{{ auth.user.email }}</span>
+            <span class="text-body-medium text-medium-emphasis mr-1 text-truncate" style="max-width: 60vw">{{ auth.user.email }}</span>
           </template>
         </v-list-item>
 

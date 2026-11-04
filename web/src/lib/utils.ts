@@ -128,6 +128,8 @@ export function messageSummary (m: { type: string, content: string, fileName?: s
   if (m.recalled) {
     return t('chat.preview.recalled')
   }
+  // 预览是单行场景（会话列表/多选摘要）：换行折叠成空格，避免行高被撑乱
+  const text = (s: string) => unescapeEntities(s).replace(/\s*\n\s*/g, ' ')
   switch (m.type) {
     case 'image': { return t('chat.preview.image')
     }
@@ -141,13 +143,13 @@ export function messageSummary (m: { type: string, content: string, fileName?: s
     }
     case 'poll': { return t('chat.preview.poll')
     }
-    case 'system': { return unescapeEntities(m.content)
+    case 'system': { return text(m.content)
     }
-    case 'text': { return unescapeEntities(m.content)
+    case 'text': { return text(m.content)
     }
-    case 'quote': { return unescapeEntities(m.content)
+    case 'quote': { return text(m.content)
     }
-    default: { return unescapeEntities(m.content)
+    default: { return text(m.content)
     }
   }
 }

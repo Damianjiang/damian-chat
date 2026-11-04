@@ -12,13 +12,9 @@
         :src="peerAvatar"
       />
 
-      <v-toolbar-title class="text-body-large font-weight-medium">{{ title }}</v-toolbar-title>
-
-      <!-- 对方正在输入…（微信式：顶栏下方小字；5s 无新信号自动消失） -->
-      <span v-if="typingName" class="wx-typing-tip">
-        <span class="wx-typing-dot" />
-        {{ t('chat.typing') }}
-      </span>
+      <!-- 对方正在输入…（微信同款：直接替换标题文字；此前标题旁挂小字条，
+           绝对居中的标题稍长就和它叠在一起）。5s 无新信号自动消失 -->
+      <v-toolbar-title class="text-body-large font-weight-medium">{{ typingName ? t('chat.typing') : title }}</v-toolbar-title>
 
       <div class="d-flex align-center ml-auto">
         <v-btn
@@ -113,7 +109,7 @@
          规则：有公告且「我」未确认 → 展示横幅（可确认/看全文）；
          「我」已确认 → 自动隐藏，只留一个「查看公告」入口；
          公告被修改/新增（版本提升）→ 我的旧确认自动失效 → 重新展示并需再确认。 -->
-    <div v-if="isGroup && group?.notice && !noticeConfirmedMe" class="wx-notice-banner pa-2">
+    <div v-if="isGroup && group?.notice && !noticeConfirmedMe" class="wx-notice-banner pa-3">
       <div class="d-flex align-center justify-space-between text-body-medium gap-2">
         <div class="d-flex align-center gap-2 text-body-medium" @click="noticeDialog = true">
           <v-icon color="primary" icon="mdi-bullhorn" size="20" />
@@ -233,6 +229,13 @@
       </div>
     </div>
 
+    <!-- 引用回复预览条：固定在输入框正上方（此前在消息滚动区里，
+         一往上翻历史"正在回复"条就跟着滚走了，草稿还默默留着） -->
+    <div v-if="quoteDraft" class="wx-quote-preview pa-2 d-flex align-center justify-space-between text-body-small text-medium-emphasis">
+      <span class="wx-quote-preview-text">{{ t('chat.replying', { who: quoteDraft.senderName, text: quoteDraft.text }) }}</span>
+      <v-btn icon="mdi-close" size="x-small" @click="quoteDraft = null" />
+    </div>
+
     <!-- 群禁言（QQ 式）：全员禁言 / 被限时或永久禁言时，用提示条替换输入框 -->
     <div v-if="muteBanner" class="wx-notice-banner pa-3 text-center text-body-medium">{{ muteBanner }}</div>
     <!-- 输入区（工具行常驻：图片/文件/语音/投票） -->
@@ -248,8 +251,9 @@
       @poll="openPollDialog"
     />
 
-    <!-- 发起群投票（微信式：标题 + 选项，单选/多选） -->
-    <v-dialog v-model="pollDialog" max-width="380">
+    <!-- 发起群投票（微信式：标题 + 选项，单选/多选）。
+         scrollable：选项最多 20 个，手机上整卡曾被顶出屏幕、确认按钮够不着 -->
+    <v-dialog v-model="pollDialog" max-width="380" scrollable>
       <v-card>
         <v-card-title class="text-body-large">{{ t('poll.create') }}</v-card-title>
         <v-card-text>
@@ -299,10 +303,11 @@
 
     <!-- 转发选择 -->
     <v-bottom-sheet v-model="forwardOpen" max-width="400" scrollable>
+      <!-- 列表限高内滚：会话很多时整卡曾被顶出屏幕，标题和按钮够不着 -->
       <v-card class="pa-2">
         <div class="text-title-small pa-2">{{ t('chat.forward.to') }}</div>
 
-        <v-list density="compact">
+        <v-list density="compact" max-height="320">
           <v-list-item
             v-for="s in store.sessions"
             :key="s.id"
@@ -1376,6 +1381,13 @@
   .wx-quote-preview {
     background: rgba(128, 128, 128, 0.08);
     border-top: 1px solid rgb(var(--v-theme-wechat-divider));
+  }
+
+  /* 被引用文本可能是一长串无空格 URL：不折行会把回复条撑出屏幕 */
+  .wx-quote-preview-text {
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    min-width: 0;
   }
 
   .wx-notice-banner {

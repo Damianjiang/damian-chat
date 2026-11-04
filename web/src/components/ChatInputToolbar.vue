@@ -76,7 +76,7 @@
         color="wechat-chat-bg"
         density="comfortable"
         :hide-details="true"
-        max-rows="6"
+        max-rows="4"
         :maxlength="MAX_TEXT"
         :placeholder="placeholder"
         rows="1"
@@ -87,13 +87,15 @@
       <!-- 接近上限才显示字数计数（微信式），超限被 maxlength 截断 -->
       <span v-if="draft.length > MAX_TEXT - 200" class="wx-char-count">{{ draft.length }}/{{ MAX_TEXT }}</span>
 
+      <!-- 发送：微信式圆角矩形文字按钮（此前圆形纸飞机图标，不像微信） -->
       <v-btn
         v-if="draft.trim()"
+        class="wx-send-btn text-none"
         color="primary"
-        icon="mdi-send"
-        size="small"
+        elevation="0"
+        rounded="sm"
         @click="submit"
-      />
+      >{{ t('input.send') }}</v-btn>
     </div>
 
     <emoji-panel v-if="emojiOpen" @close="emojiOpen = false" @pick="pickEmoji" />
@@ -103,7 +105,7 @@
       <v-card class="pa-2">
         <div class="text-title-small pa-2">{{ t('input.members') }}</div>
 
-        <v-list density="compact">
+        <v-list density="compact" max-height="320">
           <!-- @全体成员：正文渲染端 MessageBubble 的 @ 高亮正则 /@([^\s@]+)/ 天然匹配「@全体成员」，
                服务端按普通文本存，无需改后端。群内始终可用（手动输入也等价）。 -->
           <v-list-item
@@ -351,7 +353,8 @@
   function onKeydown (e: KeyboardEvent) {
     // 中文/日文输入法组词中的回车是"确认候选词"，绝不能当发送（P0:输入法用户每次选词都会误发）
     if (e.isComposing || (e as unknown as { keyCode?: number }).keyCode === 229) return
-    if (e.key === 'Enter' && !e.shiftKey) {
+    // Enter=换行（textarea 默认插入换行，不拦截）；Shift+Enter=发送（多行输入的发送键）
+    if (e.key === 'Enter' && e.shiftKey) {
       e.preventDefault()
       submit()
     }
@@ -480,15 +483,39 @@
   position: relative;
   border-top: 1px solid rgb(var(--v-theme-wechat-divider));
   background: rgb(var(--v-theme-wechat-chat-bg));
-  padding: 8px;
+  /* 底部安全区：全面屏手势条不压住输入框（此前仅底部导航有 safe-area） */
+  padding: 6px 8px calc(6px + env(safe-area-inset-bottom, 0px));
 }
 
 .wx-input-main {
   gap: 8px;
 }
 
+/* 工具行与输入行之间留呼吸空隙（此前两行贴死，显得挤） */
+.wx-input-tools {
+  padding-bottom: 4px;
+}
+
+/* 输入场：微信式「灰底上的白圆角块」（暗色为浅一档的深灰面）。
+   限高交给 Vuetify 的 max-rows（它把上限写进 --v-input-control-height 里的
+   min-height，外部 CSS 的 max-height 压不过 min-height —— 实测踩过这个坑），
+   到 4 行后 textarea 内部出现滚动条，不再无限撑高。 */
 .wx-textarea :deep(.v-field) {
-  background: transparent;
+  background: rgb(var(--v-theme-surface));
+  border-radius: 6px;
+  min-height: 36px;
+}
+
+.wx-textarea :deep(.v-field__input) {
+  font-size: 15px;
+}
+
+/* 发送按钮：微信式圆角矩形，窄字距不占太多行宽 */
+.wx-send-btn {
+  flex: 0 0 auto;
+  min-width: 0;
+  padding-inline: 14px;
+  font-weight: 500;
 }
 
 /* 字数计数：接近上限才出现，贴右侧不抢焦点 */

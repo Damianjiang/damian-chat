@@ -10,8 +10,8 @@
 
       <div class="flex-grow-1 d-flex flex-column gap-2" style="min-width: 0">
         <div class="d-flex justify-space-between align-center">
-          <span class="text-body-large font-weight-medium">{{ m.author?.nickname }}</span>
-          <span class="text-body-small text-medium-emphasis">{{ timeLabel(m.createdAt) }}</span>
+          <span class="text-body-large font-weight-medium text-truncate">{{ m.author?.nickname }}</span>
+          <span class="text-body-small text-medium-emphasis flex-shrink-0 ml-2">{{ timeLabel(m.createdAt) }}</span>
         </div>
 
         <p v-if="m.text" class="wx-moment-text ma-0 text-body-medium">{{ m.text }}</p>
@@ -37,7 +37,7 @@
         <div v-if="m.comments.length > 0" class="wx-moment-comments">
           <div v-for="c in m.comments" :key="c.id" class="wx-moment-comment">
             <strong>{{ c.nickname }}</strong>
-            <span class="text-medium-emphasis">{{ c.text }}</span>
+            <span class="text-medium-emphasis wx-comment-text">{{ c.text }}</span>
           </div>
         </div>
 
@@ -161,6 +161,12 @@
   word-break: break-word;
 }
 
+/* 评论同样支持多行（Shift+Enter 发送）：换行原样显示 */
+.wx-comment-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .wx-moment-likes {
   display: flex;
   align-items: center;
@@ -187,7 +193,10 @@
 }
 
 .wx-moment-comment strong {
-  flex-shrink: 0;
+  /* 不再 flex-shrink:0：超长无空格昵称会横向顶破评论区，改为可换行 */
+  flex-shrink: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
   color: rgb(var(--v-theme-wechat-text-primary));
   font-weight: 600;
 }

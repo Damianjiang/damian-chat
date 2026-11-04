@@ -15,9 +15,9 @@
         </template>
 
         <template #title>
-          <div class="d-flex flex-column">
-            <span class="text-body-large">{{ it.title }}</span>
-            <span class="text-body-small text-medium-emphasis">{{ it.subtitle }}</span>
+          <div class="d-flex flex-column" style="min-width: 0">
+            <span class="text-body-large text-truncate">{{ it.title }}</span>
+            <span class="text-body-small text-medium-emphasis text-truncate">{{ it.subtitle }}</span>
           </div>
         </template>
 

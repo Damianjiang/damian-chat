@@ -342,7 +342,8 @@
 }
 
 .wx-mode-toggle {
-  width: 150px;
+  /* 150px 装不下三个按钮（「跟随系统/System」被截半）：放宽到 210px */
+  width: 210px;
   justify-content: space-between;
 }
 .wx-mode-toggle :deep(.v-btn) {

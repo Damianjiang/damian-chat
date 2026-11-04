@@ -359,7 +359,7 @@
       <v-card class="pa-2">
         <div class="text-title-small pa-2">{{ t('group.invite.friends') }}</div>
 
-        <v-list density="compact">
+        <v-list density="compact" max-height="320">
           <v-list-item v-for="c in inviteCandidates" :key="c.id" @click="invite(c)">
             <template #prepend>
               <user-avatar :nickname="c.user?.nickname" :src="c.user?.avatar" :size="34" />
@@ -379,7 +379,7 @@
       <v-card class="pa-2">
         <div class="text-title-small pa-2">{{ t('group.transfer.pick') }}</div>
 
-        <v-list density="compact">
+        <v-list density="compact" max-height="320">
           <v-list-item
             v-for="m in (group?.members ?? [])"
             :key="m.userId"
@@ -402,7 +402,7 @@
       <v-card class="pa-2">
         <div class="text-title-small pa-2">{{ t('group.join.requests') }}</div>
 
-        <v-list v-if="!joinBusy && joinList.length" density="compact">
+        <v-list v-if="!joinBusy && joinList.length" density="compact" max-height="320">
           <v-list-item v-for="r in joinList" :key="r.userId">
             <template #prepend>
               <v-avatar :color="avatarColor(r.userId)" :size="34">

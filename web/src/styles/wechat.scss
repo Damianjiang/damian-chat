@@ -134,6 +134,9 @@ body,
   font-size: 13px;
   text-align: center;
   max-width: 80%;
+  /* 气泡列对我是 flex-end：撤回提示不跟随对齐，永远居中（微信同款） */
+  align-self: center;
+  margin-inline: auto;
 }
 
 .wx-time-divider {
@@ -659,6 +662,18 @@ html.wx-low-perf .wx-glass .wx-profile-avatar-ring,
 html.wx-low-perf body.wx-has-user-bg::after {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
+}
+
+/* 低端机：页面切换过渡（推入/弹出/淡入淡出）整段省掉——旧 GPU 上每帧都在
+   合成两层整页，切换会明显掉帧；直接切屏反而"跟手" */
+html.wx-low-perf .wx-push-enter-active,
+html.wx-low-perf .wx-push-leave-active,
+html.wx-low-perf .wx-pop-enter-active,
+html.wx-low-perf .wx-pop-leave-active,
+html.wx-low-perf .wx-fade-enter-active,
+html.wx-low-perf .wx-fade-leave-active {
+  transition-duration: 0.01ms !important;
+  animation-duration: 0.01ms !important;
 }
 
 /* 2b) 各表面层按 alpha 透明化（top bar / 列表分组 / 卡片 / 详情面板）。

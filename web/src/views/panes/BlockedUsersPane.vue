@@ -21,8 +21,8 @@
 
             <template #title>
               <div class="d-flex align-center gap-2">
-                <span class="text-body-medium">{{ b.user?.nickname }}</span>
-                <span v-if="b.user?.wxId || b.user?.phone" class="text-body-small text-medium-emphasis">{{ b.user?.wxId || b.user?.phone }}</span>
+                <span class="text-body-medium text-truncate" style="min-width: 0">{{ b.user?.nickname }}</span>
+                <span v-if="b.user?.wxId || b.user?.phone" class="text-body-small text-medium-emphasis text-truncate flex-shrink-0">{{ b.user?.wxId || b.user?.phone }}</span>
               </div>
             </template>
             <template #subtitle>

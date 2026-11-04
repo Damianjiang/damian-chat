@@ -50,7 +50,17 @@
       <v-bottom-sheet v-model="commentSheet" max-width="480" scrollable>
         <v-card v-if="commenting" class="pa-4">
           <div class="text-title-small mb-2">{{ t('moments.comment.title', { who: commenting.author?.nickname ?? '' }) }}</div>
-          <v-text-field v-model="commentText" autofocus :placeholder="t('moments.comment.ph')" @keydown.enter="submitComment" />
+          <v-textarea
+            v-model="commentText"
+            autofocus
+            auto-grow
+            hide-details
+            max-rows="4"
+            rows="1"
+            :placeholder="t('moments.comment.ph')"
+            variant="plain"
+            @keydown="onCommentKeydown"
+          />
 
           <div class="d-flex justify-end gap-2">
             <v-btn variant="text" @click="commentSheet = false">{{ t('common.cancel') }}</v-btn>
@@ -69,6 +79,7 @@
           :label="t('moments.think')"
           rows="4"
           variant="plain"
+          @keydown="onPostKeydown"
         />
 
         <div class="d-flex align-center gap-2">
@@ -276,6 +287,24 @@
       commentSheet.value = false
     } catch {
       showError(t('moments.comment.fail'))
+    }
+  }
+
+  /** Enter=换行、Shift+Enter=发送（与聊天输入框一致）；输入法组词中的回车是选词，不拦截 */
+  function onCommentKeydown (e: KeyboardEvent) {
+    if (e.isComposing || (e as unknown as { keyCode?: number }).keyCode === 229) return
+    if (e.key === 'Enter' && e.shiftKey) {
+      e.preventDefault()
+      submitComment()
+    }
+  }
+
+  /** 发动态：Shift+Enter=发布，Enter 正常换行 */
+  function onPostKeydown (e: KeyboardEvent) {
+    if (e.isComposing || (e as unknown as { keyCode?: number }).keyCode === 229) return
+    if (e.key === 'Enter' && e.shiftKey) {
+      e.preventDefault()
+      if (canPost.value && !posting.value) submitPost()
     }
   }
 

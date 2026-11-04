@@ -111,10 +111,10 @@
 
               <template #title>
                 <div class="d-flex align-center">
-                  {{ c.remark || c.user?.nickname }}
-                  <v-chip v-if="c.blocked" class="ml-2" color="error" size="x-small" variant="flat">{{ t('contacts.blocked.tag') }}</v-chip>
+                  <span class="text-truncate" style="min-width: 0">{{ c.remark || c.user?.nickname }}</span>
+                  <v-chip v-if="c.blocked" class="ml-2 flex-shrink-0" color="error" size="x-small" variant="flat">{{ t('contacts.blocked.tag') }}</v-chip>
                 </div>
-                <div class="text-body-small text-medium-emphasis">{{ c.user?.wxId || c.user?.phone }}</div>
+                <div class="text-body-small text-medium-emphasis text-truncate">{{ c.user?.wxId || c.user?.phone }}</div>
               </template>
             </v-list-item>
           </v-list>
@@ -136,7 +136,6 @@
       :x="menuPoint.x" :y="menuPoint.y" :width="180"
     >
 
-    >
       <v-card v-if="menuContact" width="180">
         <v-list density="compact">
           <v-list-item @click="toggleBlockContact">
@@ -174,7 +173,7 @@
           <v-btn class="ml-auto" icon="mdi-refresh" size="small" variant="text" @click="contacts.loadRequests()" />
         </div>
 
-        <v-list v-if="contacts.requests.length > 0" class="pa-0" lines="two">
+        <v-list v-if="contacts.requests.length > 0" class="pa-0" lines="two" max-height="320">
           <v-list-item v-for="r in contacts.requests" :key="r.id">
             <template #prepend>
               <user-avatar :nickname="r.from?.nickname" :size="40" :src="r.from?.avatar" />
@@ -298,7 +297,7 @@
 
         <v-divider class="my-1" />
 
-        <v-list class="pa-0" lines="two">
+        <v-list class="pa-0" lines="two" max-height="320">
           <v-list-item v-for="g in myGroups" :key="g.id" @click="openGroup(g)">
             <template #prepend>
               <user-avatar :nickname="g.name" :size="40" :src="g.avatar" />

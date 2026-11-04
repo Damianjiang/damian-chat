@@ -208,12 +208,13 @@ internal sealed class MainForm : Form
     private readonly Button _btnLogRefresh = new() { Text = "刷新日志", AutoSize = true };
 
     /* ---- 用户反馈页 ---- */
-    private readonly ListView _feedback = new() { View = View.Details, FullRowSelect = true, Dock = DockStyle.Fill, HideSelection = false };
+    private readonly ListView _feedback = new() { View = View.Details, FullRowSelect = true, Dock = DockStyle.Fill, HideSelection = false, CheckBoxes = true };
     private readonly Button _btnFbRefresh = new() { Text = "刷新", AutoSize = true };
     private readonly Button _btnFbCopy = new() { Text = "复制选中", AutoSize = true };
     private readonly Button _btnFbCopyAll = new() { Text = "复制全部", AutoSize = true };
     private readonly Button _btnFbDelete = new() { Text = "删除选中", AutoSize = true };
-    private readonly Label _lblFbHint = new() { Text = "客户端「设置 → 问题反馈」提交（可复制正文 + 客户端快照）", AutoSize = true, ForeColor = Color.DimGray, Padding = new Padding(8, 6, 0, 0) };
+    private readonly Button _btnFbSelAll = new() { Text = "全选/全不选", AutoSize = true };
+    private readonly Label _lblFbHint = new() { Text = "客户端「设置 → 问题反馈」提交（勾选多行可批量删除；Ctrl/Shift 点选亦可）", AutoSize = true, ForeColor = Color.DimGray, Padding = new Padding(8, 6, 0, 0) };
 
     /* ---- 蜜罐页（管理 API GET/PUT /api/admin/honeypot；开关 + 事件日志 + 金丝雀） ---- */
     private readonly ListView _honeyEvents = new() { View = View.Details, FullRowSelect = true, Dock = DockStyle.Fill, HideSelection = false };
@@ -628,9 +629,11 @@ internal sealed class MainForm : Form
         _feedback.Columns.Add("用户", 150);
         _feedback.Columns.Add("反馈内容", 320);
         var fbTop = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(8), WrapContents = true };
+        _btnFbSelAll.Click += (_, _) => ToggleAllFeedbackChecked();
         fbTop.Controls.AddRange(new Control[]
         {
             _btnFbRefresh,
+            _btnFbSelAll,
             _btnFbCopy,
             _btnFbCopyAll,
             _btnFbDelete,
@@ -2134,10 +2137,17 @@ internal sealed class MainForm : Form
             _msg.Text = "请先选中一条用户反馈";
             return;
         }
+        // 与删除一致：勾选优先，Ctrl/Shift 高亮选中兜底
         var parts = new List<string>();
-        foreach (ListViewItem item in _feedback.SelectedItems)
+        foreach (ListViewItem item in _feedback.Items.Cast<ListViewItem>().Where(i => i.Checked)
+                     .Union(_feedback.SelectedItems.Cast<ListViewItem>()))
         {
             if (item.Tag is FbItemDto dto) parts.Add(FbToText(dto));
+        }
+        if (parts.Count == 0)
+        {
+            _msg.Text = "请先勾选（或 Ctrl/Shift 点选）要复制的用户反馈";
+            return;
         }
         CopyToClipboard(string.Join(Environment.NewLine + "————————" + Environment.NewLine, parts));
     }
@@ -2177,10 +2187,12 @@ internal sealed class MainForm : Form
             _msg.Text = "删除用户反馈需先启动服务（管理 API）";
             return;
         }
-        var selected = _feedback.SelectedItems.Cast<ListViewItem>().ToList();
+        // 勾选（复选框）优先，其次 Ctrl/Shift 高亮选中 —— 两种多选方式都支持
+        var selected = _feedback.Items.Cast<ListViewItem>().Where(i => i.Checked)
+            .Union(_feedback.SelectedItems.Cast<ListViewItem>()).ToList();
         if (selected.Count == 0)
         {
-            _msg.Text = "请先选中要删除的用户反馈";
+            _msg.Text = "请先勾选（或 Ctrl/Shift 点选）要删除的用户反馈";
             return;
         }
         var confirm = MessageBox.Show(this,
@@ -2211,6 +2223,15 @@ internal sealed class MainForm : Form
         }
         if (failed == 0) _msg.Text = $"已删除 {ok} 条用户反馈";
         await LoadFeedbackAsync();
+    }
+
+    /** 全选/全不选：以当前勾选数量过半与否为准，一键批量勾选后配合「删除选中」清理 */
+    private void ToggleAllFeedbackChecked()
+    {
+        var checkedCount = _feedback.Items.Cast<ListViewItem>().Count(i => i.Checked);
+        var checkAll = checkedCount * 2 < _feedback.Items.Count;
+        foreach (ListViewItem item in _feedback.Items) { item.Checked = checkAll; }
+        _msg.Text = checkAll ? $"已全选 {_feedback.Items.Count} 条反馈" : "已全部取消勾选";
     }
 
     /* ---------------- 蜜罐（管理 API GET/PUT /api/admin/honeypot；开关 + 事件 + 金丝雀） ---------------- */
