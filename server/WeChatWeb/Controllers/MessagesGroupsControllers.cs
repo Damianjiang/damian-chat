@@ -52,16 +52,32 @@ public class MessagesController : ControllerBase
             DateTime watermark = DateTime.MinValue;
             if (_store.Conversations.TryGetValue(conversationId, out var conv0) && conv0.Kind == "private")
                 watermark = _store.ConvFlagsFor(conv0, me).ClearBeforeAt;
-            // 返回浅拷贝快照：这些 Message 是活对象，锁外序列化期间可能被撤回改写
-            //（Content 清空/Recalled 置位），客户端会拿到撕裂的中间态
+            // 返回快照：这些 Message 是活对象，锁外序列化期间可能被撤回改写
+            //（Content 清空 / Recalled 置位），客户端会拿到撕裂的中间态。
+            // Message 是扁平 POCO（全 value + string，无嵌套集合），手写逐字段拷贝
+            // 替代反射 GetProperties/GetValue/SetValue —— 反射每次调用都枚举所有属性，
+            // 是纯浪费，而「翻历史」每页下拉都命中此路径。
             List<Models.Message> Snapshot (List<Models.Message> src) =>
-                src.Where(m => m.CreatedAt > watermark).Select(m =>
-                {
-                    var c = new Models.Message();
-                    foreach (var f in typeof(Models.Message).GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance))
-                        if (f.CanRead && f.CanWrite) f.SetValue(c, f.GetValue(m));
-                    return c;
-                }).ToList();
+                src.Where(m => m.CreatedAt > watermark)
+                   .Select(m => new Models.Message
+                   {
+                       Id = m.Id,
+                       ConversationId = m.ConversationId,
+                       SenderId = m.SenderId,
+                       Type = m.Type,
+                       Content = m.Content,
+                       ImageId = m.ImageId,
+                       VoiceSeconds = m.VoiceSeconds,
+                       FileName = m.FileName,
+                       FileSize = m.FileSize,
+                       StickerEmoji = m.StickerEmoji,
+                       QuoteJson = m.QuoteJson,
+                       Pat = m.Pat,
+                       PatTarget = m.PatTarget,
+                       ClientMsgId = m.ClientMsgId,
+                       Recalled = m.Recalled,
+                       CreatedAt = m.CreatedAt,
+                   }).ToList();
             if (string.IsNullOrEmpty(beforeId))
             {
                 var tail = Math.Min(take, list.Count);

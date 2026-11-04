@@ -736,8 +736,11 @@ public sealed class DataStore
     /// <summary>清会话消息 + 索引 + 文件引用的核心逻辑（纯逻辑，不落盘）。调用方需持有 lock(store)。</summary>
     private void ClearConversationMessagesLocked (string conversationId)
     {
-        foreach (var m in Messages)
-            if (m.ConversationId == conversationId) _msgById.Remove(m.Id);   // 否则"已清空"的消息仍可被按 Id 命中
+        // 只遍历「本会话」的消息列表清 _msgById（该会话消息的精确集合就在
+        // _msgIndex[conversationId] 里），不再全库扫 Messages —— 清会话 / 群解散 / 删用户
+        // 时消息多，全表扫是纯浪费。
+        if (_msgIndex.TryGetValue(conversationId, out var convMsgs))
+            foreach (var m in convMsgs) _msgById.Remove(m.Id);   // 否则"已清空"的消息仍可被按 Id 命中
         Messages.RemoveAll(m => m.ConversationId == conversationId);
         _msgIndex.Remove(conversationId);
         foreach (var set in _fileRefs.Values)
