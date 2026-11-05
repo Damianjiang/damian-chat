@@ -15,13 +15,14 @@
     :class="[
       'wx-bubble-row',
       isMe ? 'wx-bubble-row--me' : 'wx-bubble-row--other',
-      { 'wx-bubble-row--selected': props.selected },
+      { 'wx-bubble-row--selected': props.selected, 'wx-bubble-row--selecting': props.selectMode },
     ]"
     @contextmenu.prevent="onContextMenu"
     @pointerdown="onDown"
     @pointerleave="onUp"
     @pointermove="onMove"
     @pointerup="onUp"
+    @click.capture="onRowCapture"
   >
     <!-- 对方头像：单击看资料卡，双击（群聊）拍一拍。
          触屏同样走 pointerdown 双击窗口判定；touch-action:manipulation 关掉双击缩放。 -->
@@ -162,6 +163,12 @@
       </span>
     </div>
 
+    <!-- 多选勾选钮（微信/QQ 式行尾圆圈）：点行任意位置即切换。
+         纯视觉件（pointer-events:none），切换统一由行的 capture 点击处理，避免双重触发。 -->
+    <span v-if="props.selectMode" class="wx-sel-check" :class="{ on: props.selected }" aria-hidden="true">
+      <v-icon v-if="props.selected" icon="mdi-check" size="16" />
+    </span>
+
     <!-- 右键 / 长按菜单：回复 / 撤回(2分钟内) / 复制 / 转发 -->
     <ContextMenu v-model="menuOpen" :x="lastPoint.x" :y="lastPoint.y" :width="180">
       <v-card width="180">
@@ -237,6 +244,8 @@
     meId: string
     isGroup: boolean
     selected?: boolean
+    /** 多选模式总开关：行尾显示勾选钮、点行任意位置即切换勾选（内层所有点击被拦截） */
+    selectMode?: boolean
     /** 与上一条间隔较大时才显示时间戳 */
     showTime?: boolean
     /** 拍一拍目标显示名（message.type==='pat' 时由父级传入被拍者昵称） */
@@ -495,6 +504,18 @@
     menuOpen.value = false
   }
 
+  /**
+   * 多选模式：行级 capture 点击统一接管 —— 图片/文件/语音/转发卡片/头像等内层点击
+   * 全部就地拦截（stopPropagation），一次点按 = 切换勾选，不再触发各自的原生动作
+   * （此前多选模式下点其他消息毫无反应：只有长按菜单一条路，且无勾选框、无法取消）。
+   */
+  function onRowCapture (e: MouseEvent) {
+    if (!props.selectMode) return
+    e.stopPropagation()
+    e.preventDefault()
+    emit('select', props.message)
+  }
+
   /** 下载附件（file / image / voice 都可下载原文件） */
   async function downloadFile () {
     const id = props.message.imageId
@@ -623,6 +644,32 @@
 }
 .wx-bubble-row--selected .wx-bubble {
   box-shadow: 0 0 0 2px rgba(7, 193, 96, 0.35);
+}
+
+/* 多选模式：行尾预留勾选钮空间（气泡整体让位），行任意位置点击 = 切换勾选 */
+.wx-bubble-row--selecting {
+  padding-right: 44px;
+  cursor: pointer;
+}
+.wx-sel-check {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid rgb(var(--v-theme-wechat-text-secondary, #9aa0a6));
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.wx-sel-check.on {
+  background: rgb(var(--v-theme-primary, #07c160));
+  border-color: rgb(var(--v-theme-primary, #07c160));
+  color: #fff;
 }
 
 /* 气泡列：宽度按内容自适应但不超过可用空间 */

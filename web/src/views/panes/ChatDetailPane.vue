@@ -58,10 +58,12 @@
       </div>
     </v-app-bar>
 
-    <!-- 多选模式操作条：删除 / 逐条转发 / 合并转发（QQ 式聊天记录打包） -->
+    <!-- 多选模式操作条：全选 / 逐条转发 / 合并转发 / 删除（QQ 式聊天记录打包）；
+         勾选 ≥1 条即可转发/删除，投票等不可转发的消息会在转发时跳过并提示 -->
     <div v-if="multiMode" class="wx-multi-bar">
       <v-btn icon="mdi-close" size="small" variant="text" @click="exitMulti" />
       <span class="text-body-medium">{{ t('chat.multi.selected', { n: selectedIds.size }) }}</span>
+      <v-btn size="small" variant="text" @click="toggleSelectAll">{{ allSelected ? t('chat.multi.clearAll') : t('chat.multi.selectAll') }}</v-btn>
       <v-spacer />
       <v-btn :disabled="selectedIds.size === 0" size="small" variant="text" @click="startForward('multi-one')">{{ t('chat.multi.forwardOne') }}</v-btn>
       <v-btn :disabled="selectedIds.size === 0" size="small" variant="text" @click="startForward('merged')">{{ t('chat.multi.forwardMerged') }}</v-btn>
@@ -198,6 +200,7 @@
             :me-id="meId"
             :message="m"
             :selected="multiMode && selectedIds.has(m.id)"
+            :select-mode="multiMode"
             :sender-name="displayName(m.senderId)"
             :show-time="needsTime(g.messages, mi)"
             :pat-target-name="patTargetName(m)"
@@ -796,10 +799,26 @@
     snack.value = true
   }
 
-  // ---- 多选（PC 右键 / 手机长按 → 多选 → 批量删除/收藏） ----
+  // ---- 多选（PC 右键 / 手机长按 → 多选 → 行尾勾选钮点选/取消 → 批量删除/转发） ----
   const multiMode = ref(false)
   const selectedIds = ref<Set<string>>(new Set())
 
+  /** 可勾选的消息（系统/拍一拍是居中灰字，不参与勾选 —— 微信同款） */
+  const selectableMessages = computed(() =>
+    allMessages.value.filter(m => m.type !== 'system' && m.type !== 'pat'))
+
+  const allSelected = computed(() =>
+    selectableMessages.value.length > 0
+    && selectableMessages.value.every(m => selectedIds.value.has(m.id)))
+
+  function toggleSelectAll () {
+    const next = new Set(selectedIds.value)
+    if (allSelected.value) selectableMessages.value.forEach(m => next.delete(m.id))
+    else selectableMessages.value.forEach(m => next.add(m.id))
+    selectedIds.value = next
+  }
+
+  /** 点消息行切换勾选（多选模式下点行任意位置生效，再点一次取消） */
   function onSelectOne (m: Message) {
     multiMode.value = true
     const next = new Set(selectedIds.value)
@@ -940,16 +959,21 @@
     return m.type !== 'poll' && m.type !== 'pat' && m.type !== 'system'
   }
 
-  /** 多选栏入口：multi-one = 每个目标各收逐条消息；merged = 打包成一张「聊天记录」卡片 */
+  /** 多选栏入口：multi-one = 每个目标各收逐条消息；merged = 打包成一张「聊天记录」卡片。
+   *  投票/拍一拍/系统消息不可转发：自动跳过并提示（勾选本身不设限，勾了就行） */
   function startForward (mode: 'multi-one' | 'merged') {
-    const msgs = [...selectedIds.value]
+    const picked = [...selectedIds.value]
       .map(id => allMessages.value.find(x => x.id === id))
-      .filter((m): m is Message => !!m && forwardable(m))
-      .reverse()   // 多选按勾选序收集，转发按时间正序
+      .filter((m): m is Message => !!m)
+    const msgs = picked.filter(forwardable).reverse()   // 转发按时间正序
     if (msgs.length === 0) {
       snackMsg.value = t('chat.forward.unsupported')
       snack.value = true
       return
+    }
+    if (picked.length - msgs.length > 0) {
+      snackMsg.value = t('chat.forward.skipped', { n: picked.length - msgs.length })
+      snack.value = true
     }
     forwardSource.value = msgs
     forwardMode.value = mode
@@ -1393,10 +1417,21 @@
 .wx-multi-bar {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
   padding: 4px 8px;
   background: rgb(var(--v-theme-surface));
   border-bottom: 1px solid rgb(var(--v-theme-wechat-divider));
+}
+
+/* 窄屏放得下：按钮压掉默认最小宽度，文字按钮只留必要内边距 */
+.wx-multi-bar :deep(.v-btn) {
+  min-width: 0;
+  padding: 0 8px;
+  flex: none;
+}
+.wx-multi-bar .text-body-medium {
+  white-space: nowrap;
+  flex: none;
 }
 
 .wx-msg-area {
