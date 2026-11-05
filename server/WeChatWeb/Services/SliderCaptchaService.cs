@@ -3,40 +3,55 @@ using System.Text;
 
 namespace WeChatWeb.Services;
 
+/// <summary>pass token 消费结果：Ok=通过并消费；NotReady=延时门未到（token 保留）；Invalid=无效/过期/重放。</summary>
+public enum SliderPassResult
+{
+    Ok,
+    NotReady,
+    Invalid,
+}
+
 /// <summary>
 /// 滑块人机验证挑战。
 ///
 /// 流程（服务端全程可控、可重放检测）：
 ///   1. Issue()   —— 前端点「登录/注册」时调用，签发挑战 key（一次性、2 分钟过期、绑定调用方 IP）。
-///   2. Complete()—— 用户完成拼图交互后调用，消费 key，换取 pass token（HMAC 签名、90 秒、绑定 IP）。
+///   2. Complete()—— 用户完成拼图交互后调用，提交「真实落点 + 完整拖动轨迹样本」，
+///      消费 key，换取 pass token（HMAC 签名、90 秒、绑定 IP、签发后 ≥MinHold 秒才可消费）。
 ///   3. ConsumePass()—— 真正的登录/注册接口校验并消费 pass token（一次性，重放直接失败）。
 ///
 /// 安全设计（针对「公开到互联网」的对抗场景）：
-///   ① 背景图是服务端光栅化 PNG —— 缺口坐标只存在于像素里。此前用 SVG 时，
-///      机器人 base64 解码就能从标记里直接读出 &lt;rect x="pinX"&gt;，一秒绕过；
-///      光栅图必须做像素级图像识别才能定位缺口。
-///   ② pinX 范围 [50,246]、容差 ±5 —— 即使做图像识别失败退化为盲猜，
-///      单次命中率也只有 11/197 ≈ 5.6%，期望约 18 次。
-///   ③ 按 IP 失败锁定：15 分钟内试错 5 次即锁 15 分钟（真人极少连错 5 次），
-///      盲猜 / 脚本枚举在期望次数之前就会被锁死。
-///   ④ 每 IP 同时最多 5 个未过期挑战 —— 防止脚本囤积挑战批量离线分析。
-///   ⑤ 挑战 key 与 pass token 均一次性、绑定 IP、HMAC 签名（常量时间比较）。
+///   ① 背景图是服务端光栅化 PNG —— 缺口坐标只存在于像素里，绝不在 JSON 明文下发。
+///   ② 落点校验用「真实松手位置」：此前前端回传的是缺口位置本身，服务端拿目标和目标比
+///      恒为真（等于没校验）—— 现在回传真实松手位移，与保密 SlotX 比对。
+///   ③ 完整轨迹校验：真人拖动必产生「起点≈0 → 多次移动 → 终点=落点」的样本序列，
+///      且单步位移/速度曲线符合人手特征；moveCount/dragMs 这类自报整数已废弃（可伪造）。
+///   ④ 延时门：pass token 签发后 ≥MinHold 秒才可消费 —— 脚本拿到 token 立刻打登录接口
+///      会被拒；前端在此期间展示「安全检测中 / 已超过 NN% 用户」状态卡。
+///   ⑤ 按 IP 失败锁定：15 分钟内试错 5 次即锁 15 分钟；每 IP 同时最多 5 个未过期挑战
+///      防囤积；每 IP 10 分钟最多签发 15 个 pass token 防打码农场批量出票。
+///   ⑥ 挑战 key 与 pass token 均一次性、绑定 IP、HMAC 签名（常量时间比较）。
 /// </summary>
 public sealed class SliderCaptchaService
 {
     /// <summary>
-    /// 挑战。SlotX/SlotY 是「服务端权威缺口位置」：由服务端随机选定并直接画进背景图，
-    /// 前端把它裁成拼图压块；Complete() 时校验前端回传的落点 |dragX-SlotX| 是否在容差内。
-    /// 之前缺口在前端本地随机生成、服务端不知道目标，脚本伪造 moveCount/dragMs 即可白拿 passToken —— 已堵。
+    /// 拖动轨迹样本：X = 滑块位移（px，0=起点），T = 距按下毫秒数。由前端真实指针事件采样。
+    /// </summary>
+    public sealed record SliderSample (int X, long T);
+
+    /// <summary>
+    /// 挑战。SlotX/SlotY 是「服务端权威缺口位置」：由服务端随机选定并直接画进背景图。
+    /// Complete() 校验前端回传的「真实落点」|dropX-SlotX| 是否在容差内。
     /// </summary>
     private sealed record Challenge (string Ip, DateTime ExpiresAt, DateTime IssuedAt, int SlotX, int SlotY);
 
-    /// <summary>已通过滑块交互的凭证：nonce -> (IP, 过期时间)。</summary>
-    private sealed record PassGrant (string Ip, DateTime ExpiresAt);
+    /// <summary>已通过滑块交互的凭证：nonce -> (IP, 过期时间, 签发时刻)。</summary>
+    private sealed record PassGrant (string Ip, DateTime ExpiresAt, DateTime GrantedAt);
 
     private readonly Dictionary<string, Challenge> _challenges = new();
     private readonly Dictionary<string, PassGrant> _passes = new();
     private readonly Dictionary<string, Queue<DateTime>> _verifyFails = new();
+    private readonly Dictionary<string, Queue<DateTime>> _passTimes = new();
     private readonly object _lock = new();
     private readonly LogService _log;
     private readonly SliderBackgroundStore _backgrounds;
@@ -51,17 +66,35 @@ public sealed class SliderCaptchaService
     private const int MaxFails = 5;
     private const int MaxOpenChallengesPerIp = 5;
 
+    // pass token 签发限速：真人登录频率远用不到；打码农场批量出票在此断粮
+    private static readonly TimeSpan PassRateWindow = TimeSpan.FromMinutes(10);
+    private const int MaxPassPerWindow = 15;
+
     /// <summary>
-    /// 行为真实性门槛（脚本无法伪造"真实拖动轨迹"，只能一次性 POST）：
+    /// 延时门：pass token 签发后至少 1.2 秒才可消费。
+    /// 前端在滑块通过后展示 1.5–2.2 秒的「安全检测中 / 已超过 NN% 用户」状态卡再提交登录，
+    /// 脚本拿到 token 立刻打登录接口 → NotReady 拒绝（token 不消费，真人稍后仍可用）。
+    /// </summary>
+    private const double MinHoldSeconds = 1.2;
+
+    /// <summary>
+    /// 行为真实性门槛。真人拖动 = 「起点≈0 → 多次移动 → 终点=落点」的样本序列：
     /// ① MinDragMillis —— 签发→完成最短时长（挡最傻的秒传）；
-    /// ② MinMoves      —— 最少指针移动次数（真人拖动必产生多次 mousemove/touchmove，脚本一次性 POST 为 0）；
-    /// ③ MinDragMs     —— 一次拖动最短时长（真人从按下到松手有真实耗时）。
-    /// 三条取"或"判定可疑：脚本要全过就得伪造完整指针事件序列，
-    /// 而它又拿不到前端本地裁切的缺口坐标 → 无法算出该拖到哪，白拿 passToken 路径被封。
+    /// ② MinSamples/MaxSamples —— 样本数上下限（脚本一次性 POST 只有 0-1 个样本）；
+    /// ③ MinDragMs/MaxDragMs —— 拖动时长区间（<200ms 的"瞬时拖完"人手做不到）；
+    /// ④ MaxStepPx / MaxSpeedPxPerMs —— 单步位移与速度上限（瞬移脚本一步几百 px）；
+    /// ⑤ MaxBacktrackPx —— 往回退总量上限（真人手抖会小幅回退，不会倒退几十像素）；
+    /// ⑥ MinDistinctSteps —— 步长多样性（匀速等距 = 脚本机器签名）。
     /// </summary>
     private const double MinDragMillis = 400;
-    private const int MinMoves = 3;
-    private const int MinDragMs = 250;
+    private const int MinSamples = 5;
+    private const int MaxSamples = 800;
+    private const int MinDragMs = 200;
+    private const int MaxDragMs = 15000;
+    private const int MaxStepPx = 90;
+    private const double MaxSpeedPxPerMs = 4.0;
+    private const int MaxBacktrackPx = 60;
+    private const int MinDistinctSteps = 3;
 
     /// <summary>
     /// 服务端权威缺口（拼图目标槽位）几何。背景固定 300×150；缺口是 40×40 的圆角拼图凸块。
@@ -70,7 +103,10 @@ public sealed class SliderCaptchaService
     /// 坐标只画进像素 + 存服务端内存，不以文本形式回传，机器人只能做像素级图像识别才可能定位。
     /// </summary>
     private const int SlotSize = 40;         // 拼块边长（= 前端 barWidth）
-    private const int SlotTolerance = 14;    // 落点容差（±14px，覆盖前端 diffWidth 15px 内的漂移）
+    // 落点容差：刻意放宽（用户要求"差不多贴近就算过"，真人拖到缺口附近即应通过）。
+    // 前端组件本地放行窗口 diffWidth=30 + 前端 CV 定位描边外缘的误差 ≤4px
+    //（服务端画描边在边缘上，CV 取最左品红列 = 外缘，比 SlotX 小 2-3px）→ 服务端 34 全覆盖。
+    private const int SlotTolerance = 34;
     private const int SlotMinX = 30;         // 缺口左缘最小（避开左侧拼图手柄区）
     private const int SlotMaxX = 300 - SlotSize - 6;   // 左缘最大（不贴右边缘）
     private const int SlotMinY = 24;         // 顶缘最小（避开顶部刷新图标区）
@@ -128,107 +164,145 @@ public sealed class SliderCaptchaService
     /// <summary>
     /// 消费挑战并签发一次性 pass token。
     /// 校验链：一次性（取出即作废）+ 未过期 + 绑定调用方 IP + 未失败锁定 +
-    /// 「签发→完成 ≥400ms」行为门槛（真人拖动需几百毫秒，脚本秒传/不拖动直接被拒并记一次失败）。
-    /// 缺口位置由前端组件本地裁切判定（服务端不与其共享坐标），服务端负责防伪造/重放/囤积/限流。
-    /// 任一条件不满足都返回 null。dragX 仍接收（前端回传），仅用于日志，不作判定依据。
+    /// 轨迹真实性（起点/样本数/时长/单步位移/速度/回退量/步长多样性）+
+    /// 权威落点（真实松手位置与保密缺口坐标比对）+ 每 IP 签发限速。
+    /// 返回 (token, null) 或 (null, 拒绝原因)；拒绝会记一次失败（累计触发锁定）。
+    /// Reason 仅用于给用户挑一条说得通的提示（如 drop-miss → 「没对准缺口」），不回传内部细节。
     /// </summary>
-    public string? Complete (string? key, string ip, int? dragX, int? moveCount, int? dragMs)
+    public (string? Token, string? Reason) Complete (string? key, string ip, int? dragX, List<SliderSample>? trajectory)
     {
-        if (string.IsNullOrWhiteSpace(key)) return null;
+        if (string.IsNullOrWhiteSpace(key)) return (null, "invalid");
 
         ip ??= "";
         var now = DateTime.UtcNow;
         lock (_lock)
         {
-            if (IsLockedOutLocked(ip)) return null;
+            if (IsLockedOutLocked(ip)) return (null, "locked");
 
-            if (!_challenges.TryGetValue(key, out var c)) return null;
+            if (!_challenges.TryGetValue(key, out var c)) return (null, "invalid");
             _challenges.Remove(key); // 一次性：取出即作废
-            if (c.ExpiresAt < now) return null;
-            if (!string.Equals(c.Ip, ip, StringComparison.Ordinal)) return null;
+            if (c.ExpiresAt < now) return (null, "invalid");
+            if (!string.Equals(c.Ip, ip, StringComparison.Ordinal)) return (null, "invalid");
 
-            // 行为真实性门槛：真人拖动必有「≥MinMoves 次指针移动 且 拖动耗时 ≥MinDragMs」。
-            // 脚本一次性 POST 没有真实指针事件 → moveCount/dragMs 为 0 → 判为机器人，记失败并锁。
-            var moves = moveCount ?? 0;
-            var drag = dragMs ?? 0;
-            if ((now - c.IssuedAt).TotalMilliseconds < MinDragMillis || moves < MinMoves || drag < MinDragMs)
-            {
-                RecordFailLocked(ip);
-                _log.Write("auth", new
-                {
-                    ts = now,
-                    result = "slider-rejected-bot",
-                    ip,
-                    dragX,
-                    moves,
-                    drag,
-                });
-                return null;
-            }
-
-            // ★ 权威落点校验（堵住旧绕过：以前服务端根本不查落点，脚本伪造 moveCount/dragMs 即可白拿 passToken）。
-            //   缺口由服务端生成并画进背景/拼块，slotX 保密在内存，不以文本回传；前端回传的 dragX
-            //   必须落在 [slotX±容差] 内才算对齐。盲猜单 IP 5 次即锁 15 分钟，脚本枚举在此被锁死。
             var dropX = dragX ?? 0;
-            if (Math.Abs(dropX - c.SlotX) > SlotTolerance)
+            var samples = trajectory ?? new List<SliderSample>();
+
+            // —— 轨迹真实性 ——
+            var reject = TrajectoryRejectReason(c, samples, dropX, now);
+            if (reject == null)
+            {
+                // —— 权威落点校验（真实松手位置，不是缺口位置本身）。
+                //   盲猜单 IP 5 次即锁 15 分钟；做 CV 定位也得再过轨迹真实性那一关。
+                if (Math.Abs(dropX - c.SlotX) > SlotTolerance)
+                    reject = "drop-miss";
+            }
+            if (reject != null)
             {
                 RecordFailLocked(ip);
-                // 只记偏差，不记 slotX 原值：日志（auth.jsonl）会被管理端直接查看/导出，
-                // 把保密坐标写进去等于把答案发给日志的每个读者
+                // 日志（auth.jsonl）会被管理端直接查看/导出：不记 slotX 原值（保密坐标），
+                // 不记完整轨迹（体积大）；只记拒绝原因与样本数/时长概要。
                 _log.Write("auth", new
                 {
                     ts = now,
-                    result = "slider-drop-miss",
+                    result = "slider-rejected",
                     ip,
+                    reason = reject,
                     dragX,
-                    miss = true,
+                    samples = samples.Count,
+                    dragMs = samples.Count > 0 ? samples[^1].T : 0,
                 });
-                return null;
+                return (null, reject);
             }
+
+            // —— 每 IP 签发限速 ——
+            if (!_passTimes.TryGetValue(ip, out var okQ)) _passTimes[ip] = okQ = new Queue<DateTime>();
+            while (okQ.Count > 0 && now - okQ.Peek() > PassRateWindow) okQ.Dequeue();
+            if (okQ.Count >= MaxPassPerWindow)
+            {
+                _log.Write("auth", new { ts = now, result = "slider-pass-rate", ip });
+                return (null, "rate");
+            }
+            okQ.Enqueue(now);
 
             // 成功：清空该 IP 的失败计数
             _verifyFails.Remove(ip);
-        }
 
-        // token = expires.nonce.signature
-        // nonce 由服务端保存，不泄露挑战 key；签名保证不可伪造
-        var nonce = RandomToken(16);
-        var expiresAt = now.Add(PassTtl);
-        var expires = new DateTimeOffset(expiresAt).ToUnixTimeSeconds();
-
-        lock (_lock)
-        {
+            // token = expires.nonce.signature；nonce 由服务端保存，不泄露挑战 key
+            var nonce = RandomToken(16);
+            var expiresAt = now.Add(PassTtl);
+            var expires = new DateTimeOffset(expiresAt).ToUnixTimeSeconds();
+            _passes[nonce] = new PassGrant(ip, expiresAt, now);
             CleanupLocked();
-            _passes[nonce] = new PassGrant(ip, expiresAt);
+            return ($"{expires}.{nonce}.{Sign($"{nonce}|{ip}|{expires}")}", null);
         }
-        return $"{expires}.{nonce}.{Sign($"{nonce}|{ip}|{expires}")}";
     }
 
-    /// <summary>校验并消费 pass token（登录/注册时调用，失败或重放返回 false）。</summary>
-    public bool ConsumePass (string? token, string ip)
+    /// <summary>
+    /// 轨迹真实性判定。真人拖动 = 「起点≈0 → 多次移动 → 终点=落点」的样本序列，
+    /// 位移/速度符合人手特征；返回 null 表示通过，否则返回拒绝原因（仅入日志，不回前端细节）。
+    /// </summary>
+    private static string? TrajectoryRejectReason (Challenge c, List<SliderSample> s, int dropX, DateTime now)
     {
-        if (string.IsNullOrWhiteSpace(token)) return false;
+        if ((now - c.IssuedAt).TotalMilliseconds < MinDragMillis) return "too-fast-after-issue";
+        if (s.Count < MinSamples || s.Count > MaxSamples) return "samples";
+        if (s[0].X < -2 || s[0].X > 2) return "start";
+        if (Math.Abs(s[^1].X - dropX) > 1) return "end-mismatch";
+
+        var duration = s[^1].T;
+        if (duration < MinDragMs || duration > MaxDragMs) return "duration";
+
+        // t 必须单调不减；同毫秒内只允许 2px 内微动（高回报率鼠标一毫秒多事件）
+        var backtrack = 0;
+        var last = s[0];
+        var distinct = new HashSet<int>();
+        for (var i = 1; i < s.Count; i++)
+        {
+            var cur = s[i];
+            if (cur.T < last.T) return "time-regress";
+            var dx = cur.X - last.X;
+            var dt = cur.T - last.T;
+            if (Math.Abs(dx) > MaxStepPx) return "teleport";
+            if (dt == 0 && Math.Abs(dx) > 2) return "teleport";
+            if (dt > 0 && Math.Abs(dx) / dt > MaxSpeedPxPerMs) return "speed";
+            if (dx < 0) backtrack -= dx;
+            if (i >= 2 && dt > 0) distinct.Add(dx);
+            last = cur;
+        }
+        if (backtrack > MaxBacktrackPx) return "backtrack";
+        // 恒速机器签名：样本足够多时步长应有多样性（人手必有抖动）；等距匀速 = 脚本
+        if (s.Count >= 8 && distinct.Count < MinDistinctSteps && backtrack == 0) return "machine";
+        return null;
+    }
+
+    /// <summary>校验并消费 pass token（登录/注册时调用）。延时门未到返回 NotReady（token 保留），无效/重放返回 Invalid。</summary>
+    public SliderPassResult ConsumePass (string? token, string ip)
+    {
+        if (string.IsNullOrWhiteSpace(token)) return SliderPassResult.Invalid;
 
         var parts = token.Split('.', 3);
-        if (parts.Length != 3) return false;
-        if (!long.TryParse(parts[0], out var expires)) return false;
-        if (expires < new DateTimeOffset(DateTime.UtcNow).ToUnixTimeSeconds()) return false;
+        if (parts.Length != 3) return SliderPassResult.Invalid;
+        if (!long.TryParse(parts[0], out var expires)) return SliderPassResult.Invalid;
+        var now = DateTime.UtcNow;
+        if (expires < new DateTimeOffset(now).ToUnixTimeSeconds()) return SliderPassResult.Invalid;
 
         // 先验签（常量时间比较，防时序攻击）
         if (!CryptographicOperations.FixedTimeEquals(
                 Encoding.UTF8.GetBytes(parts[2]),
                 Encoding.UTF8.GetBytes(Sign($"{parts[1]}|{ip}|{expires}"))))
-            return false;
+            return SliderPassResult.Invalid;
 
-        // 再查服务端记录并消费：一次性、IP 绑定
+        // 再查服务端记录并消费：延时门 + 一次性 + IP 绑定
         lock (_lock)
         {
-            if (!_passes.TryGetValue(parts[1], out var grant)) return false;
+            if (!_passes.TryGetValue(parts[1], out var grant)) return SliderPassResult.Invalid;
+            // 延时门：签发后 ≥MinHoldSeconds 才可消费。脚本拿 token 秒打登录接口在此被拒；
+            // token 不消费，真人稍后带同一 token 重试仍可通过。
+            if ((now - grant.GrantedAt).TotalSeconds < MinHoldSeconds) return SliderPassResult.NotReady;
             _passes.Remove(parts[1]); // 一次性：取出即作废
-            if (grant.ExpiresAt < DateTime.UtcNow) return false;
-            if (!string.Equals(grant.Ip, ip ?? "", StringComparison.Ordinal)) return false;
+            if (grant.ExpiresAt < now) return SliderPassResult.Invalid;
+            if (!string.Equals(grant.Ip, ip ?? "", StringComparison.Ordinal)) return SliderPassResult.Invalid;
         }
-        return true;
+        return SliderPassResult.Ok;
     }
 
     /// <summary>该 IP 是否处于失败锁定状态（供控制器给出明确的 429 提示）。</summary>
@@ -296,6 +370,10 @@ public sealed class SliderCaptchaService
         foreach (var kv in _verifyFails.Where(kv =>
             kv.Value.Count > 0 && (now - kv.Value.Peek()).TotalMinutes > 20).ToList())
             _verifyFails.Remove(kv.Key);
+        // 签发限速队列整体过期的 IP 一并回收
+        foreach (var kv in _passTimes.Where(kv =>
+            kv.Value.Count == 0 || (now - kv.Value.Peek()).TotalMinutes > 11).ToList())
+            _passTimes.Remove(kv.Key);
     }
 
     /// <summary>

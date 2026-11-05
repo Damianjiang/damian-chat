@@ -201,7 +201,11 @@
         clipBarx: 0,
         showErrorTip: false,
         // 拖动行为轨迹（供外层上报给服务端做反机器人判定）：真人拖动必产生多次移动+一定时长，
-        // 脚本一次性 POST 没有 → 服务端按 (moveCount, dragMs) 拒绝。
+        // 服务端按完整样本 [{x, t}] 校验真实性（起点/终点/时长/单步位移/速度曲线）。
+        trajectory: [],
+        // 真实落点（松手时滑块位移）：此前外层回传的是缺口位置本身，服务端拿目标和目标比，
+        // 永远为真 —— 等于没校验落点。现在回传真实松手位置，由服务端与保密缺口坐标比对。
+        dropX: 0,
         moveCount: 0,
         dragMs: 0,
         dragStartAt: 0,
@@ -351,6 +355,8 @@
           this.moveCount = 0
           this.dragMs = 0
           this.dragStartAt = Date.now()
+          this.dropX = 0
+          this.trajectory = [{ x: 0, t: 0 }]
         }
         this.showBar = true
         this.showErrorTip = false
@@ -369,12 +375,21 @@
           progressBar.style.width = _x + this.height / 2 + 'px'
           movecanvas.style.left = _x + 'px'
           this.moveCount++
+          // 采样上限 800：极端长按+高频鼠标也就几百个事件，封顶防内存被恶意拖拽撑爆
+          if (this.trajectory.length < 800) {
+            this.trajectory.push({ x: _x, t: Date.now() - this.dragStartAt })
+          }
         }
       },
       dragFinish: function (e) {
         if (this.isMoving && !this.isPassing) {
           const _x = (e.pageX || (e.changedTouches && e.changedTouches[0] && e.changedTouches[0].pageX) || 0) - this.x
           this.dragMs = this.dragStartAt > 0 ? Date.now() - this.dragStartAt : 0
+          // 收尾样本 + 真实落点（与缺口位置对齐与否由组件本地判定，服务端再按保密坐标复核）
+          this.dropX = _x
+          if (this.trajectory.length < 800) {
+            this.trajectory.push({ x: _x, t: this.dragMs })
+          }
           if (Math.abs(_x - this.clipBarx) > this.diffWidth) {
             this.isOk = true
             const that = this

@@ -6,8 +6,9 @@
       - emit('success', passToken)     验证通过，带回服务端签发的一次性 passToken
       - emit('close')                  关闭（失败/取消），父组件可重新调 open()
 
-    说明：拼图压块的缺口位置由前端组件本地判定；通过后向后端 /captcha/verify
-    换取「一次性、绑定 IP、HMAC 签名、90 秒过期」的 passToken（服务端仍负责防伪造/重放/限流）。
+    说明：拼图压块对齐由前端组件本地初判；通过后向后端 /captcha/verify 提交
+    「真实落点 + 完整拖动轨迹」，服务端按保密缺口坐标与轨迹真实性复核，
+    换取「一次性、绑定 IP、HMAC 签名、90 秒过期、签发 1.2 秒后才可消费」的 passToken。
   -->
   <div v-if="visible" class="sc-mask" @click.self="onClose">
     <div :aria-label="t('slider.title')" class="sc-panel" role="dialog">
@@ -23,7 +24,7 @@
           ref="chipRef"
           v-model:is-passing="chipPassing"
           :bar-width="40"
-          :diff-width="15"
+          :diff-width="30"
           handler-icon="mdi mdi-menu-right"
           :imgsrc="image"
           :slot-x="slotX"
@@ -35,6 +36,7 @@
           :success-text="t('slider.ok')"
           :text="t('slider.text')"
           width="300"
+          @handler-move="err = ''"
           @passcallback="onPass"
           @passfail="onPassFail"
           @refresh="onRefresh"
@@ -91,7 +93,9 @@
     return e?.response?.data?.ret?.msg ?? e?.response?.data?.error ?? ''
   }
 
-  /** 取一张服务端挑战（key + 背景图，图上含一块高饱和目标色块） */
+  /** 取一张服务端挑战（key + 背景图，图上含一块高饱和目标色块）。
+   *  注意：不清 err —— 失败提示要一直留着，直到用户开始下一次拖动（handlermove）才清，
+   *  否则「没对准」的提示刚出现就被换图抹掉，用户看到的就是"什么都没发生"。 */
   async function issue (): Promise<void> {
     try {
       const res = await api.post('/captcha/init')
@@ -100,14 +104,13 @@
         key.value = d.key
         image.value = ''
         // 前端 CV：在图片像素里定位服务端画的「高饱和目标块」，把拼块裁到同一位置。
-        // 坐标不在 JSON 明文下发，机器人无法直接读走；CV 误差 ~2px，服务端 ±14px 容差兜底。
+        // 坐标不在 JSON 明文下发，机器人无法直接读走；CV 误差 ~2px，服务端 ±30px 容差兜底。
         const found = await locateTarget(d.image)
         slotX.value = found ? found.x : null
         slotY.value = found ? found.y : null
         // 切图：组件 watch imgsrc → reImg，画新的拼图压块（按 slotX/slotY 裁）
         image.value = d.image
         chipPassing.value = false
-        err.value = ''
       }
     } catch (error: any) {
       err.value = serverMsg(error) || t('slider.net')
@@ -200,19 +203,23 @@
     void issue()
   }
 
-  /** 前端拖到缺口（组件本地判定通过）→ 向后端换一次性 passToken（带拖动行为轨迹） */
+  /** 前端拖到缺口（组件本地判定通过）→ 向后端换一次性 passToken（带完整拖动轨迹样本） */
   async function onPass () {
     if (busy.value) return
     busy.value = true
     try {
       const chip = chipRef.value
-      const dragX = Math.round(chip?.clipBarx ?? 0)
-      // 行为轨迹：真实拖动的指针移动次数 + 拖动耗时（脚本一次性 POST 没有 → 服务端按此拒绝）
-      const moveCount = Number(chip?.moveCount ?? 0)
-      const dragMs = Number(chip?.dragMs ?? 0)
-      const res = await api.post('/captcha/verify', { key: key.value, dragX, moveCount, dragMs })
+      // 真实落点：此前回传 clipBarx（缺口位置本身），服务端拿目标和目标比恒为真 —— 等于没校验。
+      // 现在回传松手时滑块的真实位移，服务端与保密缺口坐标比对（±容差）才算对齐。
+      const dragX = Math.round(chip?.dropX ?? 0)
+      // 完整轨迹样本 [{x, t}]：服务端校验起点/终点/时长/单步位移/速度曲线，moveCount/dragMs
+      // 这类可伪造的自报整数已废弃，改由服务端从样本推导。
+      const trajectory = ((chip?.trajectory ?? []) as Array<{ x: number, t: number }>)
+        .map(s => ({ x: Math.round(s?.x ?? 0), t: Math.max(0, Math.round(s?.t ?? 0)) }))
+      const res = await api.post('/captcha/verify', { key: key.value, dragX, trajectory })
       const body = res.data
       if (body?.ret?.code === 200 && body?.data?.passToken) {
+        err.value = ''
         unlockScroll()
         visible.value = false
         emit('success', body.data.passToken)

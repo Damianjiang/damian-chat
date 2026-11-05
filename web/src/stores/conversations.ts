@@ -522,52 +522,5 @@ export const useConversationsStore = defineStore('conversations', {
       // 折叠/恢复会改变主列表可见性，刷新一次会话列表
       await this.loadSessions().catch(() => {})
     },
-    /**
-     * 登录/刷新后自动拉取服务端「最近 7 天」聊天记录，灌入浏览器缓存（IDB）。
-     * 并发上限（一次 2 个会话），避免登录瞬间把服务端拉爆；
-     * 每个会话取最新一页（100 条）；已缓存的跳过不重复写。
-     * 低端机：延迟 2.5s 再开始 + 并发降为 1 —— 刚登录的头几秒用户最活跃，
-     * 别让后台灌缓存跟首屏交互抢主线程。
-     */
-    async pullRecentHistoryIntoCache (limit = 20) {
-      if (this.sessions.length === 0) {
-        return
-      }
-      const low = isLowPerf()
-      if (low) await new Promise(r => setTimeout(r, 2500))
-      const target = this.sessions.slice(0, limit)
-      const concurrency = low ? 1 : 2
-      let cursor = 0
-      const worker = async () => {
-        while (cursor < target.length) {
-          const conv = target[cursor++]
-          if (!conv) {
-            break
-          }
-          try {
-            // 内存已有所需会话则跳过（避免重复拉取）
-            const have = this.messagesByConv[conv.id]
-            if (have && have.length > 0) {
-              scheduleMessagePersist(conv.id)
-              continue
-            }
-            const res = await api.get(`/messages/${conv.id}`, { params: { count: 100 } })
-            const page: Message[] = res.data
-            const existing = this.messagesByConv[conv.id] ?? []
-            const seen = new Set(existing.map(m => m.id))
-            const fresh = page.filter(m => !seen.has(m.id))
-            if (fresh.length === 0) {
-              continue
-            }
-            // 拉取的是最新消息（无 beforeId）→ 新消息 append 到已有列表后面
-            const merged = [...existing, ...fresh].slice(-500)
-            this.messagesByConv[conv.id] = merged
-            this.cacheLoaded[conv.id] = true
-            await idbPutMessages(conv.id, merged)
-          } catch { /* 单会话失败不影响整体 */ }
-        }
-      }
-      await Promise.all(Array.from({ length: concurrency }, () => worker()))
-    },
   },
 })

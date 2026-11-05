@@ -180,14 +180,25 @@ public class AuthController : ControllerBase
             return BadRequest(new { error = "图形验证码错误或已过期，请刷新重试" });
         }
 
-        // 双重人机验证 ②：滑块挑战换来的 pass token（一次性、90 秒、绑定 IP）。
+        // 双重人机验证 ②：滑块挑战换来的 pass token（一次性、90 秒、绑定 IP、签发 1.2 秒后才可消费）。
         // 管理端可关（EnableSlider）：关闭后不再要求 passToken（图形验证码仍在）。
-        if (_sec.EnableSlider && !_slider.ConsumePass(req.PassToken, Ip))
+        var pass = _slider.ConsumePass(req.PassToken, Ip);
+        if (pass != SliderPassResult.Ok)
         {
             // 同上：没过滑块说明还没走到「猜密码」那一步，只计 IP 不记账号
             _guard.RecordFailure(Ip, "", _sec);
-            _log.Write("auth", new { ts = DateTime.UtcNow, result = "slider-missing", account, ip = Ip, ua = Ua });
-            return BadRequest(new { error = "请先完成滑块验证" });
+            _log.Write("auth", new
+            {
+                ts = DateTime.UtcNow,
+                result = pass == SliderPassResult.NotReady ? "slider-not-ready" : "slider-missing",
+                account,
+                ip = Ip,
+                ua = Ua,
+            });
+            return BadRequest(new
+            {
+                error = pass == SliderPassResult.NotReady ? "安全检测尚未完成，请稍候重试" : "请先完成滑块验证",
+            });
         }
 
         Models.User? user;
@@ -287,12 +298,23 @@ public class AuthController : ControllerBase
             return BadRequest(new { error = "图形验证码错误或已过期，请刷新重试" });
         }
 
-        // 双重人机验证 ②：滑块 pass token（管理端可关 EnableSlider）
-        if (_sec.EnableSlider && !_slider.ConsumePass(req.PassToken, Ip))
+        // 双重人机验证 ②：滑块 pass token（管理端可关 EnableSlider）。NotReady=延时门未到。
+        var pass = _slider.ConsumePass(req.PassToken, Ip);
+        if (pass != SliderPassResult.Ok)
         {
             _guard.RecordFailure(Ip, "", _sec);
-            _log.Write("auth", new { ts = DateTime.UtcNow, result = "slider-missing", account, ip = Ip, ua = Ua });
-            return BadRequest(new { error = "请先完成滑块验证" });
+            _log.Write("auth", new
+            {
+                ts = DateTime.UtcNow,
+                result = pass == SliderPassResult.NotReady ? "slider-not-ready" : "slider-missing",
+                account,
+                ip = Ip,
+                ua = Ua,
+            });
+            return BadRequest(new
+            {
+                error = pass == SliderPassResult.NotReady ? "安全检测尚未完成，请稍候重试" : "请先完成滑块验证",
+            });
         }
 
         if (!_sec.RegisterKeyMatches(req.RegisterKey))

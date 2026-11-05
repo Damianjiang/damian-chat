@@ -294,6 +294,28 @@
             </v-btn>
           </div>
 
+          <!--
+            人机验证/登录常驻状态卡：滑块通过后的「安全检测中 → 已超过 NN% 的用户 → 正在登录」
+            与最终成败都留在这张卡里，直到出结果或重新提交 —— 不再用几秒就消失的 snackbar
+            （瞬时提示在登录场景观感很破坏：用户刚看清文字就没了）。
+            展示延时同时覆盖服务端「pass token 签发 1.2s 后才可消费」的延时门。
+          -->
+          <div v-if="verifyState" class="wx-verify-card" :class="'is-' + verifyState" role="status">
+            <div class="wx-verify-main">
+              <v-icon
+                class="wx-verify-ico"
+                :icon="verifyState === 'failed' ? 'mdi-alert-circle-outline' : 'mdi-shield-check-outline'"
+              />
+              <span class="wx-verify-text">
+                <template v-if="verifyState === 'checking'">{{ t('login.verify.checking') }}</template>
+                <template v-else-if="verifyState === 'beat'">{{ t('login.verify.beat', { n: verifyBeat }) }}</template>
+                <template v-else-if="verifyState === 'logging'">{{ pendingTab === 'login' ? t('login.verify.logging') : t('login.verify.registering') }}</template>
+                <template v-else>{{ verifyError }}</template>
+              </span>
+            </div>
+            <div v-if="verifyState !== 'failed'" class="wx-verify-bar"><span class="wx-verify-fill" /></div>
+          </div>
+
           <!-- 底部：登录 / 注册 切换链接（微软式） + 帮助文案 -->
           <div class="wx-ms-switch">
             <button
@@ -526,6 +548,16 @@
   /** 记住用户点的哪个 tab，滑块通过后继续原操作 */
   const pendingTab = ref<'login' | 'register'>('login')
 
+  /* ---------- 人机验证/登录常驻状态卡 ---------- */
+  /** ''=隐藏；checking=安全检测中；beat=已超过 NN% 的用户；logging=提交中；failed=失败（常驻不消失） */
+  const verifyState = ref<'' | 'checking' | 'beat' | 'logging' | 'failed'>('')
+  const verifyBeat = ref(80)
+  const verifyError = ref('')
+  /** 序号护栏：重新提交/切换 tab 时作废进行中的延时展示，防旧定时器把新流程串台 */
+  let verifySeq = 0
+
+  function sleep (ms: number) { return new Promise<void>(r => setTimeout(r, ms)) }
+
   /* 登录策略（服务端：验证码开关 / 注册开关） */
   const policyLoaded = ref(false)
   const captchaRequired = ref(true)
@@ -556,6 +588,8 @@
     tab.value = next
     captchaInput.value = ''
     passToken.value = ''
+    verifySeq++                 // 换 tab 作废进行中的验证状态展示
+    verifyState.value = ''
     if (captchaRequired.value) await refreshCaptcha()
   }
 
@@ -566,23 +600,39 @@
     } else if (!validRegister.value) {
       return
     }
+    verifySeq++
+    verifyState.value = ''      // 清掉上一轮的失败/状态卡，重开滑块
     pendingTab.value = tab.value
     passToken.value = ''
     // 管理端关了滑块 → 直接提交（服务端 EnableSlider 同步关闭时不再要求 passToken）
     if (!sliderRequired.value) {
-      if (pendingTab.value === 'login') doLogin()
-      else doRegister()
+      if (pendingTab.value === 'login') void doLogin()
+      else void doRegister()
       return
     }
     sliderRef.value?.open()
   }
 
-  /** 滑块通过：拿到一次性 passToken，立即提交原本的操作 */
-  function onSliderPass (token: string) {
+  /**
+   * 滑块通过：拿到一次性 passToken。服务端要求「签发 ≥1.2s 后才可消费」，
+   * 正好在此展示常驻状态卡：安全检测中 → 已超过 NN% 的用户 → 提交（总延时 1.5–2.2s）。
+   * 状态一直留在卡片里直到出结果，不再用几秒就消失的提示。
+   */
+  async function onSliderPass (token: string) {
     if (loading.value) return   // 防重入：滑块二次通过时不再双发
     passToken.value = token
-    if (pendingTab.value === 'login') doLogin()
-    else doRegister()
+    const seq = ++verifySeq
+    verifyError.value = ''
+    verifyBeat.value = 76 + Math.floor(Math.random() * 18)   // 76–93，每次随机
+    verifyState.value = 'checking'
+    await sleep(700 + Math.floor(Math.random() * 300))
+    if (seq !== verifySeq) return
+    verifyState.value = 'beat'
+    await sleep(800 + Math.floor(Math.random() * 400))
+    if (seq !== verifySeq) return
+    verifyState.value = 'logging'
+    if (pendingTab.value === 'login') await doLogin()
+    else await doRegister()
   }
 
   async function doLogin () {
@@ -592,11 +642,17 @@
       // 换号护栏：同浏览器上一账号没走登出时，先进来把残留缓存清干净再加载
       if (auth.user?.id) { try { await auth.accountSwitchGuard(auth.user.id) } catch { /* 忽略 */ } }
       await enterApp()
-      snackOkMsg.value = t('login.ok')
-      snackOk.value = true
+      verifyState.value = ''    // 导航/整页跳转接管，状态卡退场
     } catch (error: any) {
-      snackMsg.value = error?.response?.data?.error ?? t('login.fail')
-      snack.value = true
+      // 走了滑块流程 → 失败信息进常驻状态卡（不再几秒就消失）；无滑块模式保持 snackbar
+      const msg = error?.response?.data?.error ?? t('login.fail')
+      if (verifyState.value) {
+        verifyError.value = msg
+        verifyState.value = 'failed'
+      } else {
+        snackMsg.value = msg
+        snack.value = true
+      }
       if (captchaRequired.value) await refreshCaptcha()
       passToken.value = ''
     } finally {
@@ -714,11 +770,16 @@
         await auth.register(regAccount.value.trim(), regPassword.value, regKey.value.trim(), captchaId.value, captchaInput.value.trim(), passToken.value)
       }
       await enterApp()
-      snackOkMsg.value = t('login.reg.ok')
-      snackOk.value = true
+      verifyState.value = ''    // 导航/整页跳转接管，状态卡退场
     } catch (error: any) {
-      snackMsg.value = error?.response?.data?.error ?? t('login.reg.fail')
-      snack.value = true
+      const msg = error?.response?.data?.error ?? t('login.reg.fail')
+      if (verifyState.value) {
+        verifyError.value = msg
+        verifyState.value = 'failed'
+      } else {
+        snackMsg.value = msg
+        snack.value = true
+      }
       if (captchaRequired.value) await refreshCaptcha()
       passToken.value = ''
     } finally {
@@ -739,7 +800,6 @@
    */
   async function enterApp () {
     await Promise.allSettled([conversations.loadSessions(), contacts.load(), contacts.loadRequests()])
-    void conversations.pullRecentHistoryIntoCache().catch(() => {})
     // 动态取实时通道模块：SignalR（55KB）解析成本留给真正要连的时候，登录页不背
     try {
       const { initRealtime } = await import('@/lib/realtime')
@@ -1075,4 +1135,72 @@ html[data-dm-mode='dark'] .wx-captcha {
 .wx-pw-strength__seg.active { background: var(--wx-pw-color); }
 .wx-pw-strength__label { font-size: 12px; color: var(--wx-pw-color); min-width: 2em; white-space: nowrap; }
 .wx-pw-strength--0 .wx-pw-strength__label { color: #9e9e9e; }
+
+/* 人机验证/登录常驻状态卡：替代几秒就消失的 snackbar（状态留到出结果） */
+.wx-verify-card {
+  margin-top: 10px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: #eef6ff;
+  border: 1px solid #d3e5f7;
+  color: #2563ab;
+  font-size: 13px;
+  overflow: hidden;
+}
+.wx-verify-card.is-beat {
+  background: #eefaf2;
+  border-color: #cdeadb;
+  color: #1e7e46;
+}
+.wx-verify-card.is-failed {
+  background: #fdf1f0;
+  border-color: #f3d3d0;
+  color: #c0392b;
+}
+.wx-verify-main { display: flex; align-items: center; gap: 8px; }
+.wx-verify-ico { font-size: 19px; flex: none; }
+.wx-verify-card.is-checking .wx-verify-ico { animation: wx-verify-pulse 1.1s ease-in-out infinite; }
+.wx-verify-text { line-height: 1.45; min-width: 0; }
+.wx-verify-bar {
+  height: 2px;
+  margin-top: 8px;
+  border-radius: 2px;
+  background: currentColor;
+  opacity: 0.18;
+  overflow: hidden;
+}
+.wx-verify-fill {
+  display: block;
+  height: 100%;
+  width: 100%;
+  background: currentColor;
+  transform-origin: left;
+  animation: wx-verify-grow 2.2s linear forwards;
+}
+@keyframes wx-verify-grow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes wx-verify-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+/* 暗色：状态卡底色跟着卡片走 */
+.v-theme--dark .wx-verify-card {
+  background: rgba(38, 52, 70, 0.55);
+  border-color: rgba(110, 150, 200, 0.28);
+  color: #9ec3e8;
+}
+.v-theme--dark .wx-verify-card.is-beat {
+  background: rgba(26, 52, 38, 0.55);
+  border-color: rgba(96, 165, 128, 0.3);
+  color: #7fd39f;
+}
+.v-theme--dark .wx-verify-card.is-failed {
+  background: rgba(64, 30, 30, 0.5);
+  border-color: rgba(192, 92, 88, 0.32);
+  color: #e8a49e;
+}
+
+/* reduced-motion / 性能模式：状态卡动画退化为静态展示 */
+@media (prefers-reduced-motion: reduce) {
+  .wx-verify-fill { animation: none; transform: scaleX(0.35); }
+  .wx-verify-card.is-checking .wx-verify-ico { animation: none; }
+}
+.wx-perf .wx-verify-fill { animation-duration: 1.6s; }
 </style>

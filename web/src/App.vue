@@ -108,9 +108,8 @@
     // 会话数据之前先清掉上一个账号的内存 store 与 IDB 残留
     try { await auth.accountSwitchGuard(auth.user!.id) } catch { /* 忽略 */ }
     await Promise.allSettled([conversations.loadSessions(), contacts.load(), contacts.loadRequests()])
-    // 登录/刷新后自动拉取服务端「最近 1 周」聊天记录，灌入浏览器缓存（IDB），
-    // 之后可离线查看 + 打开会话秒开；并发受 pullRecentHistoryIntoCache 内部限流。
-    void conversations.pullRecentHistoryIntoCache().catch(() => {})
+    // 注：不再启动时后台批量预下载聊天记录（首启流量大、低端机抢主线程，且打开会话
+    // 时本来就会按需从服务器拉取）。历史记录改为「打开哪个会话拉哪个」，首启更轻。
     // 动态取实时通道模块：SignalR（55KB）不该在登录页就解析——刷新恢复场景走到这里才需要
     try {
       const { initRealtime } = await import('@/lib/realtime')

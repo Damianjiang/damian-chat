@@ -53,15 +53,21 @@ public class SliderCaptchaController : ControllerBase
             return StatusCode(StatusCodes.Status429TooManyRequests,
                 new { ret = new { code = 429, msg = "失败次数过多，请 15 分钟后再试" }, data = (object?)null });
         }
-        var token = _slider.Complete(req.Key, Ip, req.DragX, req.MoveCount, req.DragMs);
+        var (token, reason) = _slider.Complete(req.Key, Ip, req.DragX, req.Trajectory);
         if (token is null)
         {
             _log.Write("auth", new { ts = DateTime.UtcNow, result = "slider-fail", ip = Ip });
-            // 组件约定：ret.code 不为 200 即判定验证失败
-            return Ok(new { ret = new { code = 400, msg = "验证已失效，请重试" }, data = (object?)null });
+            // 组件约定：ret.code 不为 200 即判定验证失败。
+            // drop-miss 是真人最常踩的失败（没对准），给一条说得通的提示；其余一律同一句话，
+            // 不向脚本泄漏具体触发了哪条机器人判定。
+            var msg = reason == "drop-miss"
+                ? "没有对准缺口，把压块拖到缺口附近再松手"
+                : "验证未通过，已换一张，请重试";
+            return Ok(new { ret = new { code = 400, msg }, data = (object?)null });
         }
         return Ok(new { ret = new { code = 200 }, data = new { passToken = token } });
     }
 
-    public record VerifyRequest (string? Key, int? DragX, int? MoveCount, int? DragMs);
+    /// <summary>Trajectory：真实拖动轨迹样本 [{x 位移px, t 距按下ms}]（此前 moveCount/dragMs 两个自报整数可任意伪造，已废弃）。</summary>
+    public record VerifyRequest (string? Key, int? DragX, List<SliderCaptchaService.SliderSample>? Trajectory);
 }
