@@ -10,6 +10,7 @@ import { createVuetify } from 'vuetify'
 import { aliases } from 'vuetify/iconsets/mdi'
 
 import { currentPreset, getThemeId, getThemeMode, prefersDark, resolveDark } from '@/lib/theme'
+import { isLowPerf } from '@/lib/perf'
 // 图标：改用内联 SVG（@mdi/js 矢量路径，fill: currentColor）。
 // 不再引入 @mdi/font webfont（3.6MB 字体在旧设备未应用时 PUA 字形回退成黑豆腐块）。
 import { MdiSvgIcon } from '@/lib/mdi-svg'
@@ -108,7 +109,20 @@ export function buildThemes () {
 const light = buildTheme(false)
 const dark = buildTheme(true)
 
+// 低端机（手机/平板/旧电脑）：全局关掉按压涟漪。涟漪是每次点按都要创建/动画/回收
+// 一个 DOM 层，低端机上是最容易被感知的「点一下卡一下」来源之一。
+const lowPerf = isLowPerf()
+
 export default createVuetify({
+  defaults: lowPerf
+    ? {
+        VBtn: { ripple: false },
+        VListItem: { ripple: false },
+        VChip: { ripple: false },
+        VTab: { ripple: false },
+        VExpansionPanel: { ripple: false },
+      }
+    : {},
   display: {
     thresholds: {
       xs: 0,

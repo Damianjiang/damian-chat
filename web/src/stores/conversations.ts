@@ -7,6 +7,7 @@ import type { Conversation, Message } from '@/types'
 import { defineStore } from 'pinia'
 import { api } from '@/lib/api'
 import { idbClearMessages, idbCountMessages, idbGetMessages, idbPutMessages, idbRemoveMessage } from '@/lib/idb'
+import { isLowPerf } from '@/lib/perf'
 import { useAuthStore } from '@/stores/auth'
 
 /**
@@ -524,13 +525,17 @@ export const useConversationsStore = defineStore('conversations', {
      * 登录/刷新后自动拉取服务端「最近 7 天」聊天记录，灌入浏览器缓存（IDB）。
      * 并发上限（一次 2 个会话），避免登录瞬间把服务端拉爆；
      * 每个会话取最新一页（100 条）；已缓存的跳过不重复写。
+     * 低端机：延迟 2.5s 再开始 + 并发降为 1 —— 刚登录的头几秒用户最活跃，
+     * 别让后台灌缓存跟首屏交互抢主线程。
      */
     async pullRecentHistoryIntoCache (limit = 20) {
       if (this.sessions.length === 0) {
         return
       }
+      const low = isLowPerf()
+      if (low) await new Promise(r => setTimeout(r, 2500))
       const target = this.sessions.slice(0, limit)
-      const concurrency = 2
+      const concurrency = low ? 1 : 2
       let cursor = 0
       const worker = async () => {
         while (cursor < target.length) {

@@ -4,7 +4,7 @@
     :class="{ 'user-avatar--circle': circle, 'user-avatar--gradient': variant === 'gradient' }"
     :style="{ width: size + 'px', height: size + 'px', background: bgStyle, borderRadius: radius }"
   >
-    <img v-if="resolvedSrc" :alt="alt || nickname || ''" :src="resolvedSrc">
+    <img v-if="resolvedSrc" :alt="alt || nickname || ''" :src="resolvedSrc" loading="lazy" decoding="async">
     <span v-else :style="{ fontSize: Math.round(size * 0.42) + 'px' }">{{ initial }}</span>
   </div>
 </template>

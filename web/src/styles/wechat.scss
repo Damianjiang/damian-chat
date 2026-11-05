@@ -838,3 +838,23 @@ html[data-dm-mode='dark'] body.wx-has-user-bg::after {
   0%, 100% { opacity: 0.35; transform: translateY(0); }
   50% { opacity: 1; transform: translateY(-3px); }
 }
+
+/* ===== 低端机专项（手机/平板/旧电脑，html.wx-low-perf） ===== */
+
+/* 过渡保留但缩短：动画窗口期减半，掉帧概率大降（一刀切归零已被用户否掉） */
+html.wx-low-perf {
+  --wx-dur-lg: 0.22s;
+  --wx-dur-md: 0.18s;
+}
+
+/* 长列表跳过屏外渲染（Chrome 85+，旧 WebView 不识别时自动忽略，无副作用）：
+   会话行/朋友圈卡片是首屏之外数量最多的重内容（头像+文本+图片） */
+.wx-session-item,
+.wx-moment-card {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 64px;
+}
+
+.wx-moment-card {
+  contain-intrinsic-size: auto 180px;
+}
