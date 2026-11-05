@@ -1203,4 +1203,89 @@ html[data-dm-mode='dark'] .wx-captcha {
   .wx-verify-card.is-checking .wx-verify-ico { animation: none; }
 }
 .wx-perf .wx-verify-fill { animation-duration: 1.6s; }
+
+/* ============================================================
+   手机端（≤767px）：微信式全屏登录/注册页
+   桌面保留微软 Fluent 卡片；手机端去掉卡片壳——微信同款结构：
+   上部居中大 logo 品牌区 → 中下部全宽平铺字段（仅行底分隔线）→
+   全宽主按钮 → 居中切换链接。背景改为微信式平铺浅灰/近黑。
+   ============================================================ */
+@media (max-width: 767.98px) {
+  .wx-login-page {
+    padding: 0;
+    align-items: flex-start;
+  }
+  .wx-ms-bg {
+    background: linear-gradient(180deg, #f7f7f7 0%, #ededed 100%);
+  }
+  html[data-dm-mode='dark'] .wx-ms-bg,
+  .v-theme--dark .wx-ms-bg {
+    background: linear-gradient(180deg, #141414 0%, #0d0d0d 100%);
+  }
+  /* 手机不玩 3D 倾斜 */
+  .wx-3d { transform: none !important; }
+  .wx-login-card { max-width: none; }
+  .wx-ms-card {
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    padding: 0 0 28px;
+    animation: none;
+  }
+  /* 暗色模式卡片底色（#242424）与上面同优先级、但写在后面 → 覆盖之，
+     否则卡片在内容末尾留下一截"深色带"，与平铺背景形成突兀分界 */
+  html[data-dm-mode='dark'] .wx-ms-card,
+  .v-theme--dark .wx-ms-card {
+    background: transparent;
+    border: none;
+    box-shadow: none;
+  }
+
+  /* 品牌区：微信式大 logo 居中 + 名称 + 标语 */
+  .wx-ms-brand {
+    flex-direction: column;
+    gap: 14px;
+    margin: 96px 24px 46px;
+  }
+  .wx-ms-brand-logo {
+    width: 78px;
+    height: 78px;
+    border-radius: 18px;
+    box-shadow: 0 6px 18px rgba(0, 60, 20, 0.16);
+  }
+  .wx-ms-brand-text { align-items: center; gap: 2px; }
+  .wx-ms-brand-name { font-size: 20px; }
+  .wx-ms-brand-sub { font-size: 13px; }
+
+  /* 微信式：无「登录到你的账户」标题，字段直接铺 */
+  .wx-ms-title { display: none; }
+  .wx-ms-panel { padding: 0 28px; }
+
+  /* 字段：平铺行，仅保留底部分隔线（微信登录输入框样式） */
+  .wx-login-card :deep(.v-field) {
+    background-color: transparent;
+    border: none;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.12);
+    border-radius: 0;
+  }
+  .wx-login-card :deep(.v-field--focused) {
+    box-shadow: none;
+    border-bottom: 2px solid rgb(var(--v-theme-primary));
+  }
+  html[data-dm-mode='dark'] .wx-login-card :deep(.v-field),
+  .v-theme--dark .wx-login-card :deep(.v-field) {
+    background-color: transparent;
+    border-bottom-color: rgba(255, 255, 255, 0.14);
+  }
+
+  .wx-login-cta { margin-top: 30px; }
+  .wx-login-cta :deep(.v-btn) { height: 44px; border-radius: 4px; font-size: 15px; }
+
+  /* 图形验证码行：输入吃满剩余宽度，图不压瘪 */
+  .wx-login-card :deep(.wx-captcha) { flex: none; }
+
+  /* 验证状态卡贴满表单宽度 */
+  .wx-verify-card { margin: 10px 0 0; }
+}
 </style>
