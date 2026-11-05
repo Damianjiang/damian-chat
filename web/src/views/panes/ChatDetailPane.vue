@@ -165,10 +165,6 @@
 
     <!-- 消息区 -->
     <div ref="listRef" class="flex-grow-1 overflow-y-auto wx-scroll wx-msg-area" @scroll.passive="onMsgScroll">
-      <!-- 正在看历史时不抢滚动，只在这里提示（通用做法） -->
-      <button v-if="newCount > 0" class="wx-new-tip" type="button" @click="jumpToNew">
-        {{ t('chat.newMsgs', { n: newCount }) }}
-      </button>
 
       <v-btn
         v-if="hasMoreHistory"
@@ -233,6 +229,15 @@
       <div v-if="searchOn && searchKw && groupedByDate.every(g => g.messages.length === 0)" class="text-center text-body-small text-medium-emphasis pa-6">
         {{ t('chat.search.none') }}
       </div>
+
+      <!-- 微信式「↓ N条新消息」：翻看历史期间来了新消息才出现（贴底跟随时不打扰），
+           点击回到底部并清零 + 标记已读，手动滚回底部也会自动隐藏。
+           ★ 必须是滚动内容的最后一个子元素：sticky-bottom 只有在元素的自然位置位于
+           内容末尾时才会钉在可视区底部（放在开头永远滚出视野外 = 看不见）。 -->
+      <button v-if="newCount > 0" class="wx-new-tip" type="button" @click="jumpToNew">
+        <v-icon icon="mdi-chevron-down" size="14" />
+        <span>{{ t('chat.newMsgs', { n: newCount }) }}</span>
+      </button>
     </div>
 
     <!-- 引用回复预览条：固定在输入框正上方（此前在消息滚动区里，
@@ -1244,6 +1249,12 @@
     // 滑动窗口里「窗口底」之下可能还有未渲染的最新消息：先回贴尾模式再滚
     if (winStart.value !== -1) winStart.value = -1
     scrollBottom()
+    // 点浮标 = 已经回到最新位置看到新消息了：清红点并标记已读（微信同款）
+    const cid = convId.value
+    if (cid) {
+      store.markRead(cid)
+      void api.put(`/conversations/${cid}`, { read: true }).catch(() => {})
+    }
   }
 
   /** 图片等媒体加载完成后容器高度变化：贴底状态补一次滚动，避免"看起来没到底"的错位 */
@@ -1317,6 +1328,12 @@
     noticeDialog.value = false
     displayLimit.value = 60
     winStart.value = -1
+    // 新消息浮标随会话切换重置：lastSignature 是「上个会话」的长度签名，不重置的话
+    // 下一条新消息的 delta = 新会话长度 - 旧会话长度，从少切到多会假报「40条新消息」、
+    // 从多切到少永远走 delta<=0 分支不显示（用户视角就是这个功能时有时无）。
+    lastSignatureRef.value = null
+    newCount.value = 0
+    atBottom.value = true
     // 群昵称/头像映射随会话切换重置：不清的话上一个群的群昵称会串进私聊/别的群，
     // 且 map 只增不减（每个会话条目常驻内存）
     nameMap.value = {}
@@ -1462,17 +1479,18 @@
   50% { opacity: 0.2; }
 }
 
-/* 新消息提示：贴右下角，点击跳到底部 */
+/* 微信式新消息浮标：输入框上方、贴右下角的「↓ N条新消息」胶囊（翻历史期间来新消息才出现） */
 .wx-new-tip {
   position: sticky;
   bottom: 12px;
-  left: 50%;
-  transform: translateX(-50%);
   z-index: 6;
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 2px;
   width: max-content;
-  margin: 0 auto;
-  padding: 5px 14px;
+  margin-left: auto;   /* 推到右侧：微信同款右下角 */
+  margin-right: 14px;
+  padding: 5px 12px 5px 8px;
   border: none;
   border-radius: 14px;
   background: #fa5151;
@@ -1486,12 +1504,12 @@
 @keyframes wx-tip-in {
   from {
     opacity: 0;
-    transform: translate(-50%, 6px) scale(0.92);
+    transform: translateY(6px) scale(0.92);
   }
 
   to {
     opacity: 1;
-    transform: translate(-50%, 0) scale(1);
+    transform: translateY(0) scale(1);
   }
 }
 

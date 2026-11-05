@@ -175,7 +175,7 @@
         <v-list density="compact">
           <v-list-item v-if="!isMe" @click="$emit('pat', message)">
             <v-list-item-title>{{ t('msg.menu.pat') }}</v-list-item-title>
-            <template #append><v-icon icon="mdi-hand-raise" /></template>
+            <template #append><v-icon icon="mdi-hand-clap" /></template>
           </v-list-item>
 
           <v-list-item v-if="!isMe && message.type === 'text'" @click="$emit('quote', message)">
