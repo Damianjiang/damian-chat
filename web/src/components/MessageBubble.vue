@@ -62,6 +62,21 @@
         </span>
       </div>
 
+      <!-- 合并转发卡片（QQ 式「聊天记录」）：点击进入全屏阅读器逐条展开 -->
+      <button v-else-if="message.type === 'forward'" class="wx-forward-card" type="button" @click="$emit('openForward', message)">
+        <div class="d-flex align-center gap-1">
+          <v-icon icon="mdi-chat-outline" size="16" />
+          <span class="text-body-medium font-weight-medium">{{ t('chat.forward.title') }}</span>
+        </div>
+        <div class="text-body-small text-medium-emphasis text-truncate mt-1">
+          {{ forwardParticipants }}
+        </div>
+        <div class="text-body-small text-medium-emphasis text-truncate">
+          {{ forwardFirstLine }}
+        </div>
+        <div class="text-caption text-medium-emphasis mt-1">{{ t('chat.forward.viewCard') }}</div>
+      </button>
+
       <!-- 图片：微信式裸图直出（不套气泡内衬，避免大图四周出现色块）。
            用原生 <img> 直接可点（@click 打开预览），不套 v-btn：v-btn 是带 min-height 的
            flex 按钮盒，把图片塞进去会被按钮行高压扁（竖图尤其明显、比例错乱）。
@@ -233,6 +248,8 @@
     recall: [m: Message]
     quote: [m: Message]
     forward: [m: Message]
+    /** 打开合并转发阅读器（点「聊天记录」卡片） */
+    openForward: [m: Message]
     favorite: [m: Message, result: 'added' | 'removed' | 'failed', errorText?: string]
     delete: [m: Message]
     select: [m: Message]
@@ -292,6 +309,33 @@
     } catch {
       return null
     }
+  })
+
+  /** 合并转发卡片上的摘要：参与者名单 + 第一条消息预览（QQ 同款） */
+  const forwardBundle = computed(() => {
+    if (props.message.type !== 'forward' || !props.message.forwardJson) return null
+    try {
+      const b = JSON.parse(props.message.forwardJson) as { msgs: Array<{ s?: string, k?: string, c?: string, f?: string, e?: string }> }
+      return Array.isArray(b?.msgs) && b.msgs.length > 0 ? b : null
+    } catch {
+      return null
+    }
+  })
+  const forwardParticipants = computed(() => {
+    const b = forwardBundle.value
+    if (!b) return t('chat.forward.title')
+    const names = [...new Set(b.msgs.map(m => m.s || '?'))].slice(0, 3)
+    return t('chat.forward.participants', { names: names.join('、'), n: b.msgs.length })
+  })
+  const forwardFirstLine = computed(() => {
+    const b = forwardBundle.value
+    if (!b) return ''
+    const first = b.msgs.find(m => (m.c ?? '').length > 0 || m.k === 'image' || m.k === 'file')
+    if (!first) return ''
+    if (first.k === 'image') return `[${t('chat.preview.image')}]`
+    if (first.k === 'file') return `[${first.f || t('chat.preview.file', { name: '' })}]`
+    if (first.k === 'sticker') return `[${first.e || '🙂'}]`
+    return (first.c ?? '').slice(0, 60)
   })
 
   /** 附件扩展名（判断 video/audio 类可预览媒体，视频存的是 type:'file'） */

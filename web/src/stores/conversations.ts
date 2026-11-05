@@ -382,6 +382,7 @@ export const useConversationsStore = defineStore('conversations', {
         fileSize: msg.fileSize,
         stickerEmoji: msg.stickerEmoji,
         quoteJson: msg.quoteJson,
+        forwardJson: (msg as Partial<Message> & { forwardJson?: string }).forwardJson,
         patTarget: msg.patTarget,
         // 幂等 id：服务端弱网重试去重 + 回声精准对账（内容匹配会被转义破坏）
         clientMsgId: localKey,

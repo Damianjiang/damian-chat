@@ -51,8 +51,78 @@ public static class Validate
     private static readonly Regex AccountPattern = new(@"^(?:1[3-9]\d{9}|[A-Za-z0-9_]{3,32}|[\u4e00-\u9fa5]{2,16})$", RegexOptions.Compiled);
     private static readonly Regex SafeFileName = new(@"^[^\x00-\x1f<>:""|?*\\/]+$", RegexOptions.Compiled);
 
-    /// <summary>允许的消息类型白名单（防止伪造 type 触发未处理的分支）。poll = 群投票卡片（content 为 pollId）。</summary>
-    public static readonly string[] MessageTypes = { "text", "image", "voice", "file", "sticker", "system", "pat", "poll" };
+    /// <summary>允许的消息类型白名单（防止伪造 type 触发未处理的分支）。poll = 群投票卡片（content 为 pollId）。
+    /// forward = 合并转发「聊天记录」卡片（ForwardJson 携带快照）。</summary>
+    public static readonly string[] MessageTypes = { "text", "image", "voice", "file", "sticker", "system", "pat", "poll", "forward" };
+
+    /// <summary>合并转发 JSON 上限（64KB，约可装 300 条纯文本；前端硬上限 50 条先卡）。</summary>
+    public const int MaxForwardJson = 64 * 1024;
+    /// <summary>单条合并转发的消息条数上限（QQ 同款量级）。</summary>
+    public const int MaxForwardCount = 50;
+
+    private static readonly Regex ForwardFileIdsRegex = new("^[a-f0-9]{32}$", RegexOptions.Compiled);
+
+    /// <summary>
+    /// 解析并消毒合并转发的 ForwardJson：
+    ///   { v:1, msgs:[{ s:发送人名, t:毫秒时间, k:类型, c:内容, f:文件名, fs:大小, i:fileId, e:表情 }] }
+    /// 全部字符串过 StripHtml/长度封顶，类型白名单，fileId 必须是合法 32 位 hex；
+    /// 超过 MaxForwardCount 条直接拒绝（前端分批）。返回规范化后的紧凑 JSON；非法返回 null。
+    /// </summary>
+    public static string? ParseForwardJson (string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw) || raw.Length > MaxForwardJson) return null;
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(raw);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object) return null;
+            if (!doc.RootElement.TryGetProperty("msgs", out var msgsEl) || msgsEl.ValueKind != JsonValueKind.Array) return null;
+            var list = new List<object>();
+            var count = 0;
+            foreach (var m in msgsEl.EnumerateArray())
+            {
+                if (++count > MaxForwardCount) return null;
+                if (m.ValueKind != JsonValueKind.Object) return null;
+
+                string Str (string prop, int max)
+                {
+                    if (!m.TryGetProperty(prop, out var p) || p.ValueKind != JsonValueKind.String) return "";
+                    var v = StripHtml(p.GetString()) ?? "";
+                    return v.Length > max ? v[..max] : v;
+                }
+
+                var kind = Str("k", 20);
+                if (!MessageTypes.Contains(kind) || kind == "system" || kind == "poll") return null;
+                var sender = Str("s", MaxNickname);
+                var content = Str("c", MaxMessageText);
+                var fileName = Str("f", 120);
+                var sticker = Str("e", MaxSticker);
+                var imageId = Str("i", 64);
+                if (imageId.Length > 0 && !IsFileId(imageId)) return null;
+                long fileSize = 0;
+                if (m.TryGetProperty("fs", out var fsEl) && fsEl.ValueKind == JsonValueKind.Number && fsEl.TryGetInt64(out var fsv) && fsv > 0)
+                    fileSize = Math.Min(fsv, 1L << 30);
+                long timeMs = 0;
+                if (m.TryGetProperty("t", out var tEl) && tEl.ValueKind == JsonValueKind.Number && tEl.TryGetInt64(out var tv) && tv > 0)
+                    timeMs = Math.Min(tv, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+
+                var entry = new Dictionary<string, object?>();
+                if (sender.Length > 0) entry["s"] = sender;
+                if (timeMs > 0) entry["t"] = timeMs;
+                entry["k"] = kind;
+                if (content.Length > 0) entry["c"] = content;
+                if (kind == "file" && fileName.Length > 0) entry["f"] = fileName;
+                if (kind == "file" && fileSize > 0) entry["fs"] = fileSize;
+                // 媒体类（图片/文件/语音）都携带 fileId：接收方的下载鉴权走消息上的引用链
+                if ((kind == "image" || kind == "file" || kind == "voice") && imageId.Length > 0) entry["i"] = imageId;
+                if (kind == "voice") entry["fs"] = Math.Clamp(fileSize, 1, 600);
+                if (kind == "sticker" && sticker.Length > 0) entry["e"] = sticker;
+                if (kind == "forward") entry["c"] = "[聊天记录]";
+                list.Add(entry);
+            }
+            return System.Text.Json.JsonSerializer.Serialize(new { v = 1, msgs = list });
+        }
+        catch { return null; }
+    }
 
     public static bool IsAccount (string? s) => !string.IsNullOrWhiteSpace(s) && AccountPattern.IsMatch(s);
 

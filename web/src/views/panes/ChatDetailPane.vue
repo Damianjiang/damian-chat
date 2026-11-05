@@ -58,11 +58,13 @@
       </div>
     </v-app-bar>
 
-    <!-- 多选模式操作条 -->
+    <!-- 多选模式操作条：删除 / 逐条转发 / 合并转发（QQ 式聊天记录打包） -->
     <div v-if="multiMode" class="wx-multi-bar">
       <v-btn icon="mdi-close" size="small" variant="text" @click="exitMulti" />
       <span class="text-body-medium">{{ t('chat.multi.selected', { n: selectedIds.size }) }}</span>
       <v-spacer />
+      <v-btn :disabled="selectedIds.size === 0" size="small" variant="text" @click="startForward('multi-one')">{{ t('chat.multi.forwardOne') }}</v-btn>
+      <v-btn :disabled="selectedIds.size === 0" size="small" variant="text" @click="startForward('merged')">{{ t('chat.multi.forwardMerged') }}</v-btn>
       <v-btn :disabled="selectedIds.size === 0" size="small" variant="text" @click="batchDelete">{{ t('common.delete') }}</v-btn>
     </div>
 
@@ -203,6 +205,7 @@
             @delete="onDelete"
             @favorite="onFavorite"
             @forward="onForward"
+            @open-forward="openViewer"
             @preview="openPreview"
             @quote="onQuote"
             @recall="onRecall"
@@ -301,28 +304,18 @@
     <!-- 图片 / 视频 / 音频预览 -->
     <media-previewer v-model="previewOpen" :alt="previewAlt" :kind="previewKind" :url="previewUrl" />
 
-    <!-- 转发选择 -->
-    <v-bottom-sheet v-model="forwardOpen" max-width="400" scrollable>
-      <!-- 列表限高内滚：会话很多时整卡曾被顶出屏幕，标题和按钮够不着 -->
-      <v-card class="pa-2">
-        <div class="text-title-small pa-2">{{ t('chat.forward.to') }}</div>
+    <!-- 转发选择（全屏：真实头像 + 搜索 + 多选批量，微信/QQ 同款） -->
+    <forward-picker
+      v-model="forwardOpen"
+      :exclude-conv-id="convId"
+      :mode="forwardMode === 'single' ? 'single' : 'multi'"
+      :sending="forwardSending"
+      :sessions="store.sessions"
+      @confirm="onForwardConfirm"
+    />
 
-        <v-list density="compact" max-height="320">
-          <v-list-item
-            v-for="s in store.sessions"
-            :key="s.id"
-            :title="s.title"
-            @click="doForward(s)"
-          >
-            <template #prepend>
-              <v-avatar :color="avatarColor(s.id)" :size="32">
-                <span>{{ s.title.slice(0, 1) }}</span>
-              </v-avatar>
-            </template>
-          </v-list-item>
-        </v-list>
-      </v-card>
-    </v-bottom-sheet>
+    <!-- 合并转发阅读器（QQ 式「聊天记录」全屏展开） -->
+    <forward-viewer v-model="viewerOpen" :bundle="viewerBundle" />
 
     <!-- 清空聊天记录确认 -->
     <v-dialog v-model="clearDialog" max-width="300">
@@ -347,9 +340,14 @@
   import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
   import { useRoute, useRouter } from 'vue-router'
   import ChatInputToolbar from '@/components/ChatInputToolbar.vue'
+  import ForwardPicker from '@/components/ForwardPicker.vue'
+  import ForwardViewer from '@/components/ForwardViewer.vue'
   import MediaPreviewer from '@/components/MediaPreviewer.vue'
   import MessageBubble from '@/components/MessageBubble.vue'
   import UserAvatar from '@/components/UserAvatar.vue'
+
+  /** 合并转发快照（与服务端 Validate.ParseForwardJson 输出一致） */
+  type ForwardBundle = { v?: number, msgs: Array<{ s?: string, t?: number, k: string, c?: string, f?: string, fs?: number, i?: string, e?: string }> }
   import { api } from '@/lib/api'
   import { confirm } from '@/lib/confirm'
   import { isPageMode } from '@/lib/device'
@@ -409,7 +407,6 @@
   const showMembers = ref(false)
   const quoteDraft = ref<{ senderName: string, text: string, senderId: string, origType: string } | null>(null)
   const forwardOpen = ref(false)
-  const forwardMsg = ref<Message | null>(null)
   const snack = ref(false)
   const snackMsg = ref('')
   /** 当前群公告「我」是否已确认（来自 group.noticeReadByMe，确认后置位） */
@@ -920,35 +917,130 @@
   }
 
   function onForward (m: Message) {
-    forwardMsg.value = m
+    if (!forwardable(m)) {
+      snackMsg.value = t('chat.forward.unsupported')
+      snack.value = true
+      return
+    }
+    forwardSource.value = [m]
+    forwardMode.value = 'single'
     forwardOpen.value = true
   }
 
-  async function doForward (target: Conversation) {
-    const m = forwardMsg.value
-    if (!m) return
-    // 拍一拍不能跨会话转发（patTarget 是原群成员 id，丢到别的群会被服务端拒收）；
-    // 转成一条普通文本「我拍了拍 xx」再发，保留语义又不带非法目标。
-    if (m.type === 'pat') {
-      const who = m.senderId === meId.value ? t('msg.pat.me') : displayName(m.senderId)
-      const payload: Partial<Message> = { type: 'text', content: t('msg.pat', { who, target: displayName(m.patTarget ?? '') }) }
-      await store.send(target, payload)
-      forwardOpen.value = false
-      snackMsg.value = t('chat.forward.ok', { name: target.title })
+  /* ---------- 转发：全屏选择器（带头像、多选批量）+ QQ 式合并转发 ---------- */
+
+  const forwardMode = ref<'single' | 'multi-one' | 'merged'>('single')
+  const forwardSource = ref<Message[]>([])
+  const forwardSending = ref(false)
+  const viewerOpen = ref(false)
+  const viewerBundle = ref<ForwardBundle | null>(null)
+
+  /** 投票卡片不可转发（pollId 只在原群有效）；拍一拍/系统消息进不了打包 */
+  function forwardable (m: Message) {
+    return m.type !== 'poll' && m.type !== 'pat' && m.type !== 'system'
+  }
+
+  /** 多选栏入口：multi-one = 每个目标各收逐条消息；merged = 打包成一张「聊天记录」卡片 */
+  function startForward (mode: 'multi-one' | 'merged') {
+    const msgs = [...selectedIds.value]
+      .map(id => allMessages.value.find(x => x.id === id))
+      .filter((m): m is Message => !!m && forwardable(m))
+      .reverse()   // 多选按勾选序收集，转发按时间正序
+    if (msgs.length === 0) {
+      snackMsg.value = t('chat.forward.unsupported')
+      snack.value = true
       return
     }
+    forwardSource.value = msgs
+    forwardMode.value = mode
+    forwardOpen.value = true
+  }
+
+  /** 单条消息的转发载荷（quote 降级为纯文本；投票/系统返回 null 不可转） */
+  function forwardPayload (m: Message): Partial<Message> | null {
+    if (m.type === 'poll' || m.type === 'system') return null
+    if (m.type === 'forward') return { type: 'forward', content: '[聊天记录]', forwardJson: m.forwardJson }
+    if (m.type === 'quote' || m.type === 'text') return { type: 'text', content: m.content }
     const payload: Partial<Message> = { type: m.type }
-    if (m.type === 'text') payload.content = m.content
     if (m.type === 'image') payload.imageId = m.imageId
     if (m.type === 'file') {
       payload.fileName = m.fileName
       payload.fileSize = m.fileSize
     }
     if (m.type === 'sticker') payload.stickerEmoji = m.stickerEmoji
-    await store.send(target, payload)
-    forwardOpen.value = false
-    snackMsg.value = t('chat.forward.ok', { name: target.title })
-    snack.value = true
+    return payload
+  }
+
+  /** 打包快照：发送人昵称/时间/类型/内容；quote 降级文本；媒体带 fileId */
+  function buildBundle (msgs: Message[]): ForwardBundle {
+    return {
+      v: 1,
+      msgs: msgs.map(m => ({
+        s: m.senderId === meId.value ? (auth.user?.nickname || t('msg.pat.me')) : displayName(m.senderId),
+        t: new Date(m.createdAt).getTime(),
+        k: m.type === 'quote' ? 'text' : m.type,
+        c: m.content,
+        f: m.fileName,
+        fs: m.fileSize,
+        i: m.imageId,
+        e: m.stickerEmoji,
+      })),
+    }
+  }
+
+  async function onForwardConfirm (targets: Conversation[]) {
+    if (targets.length === 0 || forwardSending.value) return
+    forwardSending.value = true
+    let fail = 0
+    let lastError = ''
+    try {
+      for (const conv of targets) {
+        try {
+          if (forwardMode.value === 'merged') {
+            await store.send(conv, {
+              type: 'forward',
+              content: '[聊天记录]',
+              forwardJson: JSON.stringify(buildBundle(forwardSource.value)),
+            } as Partial<Message>)
+          } else {
+            for (const m of forwardSource.value) {
+              // 拍一拍跨会话 patTarget 非法：降级为一条文本保留语义
+              if (m.type === 'pat') {
+                const who = m.senderId === meId.value ? t('msg.pat.me') : displayName(m.senderId)
+                await store.send(conv, { type: 'text', content: t('msg.pat', { who, target: displayName(m.patTarget ?? '') }) })
+                continue
+              }
+              const payload = forwardPayload(m)
+              if (!payload) continue
+              await store.send(conv, payload)
+            }
+          }
+        } catch (err: any) {
+          fail++
+          lastError = err?.response?.data?.error ?? ''
+        }
+      }
+      if (fail === 0) {
+        snackMsg.value = t('chat.forward.okMulti', { n: targets.length })
+        snack.value = true
+        forwardOpen.value = false
+        if (multiMode.value) exitMulti()
+      } else {
+        snackMsg.value = lastError || t('chat.forward.failSome', { n: fail })
+        snack.value = true
+      }
+    } finally {
+      forwardSending.value = false
+    }
+  }
+
+  function openViewer (m: Message) {
+    try {
+      viewerBundle.value = m.forwardJson ? (JSON.parse(m.forwardJson) as ForwardBundle) : null
+    } catch {
+      viewerBundle.value = null
+    }
+    viewerOpen.value = true
   }
 
   /* ---------- 会话操作：免打扰 / 置顶 / 折叠（写入服务端 + 本地会话同步） ---------- */

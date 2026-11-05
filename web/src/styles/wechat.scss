@@ -812,22 +812,32 @@ html[data-dm-mode='dark'] body.wx-has-user-bg::after {
   }
 }
 /* pane chunk 加载占位（异步面板 loadingComponent，delay 200ms 后才出现）：
-   三颗呼吸点居中，用主题次级文字色 —— 暗色模式不闪白 */
+   三颗呼吸点横排居中（微信同款）。全部用零依赖写法——显式 flex-direction:row、
+   点用 display:block 固定尺寸、颜色用固定灰（不依赖 Vuetify 主题变量：
+   Chrome 100 上 rgb(var(--x), alpha) 组合解析失败会让点变形/透明），
+   动效只做透明度脉冲（无位移）。此前一版在部分手机上被看到「竖条+跳动圆」，
+   即 var 组色解析失败 + 位移动画叠加的观感 —— 这里一并修死。 */
 .wx-pane-loading {
   display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 7px;
+  width: 100%;
   height: 100%;
   min-height: 120px;
   background: transparent;
 }
 
 .wx-pane-loading-dot {
+  display: block;
+  flex: 0 0 auto;
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: rgb(var(--v-theme-wechat-text-secondary), 0.55);
+  background: #9ba1a6;
+  opacity: 0.35;
   animation: wx-pane-dot 1.1s ease-in-out infinite;
 
   &:nth-child(2) { animation-delay: 0.18s; }
@@ -835,8 +845,8 @@ html[data-dm-mode='dark'] body.wx-has-user-bg::after {
 }
 
 @keyframes wx-pane-dot {
-  0%, 100% { opacity: 0.35; transform: translateY(0); }
-  50% { opacity: 1; transform: translateY(-3px); }
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
 }
 
 /* ===== 低端机专项（手机/平板/旧电脑，html.wx-low-perf） ===== */
@@ -857,4 +867,90 @@ html.wx-low-perf {
 
 .wx-moment-card {
   contain-intrinsic-size: auto 180px;
+}
+
+/* ===== 转发：全屏选择器 + 合并转发阅读器 + 聊天记录卡片 ===== */
+
+.wx-fp-bar {
+  border-bottom: 1px solid rgb(var(--v-theme-wechat-divider));
+  background: rgb(var(--v-theme-surface));
+}
+
+.wx-fp-list {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.wx-fp-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 8px 14px;
+  background: transparent;
+  border: none;
+  text-align: left;
+  color: inherit;
+
+  &:active { background: rgba(128, 128, 128, 0.08); }
+}
+
+/* 合并转发卡片（聊天内）：QQ 式左对齐信息卡 */
+.wx-forward-card {
+  display: block;
+  width: min(280px, 100%);
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: none;
+  text-align: left;
+  color: inherit;
+  background: rgb(var(--v-theme-surface));
+  cursor: pointer;
+
+  .wx-bubble-col > & { border: 1px solid rgb(var(--v-theme-wechat-divider)); }
+}
+
+/* 阅读器正文 */
+.wx-fv-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.wx-fv-row { display: flex; gap: 10px; }
+
+.wx-fv-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.wx-fv-img {
+  max-width: min(240px, 60vw);
+  max-height: 240px;
+  border-radius: 8px;
+  display: block;
+}
+
+.wx-fv-file {
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: rgba(128, 128, 128, 0.1);
+  max-width: min(280px, 70vw);
+}
+
+.wx-fv-card {
+  display: block;
+  width: min(280px, 100%);
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid rgb(var(--v-theme-wechat-divider));
+  background: rgb(var(--v-theme-surface));
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
 }

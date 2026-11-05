@@ -711,19 +711,21 @@
   border-bottom: 1px solid rgb(var(--v-theme-wechat-divider));
 }
 
-/* 微信式功能入口行：三列等宽，彩色圆角图标 + 小字标签 */
+/* 微信式功能入口行：三列等宽，彩色圆角图标 + 小字标签。
+   小屏压缩：矮屏（<680px，无键盘的普通手机）上图标/间距再收一档 ——
+   此前顶部三块（标题栏+搜索+入口卡）占掉 ~180px，小屏朋友列表一屏见不到人 */
 .wx-quick-entries {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 4px;
-  padding: 4px 0 2px;
+  padding: 2px 0;
 }
 .wx-quick-entry {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
-  padding: 6px 0;
+  gap: 2px;
+  padding: 4px 0;
   border: none;
   background: transparent;
   cursor: pointer;
@@ -737,9 +739,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 42px;
-  height: 42px;
-  border-radius: 10px;
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
 }
 .wx-quick-badge {
   position: absolute;
@@ -756,7 +758,10 @@
   text-align: center;
 }
 .wx-quick-label {
-  font-size: 12px;
+  font-size: 11px;
   color: rgb(var(--v-theme-wechat-text-secondary));
+}
+@media (max-height: 680px) {
+  .wx-pane-header { padding-top: 4px !important; padding-bottom: 4px !important; }
 }
 </style>

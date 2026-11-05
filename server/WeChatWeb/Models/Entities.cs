@@ -125,6 +125,12 @@ public class Message
     public long? FileSize { get; set; }
     public string? StickerEmoji { get; set; }
     public string? QuoteJson { get; set; }
+    /// <summary>合并转发（QQ 式「聊天记录」卡片）的正文快照：v1 + msgs[]（发送人/时间/类型/内容）。
+    /// 内联存储（不单独建集合）——生命周期与消息本身一致，收藏/转发/保留期都不会丢内容。</summary>
+    public string? ForwardJson { get; set; }
+    /// <summary>合并转发里引用的文件 id（逗号分隔）：登记进 _fileRefs 让接收方可下载
+    /// （原文件从没在接收方所在会话出现过 —— 靠这条引用链放行），也进文件保留期的引用集。</summary>
+    public string? ForwardFileIds { get; set; }
     /// <summary>是否为「拍一拍」消息（双击头像触发，全群/对方可见）。</summary>
     public bool Pat { get; set; }
     /// <summary>被拍的人（群聊里点头像的人；私聊就是对方）。</summary>

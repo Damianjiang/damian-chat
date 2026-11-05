@@ -34,7 +34,7 @@ public class MessagesController : ControllerBase
         _floodLimiter = floodLimiter;
     }
 
-    public record SendMessage(string ConversationId, string Type = "text", string Content = "", string? ImageId = null, int? VoiceSeconds = null, string? FileName = null, long? FileSize = null, string? StickerEmoji = null, string? QuoteJson = null, string? PatTarget = null, string? ClientMsgId = null);
+    public record SendMessage(string ConversationId, string Type = "text", string Content = "", string? ImageId = null, int? VoiceSeconds = null, string? FileName = null, long? FileSize = null, string? StickerEmoji = null, string? QuoteJson = null, string? ForwardJson = null, string? PatTarget = null, string? ClientMsgId = null);
 
     [HttpGet("messages/{conversationId}")]
     public IActionResult History(string conversationId, [FromQuery] string? beforeId, int count = 30)
@@ -72,6 +72,7 @@ public class MessagesController : ControllerBase
                        FileSize = m.FileSize,
                        StickerEmoji = m.StickerEmoji,
                        QuoteJson = m.QuoteJson,
+                       ForwardJson = m.ForwardJson,
                        Pat = m.Pat,
                        PatTarget = m.PatTarget,
                        ClientMsgId = m.ClientMsgId,
@@ -170,6 +171,28 @@ public class MessagesController : ControllerBase
         // 锁内只保留轻量的 keep 判定 + ToJson —— 减少每条消息在全局锁里的持有时间（聊天延迟关键点）。
         var parsedQuote = string.IsNullOrWhiteSpace(req.QuoteJson) ? null : Validate.ParseQuote(req.QuoteJson);
 
+        // 合并转发 JSON：同样在锁外解析消毒（64KB 文本 + 逐条 StripHtml，重活不进全局锁）
+        string? forwardJson = null;
+        string? forwardFileIds = null;
+        if (type == "forward")
+        {
+            forwardJson = Validate.ParseForwardJson(req.ForwardJson);
+            if (forwardJson == null)
+                return BadRequest(new { error = "转发内容无效或超过上限（50 条）" });
+            // 提取包内引用的文件 id（去重），登记到消息上：接收方的文件下载鉴权
+            // 与文件保留期的引用集都靠这条链
+            var fids = new HashSet<string>(StringComparer.Ordinal);
+            try
+            {
+                using var fdoc = System.Text.Json.JsonDocument.Parse(forwardJson);
+                foreach (var mEl in fdoc.RootElement.GetProperty("msgs").EnumerateArray())
+                    if (mEl.TryGetProperty("i", out var iEl) && iEl.ValueKind == System.Text.Json.JsonValueKind.String)
+                        fids.Add(iEl.GetString()!);
+            }
+            catch { /* ParseForwardJson 已产出合法 JSON，不会进到这里 */ }
+            if (fids.Count > 0) forwardFileIds = string.Join(',', fids);
+        }
+
         Message msg;
         lock (_store)
         {
@@ -263,6 +286,13 @@ public class MessagesController : ControllerBase
                 content = req.Content!;
             }
 
+            // 合并转发卡片：正文固定为「聊天记录」标记（真实内容在 ForwardJson 里，
+            // 已在锁外解析消毒——客户端传什么都以服务端为准）
+            if (type == "forward")
+            {
+                content = "[聊天记录]";
+            }
+
             // 引用（quoteJson）：归一化 + 业务强制（服务端纵深，防直接 POST 绕过前端限制）。
             // ① 不可引用自己发的消息；② 群聊里只能引用「文字」，被引用的是文件/图片/
             //    语音/表情/拍一拍（媒体类）→ 一律拒绝该引用。命中即「降级为不引用」
@@ -295,6 +325,8 @@ public class MessagesController : ControllerBase
                 Pat = type == "pat",
                 PatTarget = patTarget,
                 QuoteJson = quoteJson,
+                ForwardJson = forwardJson,
+                ForwardFileIds = forwardFileIds,
                 // 客户端幂等 id：弱网重试时同 id 直接返回已建消息（去重），前端据此对账乐观气泡
                 ClientMsgId = string.IsNullOrEmpty(req.ClientMsgId) || req.ClientMsgId!.Length > 40
                     ? null

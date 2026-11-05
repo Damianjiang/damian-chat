@@ -143,6 +143,8 @@ export function messageSummary (m: { type: string, content: string, fileName?: s
     }
     case 'poll': { return t('chat.preview.poll')
     }
+    case 'forward': { return t('chat.forward.title')
+    }
     case 'system': { return text(m.content)
     }
     case 'text': { return text(m.content)

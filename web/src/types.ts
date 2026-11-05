@@ -1,4 +1,4 @@
-export type MessageType = 'text' | 'image' | 'voice' | 'file' | 'sticker' | 'quote' | 'system' | 'pat' | 'poll'
+export type MessageType = 'text' | 'image' | 'voice' | 'file' | 'sticker' | 'quote' | 'system' | 'pat' | 'poll' | 'forward'
 
 /** 群投票（服务端 Poll 模型镜像；options[].userIds 为投票人 id 列表）。 */
 export interface Poll {
@@ -56,6 +56,8 @@ export interface Message {
   stickerEmoji?: string
   quote?: { senderName: string, text: string }
   quoteJson?: string
+  /** 合并转发（QQ 式「聊天记录」卡片）：JSON 快照 {v:1,msgs:[...]}，点卡片展开阅读 */
+  forwardJson?: string
   /** 是否为「拍一拍」消息（双击头像触发，群聊/对方可见） */
   pat?: boolean
   /** 被拍的人（点头像拍的那位） */

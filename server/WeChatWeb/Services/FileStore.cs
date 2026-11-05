@@ -270,7 +270,11 @@ public sealed class FileStore
             // 以及任何用户头像/资料图 —— 只查消息会删掉头像与朋友圈图（用户文件"无故消失"）
             var referenced = new HashSet<string>(StringComparer.Ordinal);
             foreach (var m in _data.Messages)
+            {
                 if (!string.IsNullOrEmpty(m.ImageId)) referenced.Add(m.ImageId!);
+                if (!string.IsNullOrEmpty(m.ForwardFileIds))
+                    foreach (var id in m.ForwardFileIds.Split(',')) referenced.Add(id);   // 合并转发包内媒体
+            }
             foreach (var mo in _data.Moments)
                 foreach (var img in mo.Images)
                     if (!string.IsNullOrEmpty(img)) referenced.Add(img);

@@ -601,7 +601,12 @@ public sealed class DataStore
         // 避免每文件全表扫（O(文件×消息) 热点，文件多时长时间卡全局锁）。
         // 群头像此前漏扫：删掉上传过群头像的用户 → 群头像字节被删，全群裂图。
         var referenced = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var m in Messages) if (!string.IsNullOrEmpty(m.ImageId)) referenced.Add(m.ImageId!);
+        foreach (var m in Messages)
+        {
+            if (!string.IsNullOrEmpty(m.ImageId)) referenced.Add(m.ImageId!);
+            if (!string.IsNullOrEmpty(m.ForwardFileIds))
+                foreach (var id in m.ForwardFileIds.Split(',')) referenced.Add(id);   // 合并转发包内媒体
+        }
         foreach (var mo in Moments) foreach (var img in mo.Images) if (!string.IsNullOrEmpty(img)) referenced.Add(img);
         foreach (var fc in Favorites) if (!string.IsNullOrEmpty(fc.ImageUrl)) referenced.Add(fc.ImageUrl);
         foreach (var u in Users.Values) if (!string.IsNullOrEmpty(u.Avatar)) referenced.Add(u.Avatar);
@@ -799,6 +804,21 @@ public sealed class DataStore
             }
             set.Add(m.ConversationId);
         }
+        // 合并转发包内的媒体引用同样入索引：接收方下载鉴权（CanReadFile）
+        // 走的就是这张 fileId → 会话集合 的表
+        if (!string.IsNullOrEmpty(m.ForwardFileIds))
+        {
+            foreach (var fid in m.ForwardFileIds.Split(','))
+            {
+                if (string.IsNullOrEmpty(fid)) continue;
+                if (!_fileRefs.TryGetValue(fid, out var fset))
+                {
+                    fset = new HashSet<string>();
+                    _fileRefs[fid] = fset;
+                }
+                fset.Add(m.ConversationId);
+            }
+        }
     }
 
     public void MsgIndexRemove (Message m)
@@ -812,18 +832,29 @@ public sealed class DataStore
         if (_msgIndex.TryGetValue(m.ConversationId, out list)) list?.Remove(m);
         _msgById.Remove(m.Id);
 
-        if (!string.IsNullOrEmpty(m.ImageId) && list != null)
+        if (list != null)
         {
-            // 该会话里是否还有其他消息引用同一文件：只在「本会话」内查（O(单会话)），
+            // 单条消息可能引用多个文件：ImageId（单附件）+ ForwardFileIds（合并转发包内所有媒体）。
+            // 每个文件独立做「本会话内是否仍被引用」判定（O(单会话)），
             // 不再 O(全库) 扫 Messages（删消息是高频操作，全表扫在人/消息多时拖垮删除路径）
-            var stillReferenced = list.Any(x => x.ImageId == m.ImageId);
-            if (_fileRefs.TryGetValue(m.ImageId!, out var set))
+            var fileIds = new HashSet<string>(StringComparer.Ordinal);
+            if (!string.IsNullOrEmpty(m.ImageId)) fileIds.Add(m.ImageId!);
+            if (!string.IsNullOrEmpty(m.ForwardFileIds))
+                foreach (var id in m.ForwardFileIds.Split(',')) fileIds.Add(id);
+
+            foreach (var fid in fileIds)
             {
-                if (stillReferenced) set.Add(m.ConversationId);
-                else
+                var stillReferenced = list.Any(x =>
+                    x.ImageId == fid
+                    || (x.ForwardFileIds != null && x.ForwardFileIds.Split(',').Contains(fid, StringComparer.Ordinal)));
+                if (_fileRefs.TryGetValue(fid, out var set))
                 {
-                    set.Remove(m.ConversationId);
-                    if (set.Count == 0) _fileRefs.Remove(m.ImageId!);
+                    if (stillReferenced) set.Add(m.ConversationId);
+                    else
+                    {
+                        set.Remove(m.ConversationId);
+                        if (set.Count == 0) _fileRefs.Remove(fid);
+                    }
                 }
             }
         }
