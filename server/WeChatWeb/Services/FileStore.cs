@@ -16,6 +16,11 @@ public sealed class FileStorageConfig
     /// <summary>上传限速：字节/秒（默认 10MB/s，防占满带宽）。</summary>
     public long MaxUploadBytesPerSecond { get; set; } = 10L * 1024 * 1024;
 
+    /// <summary>下载限速：字节/秒（默认 0 = 不限；管理端可调，热生效）。
+    /// 对称上传限速 —— 一个用户拉 1GB 大文件时不会把整站上行拖死；
+    /// 默认 0 不伤现有体验（服务端本地实测 42~87 MB/s，慢的是公网上行带宽）。</summary>
+    public long MaxDownloadBytesPerSecond { get; set; } = 0L;
+
     /// <summary>文件保留天数（默认 7 天，与聊天记录保留期对齐），后台定时清理过期文件。</summary>
     public int KeepDays { get; set; } = 7;
 
@@ -43,19 +48,24 @@ public sealed class FileStorageConfig
             {
                 MaxFileBytes = MaxFileBytes,
                 MaxUploadBytesPerSecond = MaxUploadBytesPerSecond,
+                MaxDownloadBytesPerSecond = MaxDownloadBytesPerSecond,
                 KeepDays = KeepDays,
                 MaxUserBytes = MaxUserBytes,
                 MaxTotalBytes = MaxTotalBytes,
             };
     }
 
-    public void Apply (long? maxBytes, long? bytesPerSecond, int? keepDays)
+    public void Apply (long? maxBytes, long? bytesPerSecond, long? downloadBytesPerSecond, int? keepDays)
     {
         lock (_gate)
         {
             // 单文件上限：最小 1MB，最大 1GB（与 Kestrel 请求体上限对齐，超过 1GB 会被服务器直接拒）
             if (maxBytes is > 0) MaxFileBytes = Math.Clamp(maxBytes.Value, 1L * 1024 * 1024, 1L * 1024 * 1024 * 1024);
             if (bytesPerSecond is > 0) MaxUploadBytesPerSecond = Math.Clamp(bytesPerSecond.Value, 64 * 1024, 200L * 1024 * 1024);
+            // 下载限速：0 = 不限速（显式允许设回不限）；正数限到 1GB/s
+            if (downloadBytesPerSecond is not null)
+                MaxDownloadBytesPerSecond = downloadBytesPerSecond.Value < 0
+                    ? 0L : Math.Min(downloadBytesPerSecond.Value, 1L * 1024 * 1024 * 1024);
             if (keepDays is >= 1) KeepDays = Math.Clamp(keepDays.Value, 1, 365);
         }
         Save();
@@ -108,6 +118,7 @@ public sealed class FileStorageConfig
             {
                 MaxFileBytes = c.MaxFileBytes;
                 MaxUploadBytesPerSecond = c.MaxUploadBytesPerSecond;
+                MaxDownloadBytesPerSecond = c.MaxDownloadBytesPerSecond;
                 KeepDays = c.KeepDays;
                 MaxUserBytes = c.MaxUserBytes;
                 MaxTotalBytes = c.MaxTotalBytes;
@@ -125,6 +136,9 @@ public sealed class FileStorageConfig
     {
         MaxFileBytes = Math.Clamp(MaxFileBytes, 1L * 1024 * 1024, 1L * 1024 * 1024 * 1024);
         MaxUploadBytesPerSecond = Math.Clamp(MaxUploadBytesPerSecond, 64L * 1024, 200L * 1024 * 1024);
+        // 0 = 不限速（默认）；正数限到 1GB/s 上限；负数归 0
+        MaxDownloadBytesPerSecond = MaxDownloadBytesPerSecond < 0
+            ? 0L : Math.Min(MaxDownloadBytesPerSecond, 1L * 1024 * 1024 * 1024);
         KeepDays = Math.Clamp(KeepDays, 1, 365);
         return this;
     }
@@ -256,11 +270,11 @@ public sealed class FileStore
     /// <summary>当前配置（由管理 API 修改后即时生效）。</summary>
     public FileStorageConfig Config { get; private set; } = FileStorageConfig.Load();
 
-    public void UpdateConfig (long? maxBytes, long? bytesPerSecond, int? keepDays)
+    public void UpdateConfig (long? maxBytes, long? bytesPerSecond, long? downloadBytesPerSecond, int? keepDays)
     {
-        Config.Apply(maxBytes, bytesPerSecond, keepDays);
-        _log.LogInformation("文件存储配置已更新：单文件上限 {Max}，限速 {Speed}/s，保留 {Days} 天",
-            Config.MaxFileBytes, Config.MaxUploadBytesPerSecond, Config.KeepDays);
+        Config.Apply(maxBytes, bytesPerSecond, downloadBytesPerSecond, keepDays);
+        _log.LogInformation("文件存储配置已更新：单文件上限 {Max}，上传限速 {Up}/s，下载限速 {Down}/s，保留 {Days} 天",
+            Config.MaxFileBytes, Config.MaxUploadBytesPerSecond, Config.MaxDownloadBytesPerSecond, Config.KeepDays);
     }
 
     public string Dir => Path.Combine(Directory.GetCurrentDirectory(), "data", "files");

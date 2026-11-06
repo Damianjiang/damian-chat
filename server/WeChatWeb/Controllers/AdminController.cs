@@ -189,6 +189,8 @@ public class AdminController : ControllerBase
         {
             maxFileMb = f.MaxFileBytes / 1024 / 1024,
             uploadSpeedMb = f.MaxUploadBytesPerSecond / 1024 / 1024,
+            // 0 = 不限速（对称上传字段的展示方式：单位 MB，0 表示关闭）
+            downloadSpeedMb = f.MaxDownloadBytesPerSecond / 1024 / 1024,
             keepDays = f.KeepDays,
             maxGroupMembers = g.MaxMembers,
             maxGroupAdmins = g.MaxAdmins,
@@ -196,14 +198,14 @@ public class AdminController : ControllerBase
         });
     }
 
-    public record LimitsUpdate(long? MaxFileMb, long? UploadSpeedMb, int? KeepDays, int? MaxGroupMembers, int? MaxGroupAdmins, int? MaxSelectOnCreate);
+    public record LimitsUpdate(long? MaxFileMb, long? UploadSpeedMb, long? DownloadSpeedMb, int? KeepDays, int? MaxGroupMembers, int? MaxGroupAdmins, int? MaxSelectOnCreate);
 
     /// <summary>更新限制配置（即时生效并落盘）。</summary>
     [HttpPut("limits")]
     public IActionResult PutLimits([FromBody] LimitsUpdate req)
     {
         if (NoKey() is { } r) return r;
-        _files.UpdateConfig(req.MaxFileMb * 1024 * 1024, req.UploadSpeedMb * 1024 * 1024, req.KeepDays);
+        _files.UpdateConfig(req.MaxFileMb * 1024 * 1024, req.UploadSpeedMb * 1024 * 1024, req.DownloadSpeedMb * 1024 * 1024, req.KeepDays);
         _store.GroupLimits.Apply(req.MaxGroupMembers, req.MaxGroupAdmins, req.MaxSelectOnCreate);
         _log.Write("auth", new { ts = DateTime.UtcNow, result = "admin-limits-updated" });
         return GetLimits();

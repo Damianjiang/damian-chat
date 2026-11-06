@@ -474,12 +474,26 @@ public class FilesController : ControllerBase
     private IActionResult StreamFile (Models.FileMeta meta)
     {
         var ext = Path.GetExtension(meta.Path);
-        if (FileContent.InlinePreviewable(ext))
-            return PhysicalFile(meta.Path, meta.ContentType, enableRangeProcessing: true);
+        var inline = FileContent.InlinePreviewable(ext);
 
-        // 附件：必须用 FileStream 才能同时「指定原始文件名」+「保留 Range 断点续传」。
-        // PhysicalFile 在显式传 fileName 时不支持 range，会破坏大文件断点续传。
-        var stream = new FileStream(meta.Path, FileMode.Open, FileAccess.Read, FileShare.Read);
-        return File(stream, meta.ContentType, meta.FileName ?? Path.GetFileName(meta.Path), enableRangeProcessing: true);
+        // 下载限速（默认 0 = 不限，不伤现有体验；管理端在 files-config.json 调，热生效）。
+        // 不限速时 inline 走 PhysicalFile（Windows 上可 SendFile 零拷贝，最快），附件走 FileStream（保 Range）。
+        // 限速时统一包 ThrottleStream：PhysicalFile 直读磁盘绕不过流式限速，只能换成带限流的 stream 结果。
+        var limit = _files.Config.MaxDownloadBytesPerSecond;
+
+        if (limit <= 0)
+        {
+            if (inline)
+                return PhysicalFile(meta.Path, meta.ContentType, enableRangeProcessing: true);
+            var raw = new FileStream(meta.Path, FileMode.Open, FileAccess.Read, FileShare.Read);
+            return File(raw, meta.ContentType, meta.FileName ?? Path.GetFileName(meta.Path), enableRangeProcessing: true);
+        }
+
+        // 限速路径：包 ThrottleStream（转发 Seek/Length，Range 断点续传照常可用）
+        var throttled = new ThrottleStream(
+            new FileStream(meta.Path, FileMode.Open, FileAccess.Read, FileShare.Read), limit);
+        if (inline)
+            return File(throttled, meta.ContentType, enableRangeProcessing: true);
+        return File(throttled, meta.ContentType, meta.FileName ?? Path.GetFileName(meta.Path), enableRangeProcessing: true);
     }
 }
