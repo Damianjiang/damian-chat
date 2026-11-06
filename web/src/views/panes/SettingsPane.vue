@@ -199,6 +199,8 @@
 
     <!-- 人机验证 ②：滑块拼图，通过后拿到一次性 passToken 再提交改密 -->
     <slider-captcha ref="pwdSliderRef" @success="onPwdSliderPass" />
+    <!-- 改大面号的人机验证（服务端强制，独立于改密的那一个） -->
+    <slider-captcha ref="wxidSliderRef" @success="onWxidSliderPass" />
 
     <!-- 修改大面号（6-20 位、小写字母开头；冷却期由服务端 400 + nextAllowedAt 控制） -->
     <v-dialog v-model="wxidDialog" max-width="360">
@@ -223,7 +225,7 @@
         <v-card-actions>
           <v-spacer />
           <v-btn variant="text" @click="wxidDialog = false">{{ t('common.cancel') }}</v-btn>
-          <v-btn color="primary" :disabled="!wxidValid || newWxId === (auth.user?.wxId ?? '')" :loading="wxidLoading" @click="changeWxId">{{ t('account.wxid.modify') }}</v-btn>
+          <v-btn color="primary" :disabled="!wxidValid || newWxId === (auth.user?.wxId ?? '')" :loading="wxidLoading" @click="changeWxId()">{{ t('account.wxid.modify') }}</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -480,65 +482,8 @@
       </v-card>
     </v-dialog>
 
-    <!-- 关于：系统信息 + 构建版本 + GitHub 项目地址（用户要求放进设置页） -->
-    <v-dialog v-model="aboutDialog" max-width="400">
-      <v-card>
-        <v-card-title class="text-body-large">{{ t('settings.about') }}</v-card-title>
-
-        <v-card-text>
-          <div class="wx-about-brand">
-            <img alt="大面聊天" class="wx-about-logo" src="/icon-192.png">
-            <div class="min-width-0">
-              <div class="text-body-large font-weight-medium">{{ t('about.systemName') }}</div>
-              <div class="text-body-small text-medium-emphasis">{{ t('about.desc') }}</div>
-            </div>
-          </div>
-
-          <div class="wx-about-rows mt-3">
-            <div class="wx-about-row">
-              <span class="text-medium-emphasis">{{ t('settings.version') }}</span>
-              <span class="wx-about-val">{{ appVersion }}</span>
-            </div>
-            <div class="wx-about-row">
-              <span class="text-medium-emphasis">{{ t('about.build') }}</span>
-              <span class="wx-about-val">{{ formatBuild(currentBuildVersion) }}</span>
-            </div>
-            <div class="wx-about-row">
-              <span class="text-medium-emphasis">{{ t('about.device') }}</span>
-              <span class="wx-about-val">{{ deviceLabel(deviceKind) }}</span>
-            </div>
-            <div class="wx-about-row">
-              <span class="text-medium-emphasis">{{ t('about.stack') }}</span>
-              <span class="wx-about-val">{{ t('settings.about.tech') }}</span>
-            </div>
-          </div>
-
-          <div class="wx-about-links">
-            <a class="wx-about-link" href="https://github.com/Damianjiang/damian-chat" rel="noopener noreferrer" target="_blank">
-              <v-icon icon="mdi-github" size="16" />{{ t('about.github') }}
-            </a>
-            <a class="wx-about-link" href="https://github.com/Damianjiang/damian-chat/releases" rel="noopener noreferrer" target="_blank">
-              <v-icon icon="mdi-tag-outline" size="16" />{{ t('about.releases') }}
-            </a>
-            <a class="wx-about-link" href="https://github.com/Damianjiang/damian-chat/issues" rel="noopener noreferrer" target="_blank">
-              <v-icon icon="mdi-bug-outline" size="16" />{{ t('about.issues') }}
-            </a>
-            <!-- 手机/新设备首次访问会弹「连接不安全」：这里给出免警告的安装引导页 -->
-            <a class="wx-about-link" href="/ca" rel="noopener noreferrer" target="_blank">
-              <v-icon icon="mdi-certificate-outline" size="16" />{{ t('about.cert') }}
-            </a>
-          </div>
-
-          <div class="text-body-small text-medium-emphasis mt-3">{{ t('about.license') }}</div>
-          <div class="text-body-small text-medium-emphasis mt-1" style="word-break: break-all">{{ uaShort }}</div>
-        </v-card-text>
-
-        <v-card-actions>
-          <v-spacer />
-          <v-btn color="primary" variant="text" @click="aboutDialog = false">{{ t('common.close') }}</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
+    <!-- 关于：抽到 components/AboutDialog.vue（登录页版本号点击复用同一份） -->
+    <about-dialog v-model="aboutDialog" />
 
     <!-- 退出确认 -->
     <v-dialog v-model="logoutDialog" max-width="300">
@@ -631,13 +576,14 @@
     toText,
     type LogEntry,
   } from '@/lib/clientlog'
-  import { deviceKind, deviceLabel, isPageMode } from '@/lib/device'
+  import { isPageMode } from '@/lib/device'
   import { clearMediaCache, mediaCacheCount } from '@/lib/files'
   import { idbEstimateBytes } from '@/lib/idb'
   import { stopRealtime } from '@/lib/realtime'
   import { checkForUpdate, formatBuild, RUNNING_VERSION, updateState } from '@/lib/updater'
   import { APP_VERSION } from '@/lib/version'
   import SliderCaptcha from '@/components/SliderCaptcha.vue'
+  import AboutDialog from '@/components/AboutDialog.vue'
   import { useAuthStore } from '@/stores/auth'
   import { useContactsStore } from '@/stores/contacts'
   import { useLanguageStore } from '@/stores/language'
@@ -689,7 +635,8 @@
   const pwdCaptchaInput = ref('')
   const pwdPassToken = ref('')
   const pwdSliderRef = ref<{ open: () => void } | null>(null)
-
+  /** 改大面号的滑块句柄（与改密分开，避免共用 ref 时互相覆盖） */
+  const wxidSliderRef = ref<{ open: () => void } | null>(null)
   async function refreshPwdCaptcha () {
     try {
       const res = await api.get('/auth/captcha')
@@ -816,15 +763,22 @@
     return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
   }
 
-  async function changeWxId () {
+  async function changeWxId (passToken?: string) {
     if (!wxidValid.value || wxidLoading.value) return
     wxidLoading.value = true
     try {
-      const res = await api.put('/users/me/wxid', { wxId: newWxId.value.trim() })
+      const res = await api.put('/users/me/wxid', { wxId: newWxId.value.trim(), passToken })
       auth.user = res.data
       toast(t('account.wxid.ok'))
       wxidDialog.value = false
     } catch (error: any) {
+      // 服务端要求人机验证：关掉对话框、弹滑块，通过后带着 passToken 再来一次。
+      // 这里不是「前端做验证」——服务端不认没有 passToken 的请求，删掉这段也绕不过。
+      if (error?.response?.data?.needCaptcha) {
+        wxidDialog.value = false
+        wxidSliderRef.value?.open()
+        return
+      }
       // 冷却期内：服务端 400 带 nextAllowedAt（ISO），提示到某日期后才能再改
       const next = error?.response?.data?.nextAllowedAt
       if (next) {
@@ -836,6 +790,11 @@
     } finally {
       wxidLoading.value = false
     }
+  }
+
+  /** 改号滑块通过 → 用一次性 passToken 重放改号请求。 */
+  function onWxidSliderPass (token: string) {
+    void changeWxId(token)
   }
 
   /* ---------- 绑定 / 换绑邮箱（PUT /users/me/email；验证码走 /auth/email-code，60s 节流） ---------- */
@@ -1082,8 +1041,6 @@
   const checkingUpdate = ref(false)
   /** 产品语义版本号（「关于」/设置行展示，发版只改 lib/version.ts） */
   const appVersion = APP_VERSION
-  /** 当前运行构建指纹（与 UpdateNotice 同源） */
-  const currentBuildVersion = RUNNING_VERSION
   /** 有可用更新：列表行亮「更新」标记（真正交互在全局弹窗） */
   const updateAvailable = computed(() => updateState.value.available)
 
@@ -1110,8 +1067,6 @@
 
   /* ---------- 关于 ---------- */
   const aboutDialog = ref(false)
-  // 不在界面上展示 location.origin：访问地址对用户没有价值，截图外传反而暴露部署信息
-  const uaShort = navigator.userAgent
 
   /* ---------- 退出登录 ---------- */
   const logoutDialog = ref(false)
@@ -1375,63 +1330,5 @@ html[data-dm-mode='dark'] .wx-lang-btn {
 }
 html[data-dm-mode='dark'] .wx-lang-btn:hover { background: rgba(255, 255, 255, 0.18); }
 
-/* ---------- 关于弹窗：品牌区 / 信息行 / GitHub 链接 ---------- */
-.wx-about-brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.wx-about-logo {
-  width: 44px;
-  height: 44px;
-  border-radius: 11px;
-  flex: 0 0 auto;
-}
-
-.wx-about-rows {
-  background: rgba(0, 0, 0, 0.035);
-  border-radius: 10px;
-  padding: 6px 12px;
-}
-
-html[data-dm-mode='dark'] .wx-about-rows { background: rgba(255, 255, 255, 0.07); }
-
-.wx-about-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  font-size: 13px;
-  line-height: 26px;
-}
-
-.wx-about-val {
-  text-align: right;
-  word-break: break-all;
-  font-weight: 500;
-}
-
-.wx-about-links {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 12px;
-}
-
-.wx-about-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 5px 10px;
-  border-radius: 8px;
-  font-size: 12px;
-  text-decoration: none;
-  color: rgb(var(--v-theme-primary));
-  background: rgba(var(--v-theme-primary), 0.08);
-}
-
-.wx-about-link:hover { background: rgba(var(--v-theme-primary), 0.16); }
-
-.min-width-0 { min-width: 0; }
+/* ---------- 关于弹窗样式已随组件移到 components/AboutDialog.vue ---------- */
 </style>

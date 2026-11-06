@@ -279,6 +279,9 @@
     </v-dialog>
 
     <v-snackbar v-model="snack" :timeout="1800">{{ snackMsg }}</v-snackbar>
+
+    <!-- 人机验证：改昵称/签名/地区/性别/头像等身份字段时，服务端要求一次性 passToken -->
+    <slider-captcha ref="sliderRef" @success="onSliderPass" @close="onSliderClose" />
   </v-sheet>
 </template>
 
@@ -288,6 +291,7 @@
   import { useRouter } from 'vue-router'
   import type { User } from '@/types'
   import UserAvatar from '@/components/UserAvatar.vue'
+  import SliderCaptcha from '@/components/SliderCaptcha.vue'
   import { api } from '@/lib/api'
   import { t } from '@/lib/i18n'
   import { isPageMode } from '@/lib/device'
@@ -300,6 +304,11 @@
   const router = useRouter()
   const smartBack = useSmartBack()
   const auth = useAuthStore()
+
+  /** 滑块组件句柄（open() 调起） */
+  const sliderRef = ref<{ open: () => void } | null>(null)
+  /** 等服务端通过人机验证后重放的资料写入（payload + 成功提示） */
+  let pendingProfileWrite: { payload: Record<string, unknown>, msg: string } | null = null
 
   const isMobile = isPageMode
   const meId = computed(() => auth.user?.id ?? 'me')
@@ -463,22 +472,50 @@
   async function patch (payload: Record<string, unknown>, msg: string) {
     try {
       const res = await api.put('/users/me', payload)
-      const data = res.data as Partial<User>
-      // 合并更新而非整体替换：保留登录态的关键身份字段（尤其 id / 手机号），
-      // 避免替换后某个字段缺失导致「我」的身份被界面层丢失、看起来像被登出。
-      if (auth.user) {
-        auth.user = {
-          ...auth.user,
-          ...data,
-          id: (auth.user as User).id, // 身份恒定，绝不被响应覆盖丢失
-        } as User
-      } else {
-        auth.user = data as User
+      applyProfile(res.data as Partial<User>, msg)
+    } catch (error: any) {
+      // 服务端要求人机验证（改昵称/签名/头像等身份字段）：弹滑块，通过后带一次性 passToken 重试。
+      // 安全由服务端强制 —— 这里只是把验证界面呈现出来，删掉这段 JS 也绕不过去。
+      if (error?.response?.data?.needCaptcha) {
+        pendingProfileWrite = { payload, msg }
+        sliderRef.value?.open()
+        return
       }
-      toast(msg)
-    } catch {
-      toast(t('profile.save.fail'))
+      toast(error?.response?.data?.error ?? t('profile.save.fail'))
     }
+  }
+
+  /** 滑块通过 → 带着 passToken 重放刚才那次资料写入（passToken 一次性、绑 IP、90 秒有效）。 */
+  function onSliderPass (passToken: string) {
+    const job = pendingProfileWrite
+    pendingProfileWrite = null
+    if (!job) return
+    void (async () => {
+      try {
+        const res = await api.put('/users/me', { ...job.payload, passToken })
+        applyProfile(res.data as Partial<User>, job.msg)
+      } catch (error: any) {
+        toast(error?.response?.data?.error ?? t('profile.save.fail'))
+      }
+    })()
+  }
+
+  function onSliderClose () {
+    pendingProfileWrite = null
+  }
+
+  /** 写入成功后合并本地登录态（不再整体替换，避免丢 id 等身份字段）。 */
+  function applyProfile (data: Partial<User>, msg: string) {
+    if (auth.user) {
+      auth.user = {
+        ...auth.user,
+        ...data,
+        id: (auth.user as User).id, // 身份恒定，绝不被响应覆盖丢失
+      } as User
+    } else {
+      auth.user = data as User
+    }
+    toast(msg)
   }
 
   function saveName () {

@@ -31,7 +31,15 @@
           </v-list>
         </v-card>
       </v-menu>
-      <v-chip v-if="appVersion" class="wx-login-version" density="comfortable" size="small" variant="tonal">v{{ appVersion }}</v-chip>
+      <v-chip
+        v-if="appVersion"
+        class="wx-login-version"
+        density="comfortable"
+        size="small"
+        variant="tonal"
+        :title="t('settings.about')"
+        @click="aboutDialog = true"
+      >v{{ appVersion }}</v-chip>
       <v-btn
         class="wx-perf-btn-head"
         :color="perfMode ? 'primary' : undefined"
@@ -333,6 +341,9 @@
     <!-- 双重人机验证 ②：点击「登录 / 注册」时弹出的滑块拼图，服务端签发一次性 passToken -->
     <slider-captcha ref="sliderRef" @success="onSliderPass" />
 
+    <!-- 版本号点开的「关于」：与设置页同一份组件（登录前也能看版本/构建/证书入口） -->
+    <about-dialog v-model="aboutDialog" />
+
     <v-snackbar v-model="snack" color="error" :timeout="2500">{{ snackMsg }}</v-snackbar>
     <v-snackbar v-model="snackOk" color="success" :timeout="1800">{{ snackOkMsg }}</v-snackbar>
   </v-container>
@@ -343,6 +354,7 @@
   import { useRoute, useRouter } from 'vue-router'
   import SliderCaptcha from '@/components/SliderCaptcha.vue'
   import LoginRippleBg from '@/components/LoginRippleBg.vue'
+  import AboutDialog from '@/components/AboutDialog.vue'
   import { api } from '@/lib/api'
   import { t } from '@/lib/i18n'
   import { resolveDark } from '@/lib/theme'
@@ -408,6 +420,9 @@
   /* ---------- 右上角：版本号 + 个性化（主题/明暗/字号，本地持久化） ---------- */
   /** 产品版本号（顶栏展示，与「关于」一致，统一来自 lib/version.ts）；构建指纹由 __BUILD_VERSION__ 单独注入，用于「检查更新」比对。 */
   const appVersion = APP_VERSION
+
+  /** 「关于」弹窗开关（点右上角版本号打开） */
+  const aboutDialog = ref(false)
 
   /** #RRGGBB → [r,g,b]。 */
   function hexToRgb3 (h: string): [number, number, number] {
@@ -969,8 +984,9 @@ html[data-dm-mode='dark'] .wx-login-card :deep(.v-field .v-label),
 html[data-dm-mode='dark'] .wx-ms-help,
 .v-theme--dark .wx-ms-help { color: rgba(255, 255, 255, 0.45); }
 
-/* 右上角版本徽标 */
+/* 右上角版本徽标（可点开「关于」） */
 .wx-login-version {
+  cursor: pointer;
   border: 1px solid rgba(0, 0, 0, 0.08);
   background: rgba(255, 255, 255, 0.7);
 }
