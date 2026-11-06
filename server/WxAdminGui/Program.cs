@@ -2,6 +2,8 @@ using System.Diagnostics;
 using System.Net.Http;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography.X509Certificates;
+using System.Security.Principal;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Win32;
@@ -249,6 +251,12 @@ internal sealed class MainForm : Form
     private readonly Button _btnSiteSave = new() { Text = "保存并重启服务", AutoSize = true };
     private readonly Label _lblSiteHint = new() { Text = "", AutoSize = true, ForeColor = Color.DimGray };
 
+    /* ---- 证书工具：一键写进系统信任库 / 移除信任 / 导出给手机·其它电脑 ---- */
+    private readonly Button _btnCertInstall = new() { Text = "一键安装证书", AutoSize = true };
+    private readonly Button _btnCertRemove = new() { Text = "移除证书信任", AutoSize = true };
+    private readonly Button _btnCertExport = new() { Text = "导出根证书…", AutoSize = true };
+    private readonly Label _lblCertTrust = new() { Text = "", AutoSize = true, ForeColor = Color.DimGray };
+
     /* ---- 在线用户（概览页） ---- */
     private readonly GroupBox _onlineBox = new() { Text = "在线用户", Dock = DockStyle.Fill, Padding = new Padding(8) };
     private readonly ListView _online = new() { View = View.Details, FullRowSelect = true, Dock = DockStyle.Fill, HideSelection = false };
@@ -417,6 +425,9 @@ internal sealed class MainForm : Form
         _btnPortSave.Click += (_, _) => Run(SavePort);
         _btnCertBrowse.Click += (_, _) => BrowseCert();
         _btnSiteSave.Click += (_, _) => Run(SaveSite);
+        _btnCertInstall.Click += (_, _) => Run(InstallCert);
+        _btnCertRemove.Click += (_, _) => Run(RemoveCertTrust);
+        _btnCertExport.Click += (_, _) => Run(ExportCert);
         _chkAutoRun.CheckedChanged += (_, _) => Run(SaveAutoRun);
         _chkAutoStartServer.CheckedChanged += (_, _) => Run(() => { _cfg.AutoStartServer = _chkAutoStartServer.Checked; _cfg.Save(); });
         _btnSecRead.Click += (_, _) => RunAsync(async () => { await LoadSecurityAsync(); _msg.Text = "安全设置已读取"; });
@@ -604,13 +615,21 @@ internal sealed class MainForm : Form
         certRow.Controls.AddRange(new Control[] { new Label { Text = "证书文件(PFX)：", AutoSize = true, Padding = new Padding(0, 6, 0, 0) }, _txtCertPath, _btnCertBrowse });
         var passRow = new FlowLayoutPanel { AutoSize = true, WrapContents = true };
         passRow.Controls.AddRange(new Control[] { new Label { Text = "证书密码：", AutoSize = true, Padding = new Padding(0, 6, 0, 0) }, _txtCertPass, new Label { Text = "额外HTTPS端口(0=自动)：", AutoSize = true, Padding = new Padding(14, 6, 0, 0) }, _nudHttpsPort, _btnSiteSave });
+        // 证书工具：装/卸信任 + 导出给其它设备（自签名证书最大的坑是「浏览器说不安全」，
+        // 根因是根证书没进系统信任库，而不是网站本身有问题）
+        var certToolRow = new FlowLayoutPanel { AutoSize = true, WrapContents = true, Padding = new Padding(0, 2, 0, 0) };
+        certToolRow.Controls.AddRange(new Control[]
+        {
+            new Label { Text = "证书工具：", AutoSize = true, Padding = new Padding(0, 6, 0, 0) },
+            _btnCertInstall, _btnCertRemove, _btnCertExport,
+        });
         var siteHint = new Label
         {
-            Text = "证书文件存在 = 主端口直接对外 HTTPS（https://域名:主端口 直达）。「额外 HTTPS 端口」再加绑一个 TLS 口\r\n（0=自动：443 空闲则绑 443，内网裸域名可直接 https 访问）；主端口+1 是明文口，收到的 http 请求 307 跳到 https 主端口；\r\n管理 API=主端口+2 环回明文。证书密码写入证书同目录 cert.pass（不进 git）。改动后点「保存并重启服务」。",
+            Text = "证书文件存在 = 主端口直接对外 HTTPS（https://域名:主端口 直达）。「额外 HTTPS 端口」再加绑一个 TLS 口\r\n（0=自动：443 空闲则绑 443，内网裸域名可直接 https 访问）；主端口+1 是明文口，收到的 http 请求 307 跳到 https 主端口；\r\n管理 API=主端口+2 环回明文。证书密码写入证书同目录 cert.pass（不进 git）。改动后点「保存并重启服务」。\r\n安装信任后需完全退出并重开浏览器；Firefox 用自己的证书库，需在 设置→隐私→证书 里手动导入导出的 .crt。",
             AutoSize = true,
             ForeColor = Color.DimGray,
         };
-        siteCol.Controls.AddRange(new Control[] { certRow, passRow, siteHint });
+        siteCol.Controls.AddRange(new Control[] { certRow, passRow, certToolRow, _lblSiteHint, _lblCertTrust, siteHint });
         siteBox.Controls.Add(siteCol);
 
         var onlineTop = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(0, 0, 0, 4) };
@@ -1355,6 +1374,369 @@ internal sealed class MainForm : Form
         _lblSiteHint.Text = File.Exists(path)
             ? $"HTTPS 已就绪：{path}（重启服务后主端口 {_cfg.Port} 直接 https）"
             : "未找到证书文件 —— 当前将按纯 HTTP 启动（把 .pfx/.p12 放进上面路径即启用 HTTPS）。";
+        UpdateCertTrustStatus();
+    }
+
+    /* ---------------- 证书工具：一键安装 / 移除信任 / 导出给其它设备 ---------------- */
+
+    /// <summary>证书目录 = 当前生效 PFX 的同级目录（默认 Data/certs）。</summary>
+    private string CertDir
+    {
+        get
+        {
+            var dir = Path.GetDirectoryName(ResolveCertPath());
+            return string.IsNullOrEmpty(dir) ? Path.Combine(G.WebProject, "Data", "certs") : dir;
+        }
+    }
+
+    /// <summary>当前进程是否管理员：决定能不能写「本机」信任库；写不了就只写当前用户（一样生效）。</summary>
+    private static bool IsElevated
+    {
+        get
+        {
+            try
+            {
+                using var id = WindowsIdentity.GetCurrent();
+                return new WindowsPrincipal(id).IsInRole(WindowsBuiltInRole.Administrator);
+            }
+            catch { return false; }
+        }
+    }
+
+    private static bool IsSelfSigned (X509Certificate2 c) =>
+        string.Equals(c.Subject, c.Issuer, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>证书显示名：取 Subject 里的 CN=。</summary>
+    private static string CertCn (X509Certificate2 c)
+    {
+        foreach (var part in c.Subject.Split(','))
+        {
+            var t = part.Trim();
+            if (t.StartsWith("CN=", StringComparison.OrdinalIgnoreCase)) return t[3..];
+        }
+        return c.Subject;
+    }
+
+    /// <summary>只保留公钥部分：装进信任库绝不能带私钥。</summary>
+    private static X509Certificate2 PublicOnly (X509Certificate2 c) =>
+        c.HasPrivateKey ? new X509Certificate2(c.Export(X509ContentType.Cert)) : c;
+
+    /// <summary>读 PFX（口令来自同目录 cert.pass）：先试临时密钥容器，失败再退回默认标志。</summary>
+    private static X509Certificate2? LoadPfx (string path, string pass)
+    {
+        if (!File.Exists(path)) return null;
+        try { return new X509Certificate2(path, pass, X509KeyStorageFlags.EphemeralKeySet); }
+        catch
+        {
+            try { return new X509Certificate2(path, pass); }
+            catch { return null; }
+        }
+    }
+
+    /// <summary>
+    /// 找本项目自己的根证书：① 证书目录下 .crt/.cer/.pem 里自签名的那张（tcraft-ca.crt）；
+    /// ② 找不到时，从 PFX 自带证书链里取自签名的一张（生成本项目证书时把 CA 一起打包了）。
+    /// 都没有就返回 null —— 纯 HTTP 部署本来就没有证书，不是错误。
+    /// </summary>
+    private X509Certificate2? LoadRootCa ()
+    {
+        try
+        {
+            var dir = CertDir;
+            if (Directory.Exists(dir))
+            {
+                foreach (var f in Directory.EnumerateFiles(dir, "*.*"))
+                {
+                    var ext = Path.GetExtension(f).ToLowerInvariant();
+                    if (ext != ".crt" && ext != ".cer" && ext != ".pem") continue;
+                    try
+                    {
+                        var c = new X509Certificate2(f);
+                        if (IsSelfSigned(c)) return PublicOnly(c);
+                    }
+                    catch { /* 不是证书 / 编码不支持：跳过看下一个 */ }
+                }
+            }
+        }
+        catch { /* 目录不可读：走 PFX 兜底 */ }
+
+        var pfx = ResolveCertPath();
+        try
+        {
+            if (File.Exists(pfx))
+            {
+                var col = new X509Certificate2Collection();
+                col.Import(pfx, ReadCertPassword(pfx), X509KeyStorageFlags.EphemeralKeySet);
+                foreach (var c in col)
+                    if (IsSelfSigned(c)) return PublicOnly(c);
+            }
+        }
+        catch { /* 口令不对 / 格式不支持：当作没有 CA */ }
+        return null;
+    }
+
+    /// <summary>站点证书（PFX 里的叶子）；口令失效时退回同目录 cert.cer（公钥即可读）。</summary>
+    private X509Certificate2? LoadSiteCert ()
+    {
+        var pfx = ResolveCertPath();
+        var leaf = LoadPfx(pfx, ReadCertPassword(pfx));
+        if (leaf != null) return leaf;
+        try
+        {
+            var cer = Path.Combine(CertDir, "cert.cer");
+            return File.Exists(cer) ? new X509Certificate2(cer) : null;
+        }
+        catch { return null; }
+    }
+
+    private static bool RootTrusted (X509Certificate2 cert, StoreLocation location)
+    {
+        try
+        {
+            using var store = new X509Store(StoreName.Root, location);
+            store.Open(OpenFlags.ReadOnly | OpenFlags.OpenExistingOnly);
+            // validOnly=false：过期的也要能查出来，否则「明明装了还显示未信任」
+            return store.Certificates.Find(X509FindType.FindByThumbprint, cert.Thumbprint, false).Count > 0;
+        }
+        catch { return false; }
+    }
+
+    /// <summary>刷新「信任状态」一行（打开界面、改证书路径、装/卸之后都会调）。</summary>
+    private void UpdateCertTrustStatus ()
+    {
+        var ca = LoadRootCa();
+        var leaf = LoadSiteCert();
+
+        _btnCertInstall.Enabled = ca != null || (leaf != null && IsSelfSigned(leaf));
+        _btnCertRemove.Enabled = true;
+        _btnCertExport.Enabled = ca != null;
+
+        if (ca == null && leaf == null)
+        {
+            _lblCertTrust.Text = "信任状态：没找到证书 —— 先把 .pfx 放到上面的证书路径并「保存并重启服务」，再回来一键安装。";
+            _lblCertTrust.ForeColor = Color.DimGray;
+            return;
+        }
+
+        var sb = new StringBuilder("信任状态：");
+        var trusted = false;
+        if (ca != null)
+        {
+            var userOk = RootTrusted(ca, StoreLocation.CurrentUser);
+            var machineOk = RootTrusted(ca, StoreLocation.LocalMachine);
+            trusted = userOk || machineOk;
+            sb.Append("根证书 ").Append(CertCn(ca)).Append('（')
+              .Append(machineOk ? "本机已信任" : userOk ? "当前用户已信任" : "未安装")
+              .Append("，至 ").Append(ca.NotAfter.ToString("yyyy-MM-dd")).Append('）');
+        }
+        if (leaf != null)
+        {
+            sb.Append(ca != null ? "\r\n" : "").Append("站点证书 ").Append(CertCn(leaf))
+              .Append("（至 ").Append(leaf.NotAfter.ToString("yyyy-MM-dd")).Append('）');
+            if (ca != null && !string.Equals(leaf.Issuer, ca.Subject, StringComparison.OrdinalIgnoreCase))
+                sb.Append("　⚠ 不是本地这张 CA 签发的，装 CA 消不掉警告");
+        }
+        _lblCertTrust.Text = sb.ToString();
+        _lblCertTrust.ForeColor = trusted ? Color.SeaGreen : Color.DarkOrange;
+    }
+
+    /// <summary>
+    /// 一键把根证书写进 Windows「受信任的根证书颁发机构」：
+    /// · 当前用户库 —— 不需要管理员，装完当前账号的 Chrome/Edge 立刻认（Windows 可能弹一次安全警告，点「是」）；
+    /// · 本机库 —— 只有以管理员身份运行时才写，写成功等于这台机器所有用户都认。
+    /// 同指纹已存在就跳过：重复堆同名 CA 正是浏览器判「证书无效」的经典原因。
+    /// </summary>
+    private void InstallCert ()
+    {
+        var ca = LoadRootCa();
+        // 老部署可能是一张自签名证书（没有单独 CA）：把它本身装进根库同样能消除警告
+        if (ca == null)
+        {
+            var leaf = LoadSiteCert();
+            if (leaf != null && IsSelfSigned(leaf)) ca = PublicOnly(leaf);
+        }
+        if (ca == null)
+        {
+            MessageBox.Show(this,
+                "没找到可安装的根证书。\n\n"
+                + $"期望文件：{Path.Combine(CertDir, "tcraft-ca.crt")}\n"
+                + "（证书目录下任意自签名 .crt/.cer 也可；PFX 里自带 CA 同样能识别）",
+                "一键安装证书", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+        if (ca.NotAfter < DateTime.Now)
+        {
+            MessageBox.Show(this, $"根证书已于 {ca.NotAfter:yyyy-MM-dd} 过期，请重新生成后再装。",
+                "一键安装证书", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        var added = new List<string>();
+        var already = new List<string>();
+        var failed = new List<string>();
+        AddToRootStore(ca, StoreLocation.CurrentUser, added, already, failed);
+        if (IsElevated) AddToRootStore(ca, StoreLocation.LocalMachine, added, already, failed);
+
+        var verified = RootTrusted(ca, StoreLocation.CurrentUser) || RootTrusted(ca, StoreLocation.LocalMachine);
+        UpdateCertTrustStatus();
+
+        if (verified && added.Count == 0)
+        {
+            MessageBox.Show(this,
+                $"根证书已经在信任库里，无需重复安装。\n\n证书：{CertCn(ca)}\n指纹：{ca.Thumbprint}\n有效期至：{ca.NotAfter:yyyy-MM-dd}",
+                "一键安装证书", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            _msg.Text = "根证书已在系统信任库中。";
+            return;
+        }
+
+        if (!verified)
+        {
+            MessageBox.Show(this,
+                "安装未完成。\n\n"
+                + (failed.Count > 0 ? "原因：" + string.Join("；", failed) + "\n\n" : "")
+                + "改用「以管理员身份运行」本管理端再点一次即可（写本机信任库不弹窗）。",
+                "一键安装证书", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            _msg.Text = "根证书安装失败。";
+            return;
+        }
+
+        MessageBox.Show(this,
+            "根证书已安装到系统信任库。\n\n"
+            + $"证书：{CertCn(ca)}\n指纹：{ca.Thumbprint}\n"
+            + $"位置：{string.Join(" / ", added)}{(already.Count > 0 ? "（其余位置已存在）" : "")}\n"
+            + $"有效期至：{ca.NotAfter:yyyy-MM-dd}\n\n"
+            + "下一步：完全退出浏览器（任务管理器里不能留残留进程）再打开网站，地址栏应显示锁标。\n"
+            + "手机 / 其它电脑：点「导出根证书…」把 .crt 发过去装进系统信任。",
+            "一键安装证书", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        _msg.Text = "根证书已安装，重启浏览器后生效。";
+    }
+
+    private static void AddToRootStore (X509Certificate2 cert, StoreLocation location,
+        List<string> added, List<string> already, List<string> failed)
+    {
+        var name = location == StoreLocation.CurrentUser ? "当前用户" : "本机";
+        try
+        {
+            using var store = new X509Store(StoreName.Root, location);
+            store.Open(OpenFlags.ReadWrite);
+            if (store.Certificates.Find(X509FindType.FindByThumbprint, cert.Thumbprint, false).Count > 0)
+            {
+                already.Add(name);
+                return;
+            }
+            store.Add(cert);
+            added.Add(name);
+        }
+        catch (Exception ex)
+        {
+            // 未提权写本机库 = 预期内的失败，另一个库成功就算成功
+            failed.Add($"{name}：{ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// 移除本项目的根证书（当前用户 + 本机两个「受信任的根证书颁发机构」）。
+    /// 判定口径：Subject 含 CN=tcraft（本项目 CA 的固定标识）或指纹等于当前 CA ——
+    /// 前者顺带清掉历史遗留的同名旧 CA（两张同名 CA 会让浏览器直接判链无效，真踩过）。
+    /// 只动系统信任库，不删磁盘上的证书文件。
+    /// </summary>
+    private void RemoveCertTrust ()
+    {
+        var ca = LoadRootCa();
+        var removed = new List<string>();
+        var failed = new List<string>();
+        RemoveTcraftRoots(StoreLocation.CurrentUser, ca, removed, failed);
+        RemoveTcraftRoots(StoreLocation.LocalMachine, ca, removed, failed);   // 非管理员会失败，下面单独说明
+        UpdateCertTrustStatus();
+
+        if (removed.Count == 0)
+        {
+            MessageBox.Show(this,
+                "信任库里没有找到本项目的根证书（CN=tcraft）。\n\n"
+                + (failed.Count > 0 ? "说明：" + string.Join("；", failed) : "可能已经清理过，或从未安装。"),
+                "移除证书信任", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            _msg.Text = "无需移除：信任库里没有本项目的根证书。";
+            return;
+        }
+
+        MessageBox.Show(this,
+            $"已移除 {removed.Count} 张根证书：\n\n"
+            + string.Join("\n", removed.Take(8))
+            + (removed.Count > 8 ? "\n…" : "")
+            + "\n\n浏览器之后会重新提示「不安全」，这是预期结果。\n"
+            + "证书文件本身没动 —— 想恢复信任，再点一次「一键安装证书」。"
+            + (failed.Count > 0 ? "\n\n部分位置未清理：" + string.Join("；", failed) + "\n（以管理员身份运行可清「本机」库）" : ""),
+            "移除证书信任", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        _msg.Text = $"已从系统信任库移除 {removed.Count} 张 tcraft 根证书。";
+    }
+
+    private static void RemoveTcraftRoots (StoreLocation location, X509Certificate2? ca,
+        List<string> removed, List<string> failed)
+    {
+        var name = location == StoreLocation.CurrentUser ? "当前用户" : "本机";
+        try
+        {
+            using var store = new X509Store(StoreName.Root, location);
+            store.Open(OpenFlags.ReadWrite);
+            // 先收集再从集合里删（边遍历边删会漏项）
+            var doomed = new List<X509Certificate2>();
+            foreach (var c in store.Certificates)
+            {
+                var ours = c.Subject.IndexOf("CN=tcraft", StringComparison.OrdinalIgnoreCase) >= 0
+                           || (ca != null && string.Equals(c.Thumbprint, ca.Thumbprint, StringComparison.OrdinalIgnoreCase));
+                if (ours) doomed.Add(c);
+            }
+            foreach (var c in doomed)
+            {
+                store.Remove(c);
+                var thumb = c.Thumbprint ?? "";
+                removed.Add($"[{name}] {CertCn(c)} · {(thumb.Length > 8 ? thumb[..8] : thumb)}… · 至 {c.NotAfter:yyyy-MM-dd}");
+            }
+        }
+        catch (Exception ex)
+        {
+            failed.Add($"{name}：{ex.Message}");
+        }
+    }
+
+    /// <summary>导出根证书（PEM .crt / DER .cer），供手机、其它电脑装进系统信任。</summary>
+    private void ExportCert ()
+    {
+        var ca = LoadRootCa();
+        if (ca == null)
+        {
+            MessageBox.Show(this, "没找到根证书，无法导出。", "导出根证书",
+                MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+        using var dlg = new SaveFileDialog
+        {
+            Title = "导出根证书（给手机 / 其它电脑安装）",
+            Filter = "根证书 PEM (*.crt)|*.crt|DER 证书 (*.cer)|*.cer",
+            FileName = "tcraft-ca.crt",
+            OverwritePrompt = true,
+        };
+        if (dlg.ShowDialog(this) != DialogResult.OK) return;
+        try
+        {
+            if (Path.GetExtension(dlg.FileName).Equals(".cer", StringComparison.OrdinalIgnoreCase))
+                File.WriteAllBytes(dlg.FileName, ca.Export(X509ContentType.Cert));
+            else
+                File.WriteAllText(dlg.FileName, ca.ExportCertificatePem());
+
+            _msg.Text = $"根证书已导出：{dlg.FileName}";
+            MessageBox.Show(this,
+                $"已导出：\n{dlg.FileName}\n\n"
+                + "Windows：双击 .crt → 安装证书 → 受信任的根证书颁发机构\n"
+                + "Android：设置 → 安全 → 加密与凭据 → 安装证书 → CA 证书\n"
+                + "iOS：设置 → 已下载描述文件 → 安装，再到「关于本机 → 证书信任设置」打开完全信任",
+                "导出根证书", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, $"导出失败：{ex.Message}", "导出根证书",
+                MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
     }
 
     private void BrowseCert ()
