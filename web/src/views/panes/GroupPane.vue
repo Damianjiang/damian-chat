@@ -145,19 +145,11 @@
           </template>
         </v-list-item>
 
-        <v-list-item v-if="canManage">
+        <v-list-item v-if="canManage" @click="openPolicyDialog">
           <template #prepend><v-icon icon="mdi-key" /></template>
           <v-list-item-title>{{ t('group.join.policy') }}</v-list-item-title>
           <v-list-item-subtitle>{{ joinPolicyLabel(group?.joinPolicy ?? 'approve') }}</v-list-item-subtitle>
-          <template #append>
-            <v-btn
-              density="compact"
-              icon="mdi-chevron-right"
-              size="small"
-              variant="text"
-              @click="openPolicyDialog"
-            />
-          </template>
+          <template #append><v-icon icon="mdi-chevron-right" /></template>
         </v-list-item>
 
         <!-- 全员禁言（QQ 式）：开启后普通成员不能发言，群主/管理员不受限 -->
