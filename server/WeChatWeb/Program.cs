@@ -114,8 +114,35 @@ if (httpsEnabled)
     }
 }
 
-var httpsBound = false; // ConfigureKestrel 回调里置位；跳转中间件按请求时读取（回调在 host 构建时已执行）
-// 实际绑定成功的 TLS 端口（配置的端口可能被占用而跳过）—— 跳转中间件只跳到这里
+/*
+ * 首次信任引导（bootstrap）：把根证书与分平台安装页放到**明文分支**直接吐出来。
+ *
+ * ★ 为什么必须走明文：
+ *   自签名证书在手机/新电脑上首次访问必然弹「连接不安全」，而消除警告的前提正是「先拿到 CA」——
+ *   https 下这是一段死循环（用户得先点「继续前往」，微信内置浏览器甚至不给这个按钮）。
+ *   公钥证书是公开信息，明文传输没有保密性要求；内容启动时生成一次、之后只读，
+ *   不使用任何请求参数，因此没有注入面。
+ *
+ * 只暴露三条固定路径：
+ *   /ca              分平台图文安装步骤（手机优先）
+ *   /ca.crt          根证书本体（PEM）
+ *   /install-ca.ps1  Windows 一键安装脚本（内嵌 base64，自校验指纹）
+ * 其余路径行为完全不变：明文照样 307 到 https。
+ */
+var caBootstrap = new CaBootstrap();
+if (httpsEnabled)
+{
+    var caSibling = Path.Combine(Path.GetDirectoryName(httpsCert!) ?? ".", "tcraft-ca.crt");
+    caBootstrap = CaBootstrap.Create(caSibling, httpsCert);
+    if (caBootstrap.Enabled)
+        Console.WriteLine($"[CA] 首次信任引导已启用：http://<主机>:<端口>/ca（根证书 {caBootstrap.ThumbprintSha1}，至 {caBootstrap.NotAfterText}）");
+}
+
+// 明文分支的免跳转查表（未启用证书时恒为 null，整段退化为原来的 307 行为）
+(string ContentType, byte[] Body)? ServeBootstrap (string path)
+    => caBootstrap.Enabled && caBootstrap.TryGet(path, out var ct, out var body) ? (ct, body) : null;
+
+var httpsBound = false; // ConfigureKestrel 回调里置位；跳转中间件按请求时读取（回调在 host 构建时已执行）// 实际绑定成功的 TLS 端口（配置的端口可能被占用而跳过）—— 跳转中间件只跳到这里
 var boundHttpsPorts = new List<int>();
 builder.WebHost.ConfigureKestrel(options =>
 {
@@ -168,7 +195,7 @@ builder.WebHost.ConfigureKestrel(options =>
             {
                 // 先嗅探再握手：http://域名:主端口 收到 307（而不是 ERR_EMPTY_RESPONSE），
                 // TLS 首字节原样留给 UseHttps，握手行为完全不变。
-                if (sniffPlain) listen.Use(PlainHttpRedirectOnTls.Create(tlsPort));
+                if (sniffPlain) listen.Use(PlainHttpRedirectOnTls.Create(tlsPort, ServeBootstrap));
                 listen.UseHttps(httpsCert!, httpsCertPass);
             }
             if (string.IsNullOrWhiteSpace(bind) || bind == "0.0.0.0" || bind == "*")
@@ -442,7 +469,10 @@ if (httpsEnabled)
         var remote = ctx.Connection.RemoteIpAddress;
         var loopback = remote != null && System.Net.IPAddress.IsLoopback(remote);
         // httpsBound=false（HTTPS 端口被占降级为纯 HTTP）时不能跳转，否则外部请求会被 307 到不属于我们的 443 上
-        if (!loopback && ctx.Request.Scheme == "http" && httpsBound)
+        // 首次信任引导的固定路径不跳转：客户端还没装 CA，跳到 https 只会得到一屏红色警告
+        var isBootstrapPath = caBootstrap.Enabled
+            && CaBootstrap.Paths.Contains(ctx.Request.Path.Value ?? "", StringComparer.OrdinalIgnoreCase);
+        if (!loopback && ctx.Request.Scheme == "http" && httpsBound && !isBootstrapPath)
         {
             // 跳转目标 = 主 TLS 端口（WX_HTTPS_REDIRECT_PORT，GUI 传入）；手动裸跑时退回
             // 实际绑定成功的第一个 TLS 端口（配置的端口可能被外部进程占用而跳过）；
@@ -560,6 +590,27 @@ app.MapHub<ChatHub>("/hubs/chat").RequireAuthorization();
 // 只暴露「服务存活 + 当前 UTC 时间」，刻意不回显内存/框架/数据库等内部细节（避免 API-SEC-003 过度数据暴露）。
 // 详细状态仍走 /api/admin/health（需 loopback + 管理密钥）。
 app.MapGet("/health", () => Results.Ok(new { ok = true, ts = DateTime.UtcNow }));
+
+/*
+ * 首次信任引导端点（内容与连接层明文分支共用同一份 CaBootstrap，绝无第二份副本）：
+ *   • 明文口（主端口+1）由上面的 307 中间件白名单放行后走到这里；
+ *   • https 主端口走 TLS 分支直接进管道，已信任的设备也能从这里取；
+ *   • 主端口的**明文**请求在连接层就被 ServeBootstrap 接走了，根本到不了这里。
+ * 不挂 RequireAuthorization：还没装证书的设备连登录页都进不去，必须先能拿到 CA。
+ */
+if (caBootstrap.Enabled)
+{
+    IResult ServeBootstrapFile (string path)
+        => caBootstrap.TryGet(path, out var ct, out var body)
+            ? Results.Bytes(body, ct)
+            : Results.NotFound();
+
+    app.MapGet("/ca", () => ServeBootstrapFile("/ca"));
+    // 不设 fileDownloadName：iOS 靠 Content-Type 识别「配置描述文件」，
+    // 加了 attachment 反而会变成普通下载，装不上。
+    app.MapGet("/ca.crt", () => ServeBootstrapFile("/ca.crt"));
+    app.MapGet("/install-ca.ps1", () => ServeBootstrapFile("/install-ca.ps1"));
+}
 
 // SPA 兜底：非 /api、/hubs 的路径一律交给前端路由（/chat、/contacts 等前端路由直接访问也不会 404）
 app.MapFallback(async ctx =>

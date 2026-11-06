@@ -28,13 +28,23 @@ public static class PlainHttpRedirectOnTls
     /// <summary>最多读取这么多字节用于解析请求行 + Host 头（正常浏览器首包远小于此）。</summary>
     private const int MaxProbeBytes = 8192;
 
-    public static Func<ConnectionDelegate, ConnectionDelegate> Create (int tlsPort)
-        => next => connection => InvokeAsync(connection, next, tlsPort);
+    /// <summary>
+    /// 明文分支的「免跳转白名单」。命中即直接回 200 + 内容，不走 307。
+    ///
+    /// 用途只有一个：**首次信任引导**。客户端还没装根证书时，浏览器/手机对 https 一律弹警告，
+    /// 而 CA 文件本身又必须先拿到才能消除警告 —— 死循环。这里用明文口破局：
+    /// 公钥证书是公开信息，明文传输无保密性要求；不解析任何参数、不回显任何输入，无注入面。
+    /// </summary>
+    public static Func<ConnectionDelegate, ConnectionDelegate> Create (
+        int tlsPort,
+        Func<string, (string ContentType, byte[] Body)?>? bootstrap = null)
+        => next => connection => InvokeAsync(connection, next, tlsPort, bootstrap);
 
     private static async Task InvokeAsync (
         ConnectionContext connection,
         ConnectionDelegate next,
-        int tlsPort)
+        int tlsPort,
+        Func<string, (string ContentType, byte[] Body)?>? bootstrap)
     {
         var input = connection.Transport.Input;
         ReadResult result;
@@ -90,6 +100,19 @@ public static class PlainHttpRedirectOnTls
         var (host, path) = ParseRequestHead(raw);
         input.AdvanceTo(buffer.End); // 明文分支直接结束，不再交给 HTTP 栈
 
+        // 首次信任引导：/ca、/ca.crt、/install-ca.ps1 直接回内容（不跳 https，否则又是鸡生蛋）
+        if (bootstrap is not null)
+        {
+            var purePath = path;
+            var queryAt = purePath.IndexOf('?');
+            if (queryAt >= 0) purePath = purePath[..queryAt];
+            if (bootstrap(purePath) is { } hit)
+            {
+                await WritePlainAsync(connection, hit.ContentType, hit.Body);
+                return;
+            }
+        }
+
         if (string.IsNullOrWhiteSpace(host))
         {
             // 连 Host 都解析不出来（扫描器/畸形请求）：静默关闭，不提供任何指纹
@@ -112,6 +135,28 @@ public static class PlainHttpRedirectOnTls
         try
         {
             await connection.Transport.Output.WriteAsync(Encoding.ASCII.GetBytes(response));
+            await connection.Transport.Output.FlushAsync();
+        }
+        catch
+        {
+            // 对端已断：忽略
+        }
+    }
+
+    /// <summary>连接层直接写一条完整 HTTP/1.1 响应（仅用于固定的引导内容，不解析请求）。</summary>
+    private static async Task WritePlainAsync (ConnectionContext connection, string contentType, byte[] body)
+    {
+        var head = "HTTP/1.1 200 OK\r\n"
+            + "Content-Type: " + contentType + "\r\n"
+            + "Content-Length: " + body.Length + "\r\n"
+            + "Cache-Control: no-store\r\n"
+            + "X-Content-Type-Options: nosniff\r\n"
+            + "Connection: close\r\n"
+            + "\r\n";
+        try
+        {
+            await connection.Transport.Output.WriteAsync(Encoding.ASCII.GetBytes(head));
+            if (body.Length > 0) await connection.Transport.Output.WriteAsync(body);
             await connection.Transport.Output.FlushAsync();
         }
         catch

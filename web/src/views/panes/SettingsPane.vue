@@ -500,6 +500,10 @@
             <a class="wx-about-link" href="https://github.com/Damianjiang/damian-chat/issues" rel="noopener noreferrer" target="_blank">
               <v-icon icon="mdi-bug-outline" size="16" />{{ t('about.issues') }}
             </a>
+            <!-- 手机/新设备首次访问会弹「连接不安全」：这里给出免警告的安装引导页 -->
+            <a class="wx-about-link" href="/ca" rel="noopener noreferrer" target="_blank">
+              <v-icon icon="mdi-certificate-outline" size="16" />{{ t('about.cert') }}
+            </a>
           </div>
 
           <div class="text-body-small text-medium-emphasis mt-3">{{ t('about.license') }}</div>

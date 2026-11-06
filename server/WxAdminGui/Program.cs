@@ -255,6 +255,7 @@ internal sealed class MainForm : Form
     private readonly Button _btnCertInstall = new() { Text = "一键安装证书", AutoSize = true };
     private readonly Button _btnCertRemove = new() { Text = "移除证书信任", AutoSize = true };
     private readonly Button _btnCertExport = new() { Text = "导出根证书…", AutoSize = true };
+    private readonly Button _btnCertMobile = new() { Text = "手机安装页", AutoSize = true };
     private readonly Label _lblCertTrust = new() { Text = "", AutoSize = true, ForeColor = Color.DimGray };
 
     /* ---- 在线用户（概览页） ---- */
@@ -428,6 +429,7 @@ internal sealed class MainForm : Form
         _btnCertInstall.Click += (_, _) => Run(InstallCert);
         _btnCertRemove.Click += (_, _) => Run(RemoveCertTrust);
         _btnCertExport.Click += (_, _) => Run(ExportCert);
+        _btnCertMobile.Click += (_, _) => Run(ShowCaInstallPage);
         _chkAutoRun.CheckedChanged += (_, _) => Run(SaveAutoRun);
         _chkAutoStartServer.CheckedChanged += (_, _) => Run(() => { _cfg.AutoStartServer = _chkAutoStartServer.Checked; _cfg.Save(); });
         _btnSecRead.Click += (_, _) => RunAsync(async () => { await LoadSecurityAsync(); _msg.Text = "安全设置已读取"; });
@@ -621,7 +623,7 @@ internal sealed class MainForm : Form
         certToolRow.Controls.AddRange(new Control[]
         {
             new Label { Text = "证书工具：", AutoSize = true, Padding = new Padding(0, 6, 0, 0) },
-            _btnCertInstall, _btnCertRemove, _btnCertExport,
+            _btnCertInstall, _btnCertRemove, _btnCertExport, _btnCertMobile,
         });
         var siteHint = new Label
         {
@@ -1737,6 +1739,59 @@ internal sealed class MainForm : Form
             MessageBox.Show(this, $"导出失败：{ex.Message}", "导出根证书",
                 MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
+    }
+
+    /// <summary>
+    /// 手机 / 其它设备首次访问会弹「连接不安全」——自签名证书的客户端信任问题，
+    /// 服务端再正确也躲不掉。这里给出免警告的安装入口：服务端 /ca 页面走**明文**返回，
+    /// 手机浏览器打开时不会有任何警告，页面里按系统分步引导下载并安装根证书。
+    /// </summary>
+    private void ShowCaInstallPage ()
+    {
+        // 域名优先取站点证书的 CN（用户实际访问用的名字），取不到退回本机内网 IP
+        var host = "";
+        try
+        {
+            var pfx = _txtCertPath.Text.Trim();
+            if (!File.Exists(pfx)) pfx = Path.Combine(CertDir, "selfsigned.pfx");
+            var passFile = Path.Combine(Path.GetDirectoryName(pfx) ?? ".", "cert.pass");
+            var pass = File.Exists(passFile) ? File.ReadAllText(passFile).Trim() : "";
+            var leaf = LoadPfx(pfx, pass);
+            if (leaf != null)
+            {
+                var cn = CertCn(leaf);
+                if (cn.Contains('.')) host = cn;
+            }
+        }
+        catch { /* 取不到就走 IP 兜底 */ }
+
+        if (string.IsNullOrWhiteSpace(host))
+        {
+            try
+            {
+                host = System.Net.Dns.GetHostAddresses(System.Net.Dns.GetHostName())
+                    .FirstOrDefault(a => a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork
+                                         && !System.Net.IPAddress.IsLoopback(a))?.ToString() ?? "127.0.0.1";
+            }
+            catch { host = "127.0.0.1"; }
+        }
+
+        var port = _cfg.Port;
+        var plainUrl = $"http://{host}:{port}/ca";
+        var tlsUrl = $"https://{host}:{port}/";
+        try { Clipboard.SetText(plainUrl); } catch { }
+
+        MessageBox.Show(this,
+            "手机 / 其它设备第一次访问会用红字提示「连接不安全」——不是网站有问题，\n"
+            + "是那台设备还没装本机的根证书。让它先打开下面这个地址（**明文**，不会报警告）：\n\n"
+            + plainUrl + "\n\n"
+            + "（已复制到剪贴板）\n\n"
+            + "页面里按系统选 iPhone / Android / Windows，跟着点几步就装好了。\n"
+            + "装完再用正常地址访问：\n" + tlsUrl + "\n\n"
+            + "注意：\n"
+            + "· 微信 / QQ 内置浏览器不认用户证书（Android 尤其），装完请用系统浏览器打开本站。\n"
+            + "· 手机需与服务器同网络，或路由器已把 " + port + " 端口映射到公网。",
+            "手机安装证书", MessageBoxButtons.OK, MessageBoxIcon.Information);
     }
 
     private void BrowseCert ()
