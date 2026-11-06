@@ -1419,6 +1419,20 @@ internal sealed class MainForm : Form
         return c.Subject;
     }
 
+    /// <summary>
+    /// CN → 安全文件名：只留 ASCII 字母数字与 . _ -。
+    /// 这个名字要跨 iOS / Android / Windows 落盘，中文与空格在各家「文件」应用里表现不一。
+    /// </summary>
+    private static string SafeCertFileName (X509Certificate2 c)
+    {
+        var cn = CertCn(c);
+        var sb = new System.Text.StringBuilder(cn.Length);
+        foreach (var ch in cn)
+            sb.Append((ch < 128 && char.IsLetterOrDigit(ch)) || ch is '.' or '_' or '-' ? ch : '-');
+        var name = sb.ToString().Trim('-', '.');
+        return name.Length == 0 ? "ca" : name;
+    }
+
     /// <summary>只保留公钥部分：装进信任库绝不能带私钥。</summary>
     private static X509Certificate2 PublicOnly (X509Certificate2 c) =>
         c.HasPrivateKey ? new X509Certificate2(c.Export(X509ContentType.Cert)) : c;
@@ -1436,7 +1450,8 @@ internal sealed class MainForm : Form
     }
 
     /// <summary>
-    /// 找本项目自己的根证书：① 证书目录下 .crt/.cer/.pem 里自签名的那张（tcraft-ca.crt）；
+    /// 找本项目自己的根证书：① 证书目录下 .crt/.cer/.pem 里自签名的那张
+    /// （CA 部署是 tcraft-ca.crt，纯自签部署就是站点证书本身 —— 两种都自签，同样能装）；
     /// ② 找不到时，从 PFX 自带证书链里取自签名的一张（生成本项目证书时把 CA 一起打包了）。
     /// 都没有就返回 null —— 纯 HTTP 部署本来就没有证书，不是错误。
     /// </summary>
@@ -1561,8 +1576,9 @@ internal sealed class MainForm : Form
         {
             MessageBox.Show(this,
                 "没找到可安装的根证书。\n\n"
-                + $"期望文件：{Path.Combine(CertDir, "tcraft-ca.crt")}\n"
-                + "（证书目录下任意自签名 .crt/.cer 也可；PFX 里自带 CA 同样能识别）",
+                + $"证书目录：{CertDir}\n"
+                + "（放一张自签名 .crt/.cer/.pem 即可：CA 部署用 tcraft-ca.crt，纯自签部署用站点证书本身；\n"
+                + "  PFX 里自带 CA 同样能识别）",
                 "一键安装证书", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
@@ -1638,9 +1654,9 @@ internal sealed class MainForm : Form
 
     /// <summary>
     /// 移除本项目的根证书（当前用户 + 本机两个「受信任的根证书颁发机构」）。
-    /// 判定口径：Subject 含 CN=tcraft（本项目 CA 的固定标识）或指纹等于当前 CA ——
-    /// 前者顺带清掉历史遗留的同名旧 CA（两张同名 CA 会让浏览器直接判链无效，真踩过）。
-    /// 只动系统信任库，不删磁盘上的证书文件。
+    /// 判定口径：① 指纹等于当前信任锚；② 同 CN 且自签 ——
+    /// 后者顺带清掉换证书后遗留的同名旧证书（两张同名自签证书会让浏览器直接判链无效，真踩过）。
+    /// 磁盘上没有证书文件时退化为按历史固定标识 CN=tcraft 清理。只动系统信任库，不删磁盘文件。
     /// </summary>
     private void RemoveCertTrust ()
     {
@@ -1654,7 +1670,7 @@ internal sealed class MainForm : Form
         if (removed.Count == 0)
         {
             MessageBox.Show(this,
-                "信任库里没有找到本项目的根证书（CN=tcraft）。\n\n"
+                $"信任库里没有找到本项目的根证书（{(ca != null ? CertCn(ca) : "tcraft")}）。\n\n"
                 + (failed.Count > 0 ? "说明：" + string.Join("；", failed) : "可能已经清理过，或从未安装。"),
                 "移除证书信任", MessageBoxButtons.OK, MessageBoxIcon.Information);
             _msg.Text = "无需移除：信任库里没有本项目的根证书。";
@@ -1669,13 +1685,14 @@ internal sealed class MainForm : Form
             + "证书文件本身没动 —— 想恢复信任，再点一次「一键安装证书」。"
             + (failed.Count > 0 ? "\n\n部分位置未清理：" + string.Join("；", failed) + "\n（以管理员身份运行可清「本机」库）" : ""),
             "移除证书信任", MessageBoxButtons.OK, MessageBoxIcon.Information);
-        _msg.Text = $"已从系统信任库移除 {removed.Count} 张 tcraft 根证书。";
+        _msg.Text = $"已从系统信任库移除 {removed.Count} 张本站根证书。";
     }
 
     private static void RemoveTcraftRoots (StoreLocation location, X509Certificate2? ca,
         List<string> removed, List<string> failed)
     {
         var name = location == StoreLocation.CurrentUser ? "当前用户" : "本机";
+        var caCn = ca != null ? CertCn(ca) : null;
         try
         {
             using var store = new X509Store(StoreName.Root, location);
@@ -1684,8 +1701,25 @@ internal sealed class MainForm : Form
             var doomed = new List<X509Certificate2>();
             foreach (var c in store.Certificates)
             {
-                var ours = c.Subject.IndexOf("CN=tcraft", StringComparison.OrdinalIgnoreCase) >= 0
-                           || (ca != null && string.Equals(c.Thumbprint, ca.Thumbprint, StringComparison.OrdinalIgnoreCase));
+                bool ours;
+                if (ca != null)
+                {
+                    // ① 指纹一致：当前信任锚本身；
+                    // ② 同 CN 且自签：换过证书后旧的那张仍留在库里，两张同名自签证书会让
+                    //    浏览器直接判链无效（真踩过），必须一起清掉；
+                    // ③ 历史遗留的 CN=tcraft 自签 CA：早期版本固定用这个名字，换证书后
+                    //    它签的叶子早已不存在，留着一张"万能 CA"既无用也混乱，顺带清掉。
+                    ours = string.Equals(c.Thumbprint, ca.Thumbprint, StringComparison.OrdinalIgnoreCase)
+                           || (string.Equals(CertCn(c), caCn, StringComparison.OrdinalIgnoreCase)
+                               && string.Equals(c.Subject, c.Issuer, StringComparison.Ordinal))
+                           || (c.Subject.IndexOf("CN=tcraft", StringComparison.OrdinalIgnoreCase) >= 0
+                               && string.Equals(c.Subject, c.Issuer, StringComparison.Ordinal));
+                }
+                else
+                {
+                    // 磁盘上的证书文件全丢了：只能按本项目历史固定标识清理，避免误删他人 CA
+                    ours = c.Subject.IndexOf("CN=tcraft", StringComparison.OrdinalIgnoreCase) >= 0;
+                }
                 if (ours) doomed.Add(c);
             }
             foreach (var c in doomed)
@@ -1715,7 +1749,8 @@ internal sealed class MainForm : Form
         {
             Title = "导出根证书（给手机 / 其它电脑安装）",
             Filter = "根证书 PEM (*.crt)|*.crt|DER 证书 (*.cer)|*.cer",
-            FileName = "tcraft-ca.crt",
+            // 文件名跟证书 CN 一致：客户端下载后能一眼和 /ca 页上写的名字对上
+            FileName = SafeCertFileName(ca) + ".crt",
             OverwritePrompt = true,
         };
         if (dlg.ShowDialog(this) != DialogResult.OK) return;

@@ -132,10 +132,14 @@ if (httpsEnabled)
 var caBootstrap = new CaBootstrap();
 if (httpsEnabled)
 {
-    var caSibling = Path.Combine(Path.GetDirectoryName(httpsCert!) ?? ".", "tcraft-ca.crt");
+    // 信任锚：CA 部署下是独立 CA 证书，纯自签部署下就是叶子自己。
+    // 写死 tcraft-ca.crt 会让纯自签部署的 /ca 引导页整个消失（文件不存在 → 无内容可服务）。
+    var caSibling = CaBootstrap.ResolveAnchor(httpsCert);
+    if (caSibling is null)
+        Console.WriteLine("[CA] 未找到可分发的信任锚（证书目录内无自签名 .crt/.cer/.pem），/ca 引导页不可用");
     caBootstrap = CaBootstrap.Create(caSibling, httpsCert);
     if (caBootstrap.Enabled)
-        Console.WriteLine($"[CA] 首次信任引导已启用：http://<主机>:<端口>/ca（根证书 {caBootstrap.ThumbprintSha1}，至 {caBootstrap.NotAfterText}）");
+        Console.WriteLine($"[CA] 首次信任引导已启用：http://<主机>:<端口>/ca（{caBootstrap.AnchorName} {caBootstrap.ThumbprintSha1}，至 {caBootstrap.NotAfterText}）");
 }
 
 // 明文分支的免跳转查表（未启用证书时恒为 null，整段退化为原来的 307 行为）

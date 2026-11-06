@@ -33,6 +33,50 @@ public sealed class CaBootstrap
     public string? NotAfterText { get; private set; }
     public string? SiteName { get; private set; }
 
+    /// <summary>信任锚的 CN：iOS「证书信任设置」列表里显示的就是它。</summary>
+    public string? AnchorName { get; private set; }
+
+    /// <summary>下载文件名（引导页 download 属性与各平台步骤文案共用）。</summary>
+    public string? AnchorFile { get; private set; }
+
+    /// <summary>
+    /// 解析「客户端应当安装的信任锚」文件路径。两种部署形态：
+    ///   • CA 签发叶子 —— 信任锚是独立 CA，客户端装一次，之后换叶子不用重装；
+    ///   • 纯自签叶子 —— 没有独立 CA，叶子自己就是信任锚（换证书需在每台设备重装）。
+    /// 查找顺序：约定文件名优先，其次目录内任意自签名证书。只读公钥文件，绝不碰私钥。
+    /// </summary>
+    public static string? ResolveAnchor (string? certPath)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(certPath)) return null;
+            var dir = Path.GetDirectoryName(certPath);
+            if (string.IsNullOrEmpty(dir)) return null;
+
+            // ① 约定名优先：CA 部署下这是唯一正确的锚，不能被同目录的自签叶子抢走
+            foreach (var name in new[] { "tcraft-ca.crt", "ca.crt", "root-ca.crt" })
+            {
+                var p = Path.Combine(dir, name);
+                if (File.Exists(p)) return p;
+            }
+
+            // ② 目录内任意自签名证书：CA 证书必然自签；叶子自签则说明是纯自签部署
+            foreach (var f in Directory.EnumerateFiles(dir, "*.*"))
+            {
+                var ext = Path.GetExtension(f).ToLowerInvariant();
+                if (ext is not (".crt" or ".cer" or ".pem")) continue;
+                try
+                {
+                    using var c = new X509Certificate2(f);
+                    if (string.Equals(c.Subject, c.Issuer, StringComparison.Ordinal)) return f;
+                }
+                catch { /* 不是证书 / 编码不支持：跳过看下一个 */ }
+            }
+        }
+        catch { /* 目录不可读：当作没有锚 */ }
+        return null;
+    }
+
     /// <summary>中间件用：路径 → (Content-Type, 响应体)。路径均为小写、不含 query。</summary>
     public bool TryGet (string path, out string contentType, out byte[] body)
     {
@@ -67,13 +111,17 @@ public sealed class CaBootstrap
             result.SubjectText = ca.Subject;
             result.NotAfterText = ca.NotAfter.ToString("yyyy-MM-dd");
             result.SiteName = ReadSimpleName(leafPath) ?? "本站";
+            // CN 供各平台步骤文案引用（iOS 信任设置里就是显示这个名字）
+            result.AnchorName = ReadSimpleName(caPath) ?? "本站证书";
+            // 文件名带 CN，客户端下载后在系统设置里能一眼对上，不会和别的证书混淆
+            result.AnchorFile = SafeFileName(result.AnchorName) + ".crt";
 
             var pem = ExportPem(ca);
             var pemBytes = Encoding.ASCII.GetBytes(pem);
 
             result._routes["/ca.crt"] = ("application/x-x509-ca-cert", pemBytes);
             result._routes["/ca"] = ("text/html; charset=utf-8", Encoding.UTF8.GetBytes(result.BuildPage()));
-            result._routes["/install-ca.ps1"] = ("text/plain; charset=utf-8", Encoding.UTF8.GetBytes(result.BuildPowerShell(ca)));
+            result._routes["/install-ca.ps1"] = ("text/plain; charset=utf-8", Encoding.UTF8.GetBytes(result.BuildPowerShell(ca, result.AnchorName)));
 
             logger?.LogInformation(
                 "[CA] 首次信任引导已启用：/ca、/ca.crt、/install-ca.ps1（根证书 {Thumbprint}，至 {NotAfter}）",
@@ -94,6 +142,21 @@ public sealed class CaBootstrap
             return new X509Certificate2(leafPath).GetNameInfo(X509NameType.SimpleName, false);
         }
         catch { return null; }
+    }
+
+    /// <summary>
+    /// CN → 安全文件名。只保留 ASCII 字母数字与 . _ -（中文/空格/括号等一律换成 -）：
+    /// 这个名字要跨 iOS / Android / Windows 三个系统落盘，非 ASCII 在各家「文件」应用里表现不一。
+    /// </summary>
+    private static string SafeFileName (string? s)
+    {
+        var name = (s ?? "").Trim();
+        if (name.Length == 0) return "ca";
+        var sb = new StringBuilder(name.Length);
+        foreach (var ch in name)
+            sb.Append((ch < 128 && char.IsLetterOrDigit(ch)) || ch is '.' or '_' or '-' ? ch : '-');
+        var outName = sb.ToString().Trim('-', '.');
+        return outName.Length == 0 ? "ca" : outName;
     }
 
     /// <summary>指纹按 aabbcc… → AA:BB:CC… 展示，方便人眼逐段核对。</summary>
@@ -125,7 +188,7 @@ public sealed class CaBootstrap
         return sb.ToString();
     }
 
-    private string BuildPowerShell (X509Certificate2 ca)
+    private string BuildPowerShell (X509Certificate2 ca, string? anchorName)
     {
         var b64 = Convert.ToBase64String(ca.RawData);
         var lines = new List<string>();
@@ -135,7 +198,7 @@ public sealed class CaBootstrap
 
         return """
 # ============================================================
-#  tcraft 根证书一键安装（Windows）
+#  __ANCHORNAME__ 证书一键安装（Windows）
 #  以当前用户身份写入「受信任的根证书颁发机构」，无需管理员权限。
 #  只安装公钥证书，不涉及任何私钥。
 # ============================================================
@@ -183,7 +246,10 @@ Write-Host "请完全退出浏览器（含后台进程）后重新打开本站�
 Write-Host "Firefox 使用独立证书库，需另外在 设置→隐私→证书 中导入。"
 Write-Host ""
 Read-Host "按回车关闭"
-""".Replace("__B64__", b64Block).Replace("__SHA1__", ca.Thumbprint ?? "");
+""".Replace("__B64__", b64Block)
+   .Replace("__SHA1__", ca.Thumbprint ?? "")
+   // 只进注释行：CN 里若混入换行会截断注释结构，先压成单行
+   .Replace("__ANCHORNAME__", (anchorName ?? "本站证书").Replace('\r', ' ').Replace('\n', ' '));
     }
 
     private string BuildPage ()
@@ -193,6 +259,8 @@ Read-Host "按回车关闭"
         var sha256 = System.Net.WebUtility.HtmlEncode(ThumbprintSha256 ?? "");
         var subject = System.Net.WebUtility.HtmlEncode(SubjectText ?? "");
         var notAfter = System.Net.WebUtility.HtmlEncode(NotAfterText ?? "");
+        var anchorName = System.Net.WebUtility.HtmlEncode(AnchorName ?? "本站证书");
+        var anchorFile = System.Net.WebUtility.HtmlEncode(AnchorFile ?? "ca.crt");
 
         return """
 <!DOCTYPE html>
@@ -243,7 +311,7 @@ Read-Host "按回车关闭"
   <div class="card">
     <h1>安装根证书</h1>
     <p class="sub">这台设备还没有信任 __SITE__ 的证书。装一次，之后打开本站不再有安全警告，也不会再弹「继续前往」。</p>
-    <a class="btn" href="/ca.crt" download="tcraft-ca.crt">下载根证书</a>
+    <a class="btn" href="/ca.crt" download="__ANCHORFILE__">下载根证书</a>
     <a class="btn ghost" href="__ORIGIN__">我已经装好了，进入站点</a>
     <div class="meta">
       <b>证书主体</b>　__SUBJECT__<br>
@@ -266,7 +334,7 @@ Read-Host "按回车关闭"
         <li>用 <b>Safari</b> 打开本页（微信里请点右上角「···」→ 在 Safari 中打开）</li>
         <li>点上面的「下载根证书」，弹出「此网站正尝试下载一个配置描述文件」时点<b>允许</b></li>
         <li>打开 <b>设置</b>，顶部会出现「已下载描述文件」，点进去 → 右上角<b>安装</b> → 输入锁屏密码</li>
-        <li>关键一步：<b>设置 → 通用 → 关于本机 → 证书信任设置</b>，把 <code>tcraft</code> 的开关<b>打开</b></li>
+        <li>关键一步：<b>设置 → 通用 → 关于本机 → 证书信任设置</b>，把 <code>__ANCHORNAME__</code> 的开关<b>打开</b></li>
         <li>回到 Safari 刷新本站，警告消失</li>
       </ol>
     </div>
@@ -277,7 +345,7 @@ Read-Host "按回车关闭"
         <li>点上面的「下载根证书」，文件会存到「下载」目录</li>
         <li>打开 <b>设置</b> → <b>安全</b>（部分机型在「密码与安全」）→ <b>加密与凭据</b></li>
         <li>点 <b>安装证书</b> → <b>CA 证书</b> → 会提示「你的数据可能不安全」，点<b>仍然安装</b></li>
-        <li>选择刚下载的 <code>tcraft-ca.crt</code></li>
+        <li>选择刚下载的 <code>__ANCHORFILE__</code></li>
         <li>回到浏览器刷新本站，警告消失</li>
       </ol>
       <p class="sub" style="margin-top:12px">小米 / OPPO / vivo 路径略有差异，搜设置里的「证书」即可找到入口。</p>
@@ -286,7 +354,7 @@ Read-Host "按回车关闭"
     <div class="pane" id="p-win">
       <h2><span class="dot"></span>Windows 安装步骤</h2>
       <ol>
-        <li>下载根证书后<b>双击</b> <code>tcraft-ca.crt</code></li>
+        <li>下载根证书后<b>双击</b> <code>__ANCHORFILE__</code></li>
         <li>点 <b>安装证书</b> → 存储位置选<b>当前用户</b> → 下一步</li>
         <li>选 <b>将所有的证书都放入下列存储</b> → 浏览 → <b>受信任的根证书颁发机构</b> → 确定</li>
         <li>下一步 → 完成 → 弹出安全警告时点<b>是</b></li>
@@ -336,6 +404,8 @@ Read-Host "按回车关闭"
         .Replace("__NOTAFTER__", notAfter)
         .Replace("__SHA1__", sha1)
         .Replace("__SHA256__", sha256)
+        .Replace("__ANCHORNAME__", anchorName)
+        .Replace("__ANCHORFILE__", anchorFile)
         .Replace("__ORIGIN__", "javascript:location.replace(location.protocol+'//'+location.host)");
     }
 }
