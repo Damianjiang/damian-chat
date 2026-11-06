@@ -14,7 +14,7 @@
           <template #append><v-icon icon="mdi-chevron-right" /></template>
         </v-list-item>
 
-        <v-list-item @click="pwdDialog = true">
+        <v-list-item @click="openPwdDialog">
           <v-list-item-title>{{ t('settings.account') }}</v-list-item-title>
           <template #append><v-icon icon="mdi-chevron-right" /></template>
         </v-list-item>
@@ -167,6 +167,26 @@
           <v-text-field v-model="oldPwd" autocomplete="current-password" :label="t('settings.pwd.old')" type="password" />
           <v-text-field v-model="newPwd" autocomplete="new-password" :label="t('settings.pwd.new')" type="password" />
           <v-text-field v-model="newPwd2" autocomplete="new-password" :label="t('settings.pwd.confirm')" type="password" />
+
+          <!-- 人机验证：旧密码不能无限次试（被盗 token 会变成离线爆破钥匙） -->
+          <div v-if="pwdCaptchaRequired" class="d-flex align-center gap-2 mt-2">
+            <v-text-field
+              v-model="pwdCaptchaInput"
+              :label="t('login.captcha')"
+              :placeholder="t('login.captcha.ph')"
+              density="compact"
+              hide-details
+              variant="outlined"
+            />
+            <img
+              v-if="pwdCaptchaImage"
+              :alt="t('login.captcha')"
+              :src="pwdCaptchaImage"
+              :title="t('login.captcha.refresh')"
+              style="height:48px;border-radius:8px;cursor:pointer;border:1px solid rgba(0,0,0,.12);flex:0 0 auto"
+              @click="refreshPwdCaptcha"
+            >
+          </div>
         </v-card-text>
 
         <v-card-actions>
@@ -176,6 +196,9 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <!-- 人机验证 ②：滑块拼图，通过后拿到一次性 passToken 再提交改密 -->
+    <slider-captcha ref="pwdSliderRef" @success="onPwdSliderPass" />
 
     <!-- 修改大面号（6-20 位、小写字母开头；冷却期由服务端 400 + nextAllowedAt 控制） -->
     <v-dialog v-model="wxidDialog" max-width="360">
@@ -614,6 +637,7 @@
   import { stopRealtime } from '@/lib/realtime'
   import { checkForUpdate, formatBuild, RUNNING_VERSION, updateState } from '@/lib/updater'
   import { APP_VERSION } from '@/lib/version'
+  import SliderCaptcha from '@/components/SliderCaptcha.vue'
   import { useAuthStore } from '@/stores/auth'
   import { useContactsStore } from '@/stores/contacts'
   import { useLanguageStore } from '@/stores/language'
@@ -653,10 +677,67 @@
   const pwdLoading = ref(false)
   const pwdValid = computed(() => oldPwd.value.length > 0 && newPwd.value.length >= 8 && newPwd.value === newPwd2.value)
 
-  async function changePassword () {
+  /*
+   * 改密码也要过人机验证。
+   * 旧密码可以无限次试 = 一个被盗 token 就能离线爆破出账号密码；
+   * 这里与登录同标准：图形验证码 + 滑块 pass token，由服务端 policy 决定是否启用。
+   */
+  const pwdCaptchaRequired = ref(false)
+  const pwdSliderRequired = ref(false)
+  const pwdCaptchaId = ref('')
+  const pwdCaptchaImage = ref('')
+  const pwdCaptchaInput = ref('')
+  const pwdPassToken = ref('')
+  const pwdSliderRef = ref<{ open: () => void } | null>(null)
+
+  async function refreshPwdCaptcha () {
+    try {
+      const res = await api.get('/auth/captcha')
+      pwdCaptchaId.value = res.data.captchaId
+      pwdCaptchaImage.value = res.data.image
+      pwdCaptchaInput.value = ''
+    } catch { /* 拿不到就让服务端判定 */ }
+  }
+
+  async function openPwdDialog () {
+    pwdDialog.value = true
+    pwdPassToken.value = ''
+    try {
+      const res = await api.get('/auth/policy')
+      pwdCaptchaRequired.value = res.data.captcha !== false
+      pwdSliderRequired.value = res.data.slider !== false
+    } catch { /* 取不到 policy 时按后端默认（开启）处理 */ }
+    if (pwdCaptchaRequired.value) await refreshPwdCaptcha()
+  }
+
+  /** 点「提交」：先过图形验证码 → 再弹滑块 → 最后才真正发请求。 */
+  function changePassword () {
+    if (pwdCaptchaRequired.value && !pwdCaptchaInput.value.trim()) {
+      toast(t('login.captcha.ph'))
+      return
+    }
+    if (pwdSliderRequired.value) {
+      pwdSliderRef.value?.open()
+      return
+    }
+    void submitPassword()
+  }
+
+  function onPwdSliderPass (token: string) {
+    pwdPassToken.value = token
+    void submitPassword()
+  }
+
+  async function submitPassword () {
     pwdLoading.value = true
     try {
-      await api.post('/account/password', { oldPassword: oldPwd.value, newPassword: newPwd.value })
+      await api.post('/account/password', {
+        oldPassword: oldPwd.value,
+        newPassword: newPwd.value,
+        captchaId: pwdCaptchaRequired.value ? pwdCaptchaId.value : undefined,
+        captcha: pwdCaptchaRequired.value ? pwdCaptchaInput.value.trim() : undefined,
+        passToken: pwdPassToken.value || undefined,
+      })
       toast(t('settings.pwd.ok'))
       pwdDialog.value = false
       await auth.logout()
@@ -664,6 +745,9 @@
       router.push({ name: 'login' })
     } catch (error: any) {
       toast(error?.response?.data?.error ?? t('settings.pwd.fail'))
+      // 验证码/滑块都是一次性的：失败后必须换一张、重置 token
+      pwdPassToken.value = ''
+      if (pwdCaptchaRequired.value) await refreshPwdCaptcha()
     } finally {
       pwdLoading.value = false
     }

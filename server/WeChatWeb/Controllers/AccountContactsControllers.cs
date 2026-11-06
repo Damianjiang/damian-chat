@@ -885,14 +885,32 @@ public class AccountController : ControllerBase
 {
     private readonly DataStore _store;
     private readonly LogService _log;
+    private readonly CaptchaService _captcha;
+    private readonly SliderCaptchaService _slider;
+    private readonly LoginGuard _guard;
+    private readonly SecuritySettings _sec;
 
-    public AccountController(DataStore store, LogService log)
+    public AccountController(DataStore store, LogService log, CaptchaService captcha,
+        SliderCaptchaService slider, LoginGuard guard, SecuritySettings sec)
     {
         _store = store;
         _log = log;
+        _captcha = captcha;
+        _slider = slider;
+        _guard = guard;
+        _sec = sec;
     }
 
-    public record ChangePasswordRequest(string OldPassword, string NewPassword);
+    /// <summary>
+    /// 改密码请求。
+    /// ★ 必须带人机验证：旧密码一旦可以无限次试，登录后的会话就等于一把可以离线爆破的钥匙
+    ///   （token 被偷 / 共用电脑未退出时尤其危险）。这里与登录同标准，图形验证码 + 滑块 pass token 双重校验。
+    /// </summary>
+    public record ChangePasswordRequest(
+        string OldPassword, string NewPassword,
+        string? CaptchaId = null, string? Captcha = null, string? PassToken = null);
+
+    private string Ip => HttpContext.Connection.RemoteIpAddress?.ToString() ?? "";
 
     /// <summary>修改密码：校验旧密码，重新哈希存储，并吊销该账号全部 refresh token（其它设备需重新登录）。</summary>
     [HttpPost("password")]
@@ -902,28 +920,74 @@ public class AccountController : ControllerBase
         if (PasswordPolicy.Validate(req.NewPassword) is { } pwErr)
             return BadRequest(new { error = "新密码长度需 8-32 位" });
 
+        // 限速：改密接口拿的是已登录 token，若不限速，一个被盗 token 就能对着旧密码无限次试。
+        // 失败只记 IP 不记账号 —— 记到账号上会让任何人拿受害者账号名恶意锁死其改密。
+        var blocked = _guard.Check(Ip, "", _sec);
+        if (blocked != null) return StatusCode(StatusCodes.Status429TooManyRequests, new { error = blocked });
+
+        // 人机验证 ①：图形验证码（与登录同标准，管理端 EnableCaptcha 可关）
+        if (_sec.EnableCaptcha && !_captcha.Verify(req.CaptchaId, req.Captcha, Ip))
+        {
+            _guard.RecordFailure(Ip, "", _sec);
+            _log.Write("auth", new { ts = DateTime.UtcNow, result = "captcha-fail", action = "change-password", user = me, ip = Ip });
+            return BadRequest(new { error = "图形验证码错误或已过期，请刷新重试" });
+        }
+
+        // 人机验证 ②：滑块挑战换来的 pass token（一次性、绑 IP、有效期 90 秒）
+        var pass = _slider.ConsumePass(req.PassToken, Ip);
+        if (pass != SliderPassResult.Ok)
+        {
+            _guard.RecordFailure(Ip, "", _sec);
+            _log.Write("auth", new
+            {
+                ts = DateTime.UtcNow,
+                result = pass == SliderPassResult.NotReady ? "slider-not-ready" : "slider-missing",
+                action = "change-password",
+                user = me,
+                ip = Ip,
+            });
+            return BadRequest(new
+            {
+                error = pass == SliderPassResult.NotReady
+                    ? "操作太快，请稍候再试"
+                    : "请先完成滑块验证",
+                needSlider = true,
+            });
+        }
+
         List<Data.ConnectionState>? myConnections = null;
+        var oldPasswordOk = false;
         lock (_store)
         {
             if (!_store.Users.TryGetValue(me, out var user)) return NotFound();
-            if (!PasswordHasher.Verify(req.OldPassword ?? "", user.Password))
-                return BadRequest(new { error = "原密码不正确" });
-            user.Password = PasswordHasher.Hash(req.NewPassword);
-            // 改密即时失效：记改密时刻 → UserInvalidationMiddleware 拒绝「改密前签发」的 access token。
-            // 截断到整秒：令牌里的 pwd 时间戳是秒级精度，亚秒部分会让「同一秒签发的新令牌」被误杀。
-            var nowUtc = DateTime.UtcNow;
-            user.PasswordChangedAt = new DateTime(nowUtc.Ticks - nowUtc.Ticks % TimeSpan.TicksPerSecond, DateTimeKind.Utc);
-            _store.EndAllSessions(me);   // 改密 = 全设备下线（设备列表同步清空）
-            foreach (var kv in _store.RefreshTokens.Where(kv => kv.Value.UserId == me).ToList())
-                _store.RefreshTokens.Remove(kv.Key);
-            // 本机其它实时连接一并踢线（前端会话校验失败自动回登录页）
-            myConnections = _store.ConnectionsOf(me)
-                .Select(id => _store.Connections[id])
-                .Where(c => c.CallerContext != null)
-                .ToList();
-            _store.MarkDirty();
+            // 旧密码校验很便宜（PBKDF2 哈希比对），但失败要记 IP 限速 ——
+            // LoginGuard 内部有锁与时间窗口计算，不能在这个全局锁里做，先记标志出锁再处理。
+            oldPasswordOk = PasswordHasher.Verify(req.OldPassword ?? "", user.Password);
+            if (oldPasswordOk)
+            {
+                user.Password = PasswordHasher.Hash(req.NewPassword);
+                // 改密即时失效：记改密时刻 → UserInvalidationMiddleware 拒绝「改密前签发」的 access token。
+                // 截断到整秒：令牌里的 pwd 时间戳是秒级精度，亚秒部分会让「同一秒签发的新令牌」被误杀。
+                var nowUtc = DateTime.UtcNow;
+                user.PasswordChangedAt = new DateTime(nowUtc.Ticks - nowUtc.Ticks % TimeSpan.TicksPerSecond, DateTimeKind.Utc);
+                _store.EndAllSessions(me);   // 改密 = 全设备下线（设备列表同步清空）
+                foreach (var kv in _store.RefreshTokens.Where(kv => kv.Value.UserId == me).ToList())
+                    _store.RefreshTokens.Remove(kv.Key);
+                // 本机其它实时连接一并踢线（前端会话校验失败自动回登录页）
+                myConnections = _store.ConnectionsOf(me)
+                    .Select(id => _store.Connections[id])
+                    .Where(c => c.CallerContext != null)
+                    .ToList();
+                _store.MarkDirty();
+            }
         }
-        foreach (var c in myConnections)
+        if (!oldPasswordOk)
+        {
+            _guard.RecordFailure(Ip, "", _sec);
+            _log.Write("auth", new { ts = DateTime.UtcNow, result = "old-password-wrong", action = "change-password", user = me, ip = Ip });
+            return BadRequest(new { error = "原密码不正确" });
+        }
+        foreach (var c in myConnections!)
         {
             try { c.CallerContext?.Abort(); } catch { /* 连接可能已断开 */ }
         }
