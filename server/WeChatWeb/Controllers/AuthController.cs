@@ -333,7 +333,7 @@ public class AuthController : ControllerBase
             email = (req.Email ?? "").Trim().ToLowerInvariant();
             if (!EmailCodeService.ValidEmail(email))
                 return BadRequest(new { error = "请输入正确的邮箱地址" });
-            var codeErr = _emailCode.Verify(email, req.EmailCode);
+            var codeErr = _emailCode.Verify(email, req.EmailCode ?? "");
             if (codeErr != null) return BadRequest(new { error = codeErr });
             account = email;
         }

@@ -1220,7 +1220,7 @@ public class GroupsController : ControllerBase
         {
             if (!_store.Groups.TryGetValue(id, out var g) || !g.Members.Any(m => m.UserId == me))
                 return NotFound(new { error = "群不存在或你不是群成员" });
-            poll = g.Polls.FirstOrDefault(p => p.Id == pollId);
+            poll = g.Polls.FirstOrDefault(p => p.Id == pollId)!;
             if (poll == null) return NotFound(new { error = "投票不存在" });
             if (poll.Closed) return BadRequest(new { error = "投票已截止" });
             if (req.Option < 0 || req.Option >= poll.Options.Count)
@@ -1248,7 +1248,7 @@ public class GroupsController : ControllerBase
         {
             if (!_store.Groups.TryGetValue(id, out var g) || !g.Members.Any(m => m.UserId == me))
                 return NotFound(new { error = "群不存在或你不是群成员" });
-            poll = g.Polls.FirstOrDefault(p => p.Id == pollId);
+            poll = g.Polls.FirstOrDefault(p => p.Id == pollId)!;
             if (poll == null) return NotFound(new { error = "投票不存在" });
             var isOwner = g.OwnerId == me;
             if (poll.CreatedBy != me && !isOwner) return Forbid();
@@ -1317,7 +1317,7 @@ public class GroupsController : ControllerBase
         {
             if (!_store.Groups.TryGetValue(id, out var g) || !g.Members.Any(m => m.UserId == me))
                 return NotFound(new { error = "群不存在或你不是群成员" });
-            solitaire = g.Solitaires.FirstOrDefault(s => s.Id == solitaireId);
+            solitaire = g.Solitaires.FirstOrDefault(s => s.Id == solitaireId)!;
             if (solitaire == null) return NotFound(new { error = "接龙不存在" });
             if (solitaire.Closed) return BadRequest(new { error = "接龙已截止" });
 
@@ -1356,7 +1356,7 @@ public class GroupsController : ControllerBase
         {
             if (!_store.Groups.TryGetValue(id, out var g) || !g.Members.Any(m => m.UserId == me))
                 return NotFound(new { error = "群不存在或你不是群成员" });
-            solitaire = g.Solitaires.FirstOrDefault(s => s.Id == solitaireId);
+            solitaire = g.Solitaires.FirstOrDefault(s => s.Id == solitaireId)!;
             if (solitaire == null) return NotFound(new { error = "接龙不存在" });
             if (solitaire.Closed) return BadRequest(new { error = "接龙已截止" });
             solitaire.Entries.RemoveAll(e => e.UserId == me);
@@ -1376,7 +1376,7 @@ public class GroupsController : ControllerBase
         {
             if (!_store.Groups.TryGetValue(id, out var g) || !g.Members.Any(m => m.UserId == me))
                 return NotFound(new { error = "群不存在或你不是群成员" });
-            solitaire = g.Solitaires.FirstOrDefault(s => s.Id == solitaireId);
+            solitaire = g.Solitaires.FirstOrDefault(s => s.Id == solitaireId)!;
             if (solitaire == null) return NotFound(new { error = "接龙不存在" });
             var member = g.Members.FirstOrDefault(m => m.UserId == me);
             var canClose = solitaire.CreatedBy == me || g.OwnerId == me || member?.Role == "admin";

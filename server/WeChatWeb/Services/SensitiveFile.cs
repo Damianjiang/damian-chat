@@ -113,6 +113,9 @@ public static class SensitiveFile
     /// <summary>Unix 权限收紧（仅非 Windows 分支可达）：目录 700，文件 600。</summary>
     private static void SetUnixMode (string path, bool directory)
     {
+        // Windows 上 SetUnixFileMode 会抛 PlatformNotSupportedException（调用点都在非 Windows 分支，
+        // 这里再挡一层：既让编译器知道平台前提，也避免任何未来误调变成一条噪音异常）。
+        if (OperatingSystem.IsWindows()) return;
         try
         {
             const UnixFileMode OwnerOnly = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;

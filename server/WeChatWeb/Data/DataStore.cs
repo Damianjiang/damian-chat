@@ -389,7 +389,7 @@ public sealed class DataStore
     }
 
     /// <summary>会话是否仍有效（sid 未被踢出）。中间件用于让被踢设备的旧 access token 立即失效。</summary>
-    public bool SessionActive (string userId, string sid)
+    public bool SessionActive (string userId, string? sid)
     {
         if (string.IsNullOrEmpty(sid)) return true;   // 无 sid 的旧 token 保持向后兼容
         return LoginSessions.TryGetValue(userId, out var l) && l!.Any(x => x.Id == sid);
