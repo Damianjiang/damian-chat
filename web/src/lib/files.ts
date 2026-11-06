@@ -183,13 +183,57 @@ function evictHotIfNeeded () {
  *    `only-if-cached` 是 HTTP 缓存指令，对 `blob:` URL 没有定义语义，
  *    实测拿到的可能是空/截断内容，用户下到的文件打不开。
  *    直接从 IndexedDB 取原始 Blob（存进去的就是服务端返回的字节），最可靠。 */
-export async function downloadFile (id: string, fileName?: string): Promise<void> {
+/** 下载进度回调载荷：percent 0-100（总长未知时 null）；speed 字节/秒（平滑值）；done 表示 blob 已就绪。 */
+export interface DownloadProgress {
+  loaded: number
+  total: number | null
+  percent: number | null
+  speed: number | null
+  done: boolean
+}
+
+export async function downloadFile (
+  id: string,
+  fileName?: string,
+  onProgress?: (p: DownloadProgress) => void,
+): Promise<void> {
   let blob: Blob | null = null
   const rec = await idbGetMedia(id).catch(() => null)
   blob = rec?.blob ?? null
   if (!blob) {
-    const res = await api.get(`/files/${id}`, { responseType: 'blob', timeout: 0 })
+    // blob 下载：axois onDownloadProgress 逐块回报已收字节 → 实时算速度 / 百分比。
+    // 总长未知（服务端未回 Content-Length）时 percent=null，UI 走 indeterminate。
+    let lastLoaded = 0
+    let lastTime = 0
+    let total: number | null = null
+    let speed: number | null = null
+    const res = await api.get(`/files/${id}`, {
+      responseType: 'blob',
+      timeout: 0,
+      onDownloadProgress: (e) => {
+        const loaded = e.loaded ?? 0
+        if (e.total != null) total = e.total
+        const now = Date.now()
+        if (lastTime) {
+          const dt = (now - lastTime) / 1000
+          if (dt > 0) {
+            const inst = (loaded - lastLoaded) / dt
+            speed = speed == null ? inst : speed * 0.6 + inst * 0.4  // 指数平滑，抖动小
+            lastLoaded = loaded
+            lastTime = now
+          }
+        } else {
+          lastTime = now
+        }
+        const percent = total ? Math.min(100, (loaded / total) * 100) : null
+        onProgress?.({ loaded, total, percent, speed, done: false })
+      },
+    })
     blob = res.data as Blob
+    onProgress?.({ loaded: blob.size, total: total ?? blob.size, percent: 100, speed, done: true })
+  } else {
+    // 本地 IDB 命中：瞬时完成，直接报 100%
+    onProgress?.({ loaded: blob.size, total: blob.size, percent: 100, speed: null, done: true })
   }
   const blobUrl = URL.createObjectURL(blob)
   const a = document.createElement('a')

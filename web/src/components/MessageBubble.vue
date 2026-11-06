@@ -120,18 +120,32 @@
       <div
         v-else-if="message.type === 'file'"
         class="wx-file-card"
-        :class="[isMe ? '' : 'wx-file-card--other', mediaFile ? 'is-clickable' : '']"
+        :class="[isMe ? '' : 'wx-file-card--other', mediaFile ? 'is-clickable' : '', dlProgress ? 'is-downloading' : '']"
         @click="mediaFile ? $emit('preview', message) : download()"
       >
         <v-icon color="primary" :icon="mediaIcon" size="34" />
 
         <div class="d-flex flex-column" :class="{ 'flex-grow-1': true }">
           <span class="text-body-medium text-truncate" style="max-width: 200px">{{ message.fileName }}</span>
-          <span class="text-body-small text-medium-emphasis">{{ fmt(message.fileSize) }}</span>
+          <span class="text-body-small text-medium-emphasis">
+            {{ dlProgress ? `${dlSpeedText} · ${dlPercentText}` : fmt(message.fileSize) }}
+          </span>
         </div>
 
         <v-btn v-if="mediaFile" icon="mdi-play-circle" size="small" variant="text" @click.stop="$emit('preview', message)" />
-        <v-btn v-else icon="mdi-download" size="small" variant="text" @click.stop="download" />
+        <v-btn v-else icon="mdi-download" size="small" variant="text" :disabled="!!dlProgress" @click.stop="download" />
+
+        <!-- 下载动画进度条（卡片底部）：blob 流式下载逐块回报，显示速度 + 百分比 -->
+        <v-progress-linear
+          v-if="dlProgress"
+          class="wx-dl-progress"
+          :model-value="dlProgress.percent ?? 0"
+          :indeterminate="dlProgress.percent == null"
+          color="primary"
+          density="compact"
+          height="6"
+          :buffer-value="100"
+        />
       </div>
 
       <!-- 表情：大表情裸出（同微信） -->
@@ -236,7 +250,7 @@
   import { computed, onBeforeUnmount, ref, watch, watchEffect } from 'vue'
   import { useDisplay } from 'vuetify'
   import { api } from '@/lib/api'
-  import { downloadFile as downloadFileById, fileUrl } from '@/lib/files'
+  import { downloadFile as downloadFileById, fileUrl, type DownloadProgress } from '@/lib/files'
   import { t } from '@/lib/i18n'
   import { avatarColor, formatFileSize, timeLabel, unescapeEntities as unescape } from '@/lib/utils'
   import { mediaKindOf } from '@/lib/media'
@@ -574,10 +588,29 @@
     return formatFileSize(bytes)
   }
 
+  /* 下载进度状态：卡片底部进度条 + 「速度 · 百分比」实时回报（blob 流式下载） */
+  const dlProgress = ref<DownloadProgress | null>(null)
+  const dlSpeedText = computed(() => {
+    const s = dlProgress.value?.speed
+    if (s == null) return '…'
+    return s >= 1048576 ? `${(s / 1048576).toFixed(1)} MB/s` : `${Math.max(1, Math.round(s / 1024))} KB/s`
+  })
+  const dlPercentText = computed(() => {
+    const p = dlProgress.value?.percent
+    return p == null ? '—' : `${Math.floor(p)}%`
+  })
+
   async function download () {
-    if (props.message.imageId) {
-      await downloadFileById(props.message.imageId, props.message.fileName)
-    }
+    const id = props.message.imageId
+    if (!id) return
+    dlProgress.value = { loaded: 0, total: null, percent: null, speed: null, done: false }
+    try {
+      await downloadFileById(id, props.message.fileName, p => {
+        dlProgress.value = p
+      })
+    } catch { /* 失败：进度由下面复位 */ }
+    // 完成后展示 1.5 秒（看到 100%）再收起进度条，回到「大小」显示
+    setTimeout(() => { dlProgress.value = null }, 1500)
   }
 
   /** 语音音频地址：优先 imageId（上传回执），否则 content 中的 URL */
@@ -936,5 +969,20 @@
   /* 手机窄列下 220px 固定值会把文件卡撑爆 → 限到「220px 与 80% 里更小的那个」 */
   min-width: min(220px, 80%);
   max-width: 100%;
+  position: relative;
+}
+
+.wx-file-card .wx-dl-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-radius: 0 0 8px 8px;
+  opacity: 0.9;
+}
+
+.wx-file-card.is-downloading {
+  outline: 1px solid rgb(var(--v-theme-primary));
+  outline-offset: -1px;
 }
 </style>
