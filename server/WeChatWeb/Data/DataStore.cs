@@ -86,6 +86,12 @@ public sealed class DataStore
     public List<Favorite> Favorites { get; } = new();
     public Dictionary<string, FileMeta> Files { get; } = new();
 
+    /// <summary>
+    /// 文件条目被移除（删号流程等在本类内直接摘除 Files 条目时触发）。
+    /// FileStore 订阅它同步全站/单用户存储配额计数器（锁内回调，勿做耗时 IO）。
+    /// </summary>
+    public event Action<Models.FileMeta>? FileRemoved;
+
     /* ---------------- 瞬态（不落盘） ---------------- */
     public Dictionary<string, RefreshToken> RefreshTokens { get; } = new();
     public Dictionary<string, ConnectionState> Connections { get; } = new();
@@ -616,6 +622,7 @@ public sealed class DataStore
         {
             var stillRef = referenced.Contains(f.Id);
             Files.Remove(f.Id);
+            FileRemoved?.Invoke(f);   // FileStore 同步配额计数器（同锁内，纯内存操作）
             if (!stillRef) FileDeleteBestEffort(f.Path);
             s.RemovedFiles++;
         }

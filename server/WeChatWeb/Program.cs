@@ -44,6 +44,8 @@ if (httpsPorts.Length == 0) httpsPorts = new[] { 443 };
 var httpsEnabled = !string.IsNullOrWhiteSpace(httpsCert) && File.Exists(httpsCert);
 
 var httpsBound = false; // ConfigureKestrel 回调里置位；跳转中间件按请求时读取（回调在 host 构建时已执行）
+// 实际绑定成功的 TLS 端口（配置的端口可能被占用而跳过）—— 跳转中间件只跳到这里
+var boundHttpsPorts = new List<int>();
 builder.WebHost.ConfigureKestrel(options =>
 {
     // 单文件上传上限 1GB（与 FileStorageConfig.MaxFileBytes 默认值一致）；
@@ -93,6 +95,9 @@ builder.WebHost.ConfigureKestrel(options =>
             else
                 options.Listen(System.Net.IPAddress.Parse(bind), tlsPort, listen => listen.UseHttps(httpsCert!, httpsCertPass));
             httpsBound = true;
+            // 记录「实际绑定成功」的 TLS 端口：跳转中间件只跳到这里（配置的端口可能被
+            // 其它进程占用而跳过 —— 例如 443 被 Steam++ 等工具占用，跳到 443 会落到别人家）
+            boundHttpsPorts.Add(tlsPort);
         }
 
         if (httpsBound)
@@ -344,7 +349,9 @@ if (httpsEnabled)
         // httpsBound=false（HTTPS 端口被占降级为纯 HTTP）时不能跳转，否则外部请求会被 307 到不属于我们的 443 上
         if (!loopback && ctx.Request.Scheme == "http" && httpsBound)
         {
-            var portSuffix = httpsPorts.Contains(443) ? "" : $":{httpsPorts[0]}";
+            // 跳转目标 = 实际绑定成功的 TLS 端口（configured 端口可能被外部进程占用而跳过）；
+            // 443 是标准 https 端口时省略 :port
+            var portSuffix = boundHttpsPorts.Contains(443) || boundHttpsPorts.Count == 0 ? "" : $":{boundHttpsPorts[0]}";
             ctx.Response.StatusCode = StatusCodes.Status307TemporaryRedirect;
             ctx.Response.Headers.Location =
                 $"https://{ctx.Request.Host.Host}{portSuffix}{ctx.Request.PathBase}{ctx.Request.Path}{ctx.Request.QueryString}";

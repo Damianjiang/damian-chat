@@ -101,8 +101,8 @@
       个性化「3D 倾斜」开关 + reduced-motion 关闭时，卡片退化为纯平面（transform: none），
       玻璃质感与阴影保留。
     -->
-    <div class="wx-3d" @pointerleave="resetTilt" @pointermove="onTilt">
-      <v-sheet class="wx-login-card mx-auto" :style="cardStyle">
+    <div class="wx-3d">
+      <v-sheet class="wx-login-card mx-auto">
       <!-- 微软 Fluent 风格：白卡片 8px 圆角 + 分层柔和阴影，内部品牌区 + 表单区 -->
       <div class="wx-ms-card">
         <!-- 品牌行：logo + 产品名（左上，Segoe 风格） -->
@@ -385,27 +385,23 @@
   const fxSaved = { ...fx }
 
   /**
-   * 性能模式：仅供卡顿用户在登录界面一键「关闭动波纹背景 + 关闭 3D 倾斜 + 关闭卡片磨砂模糊」。
+   * 性能模式：仅供卡顿用户在登录界面一键「关闭动波纹背景 + 关闭磨砂模糊」。
    *  - 纯登录页临时状态，不写 localStorage、不影响个性化设置；关闭时还原 fxSaved。
-   *  - 卡片内部所有控件（输入框/验证码/登录/注册按钮/滑块）完全不受影响，仍可正常操作。
+   *  - 表单内所有控件完全不受影响，仍可正常操作。
    */
   // 低端设备（手机/平板/旧电脑，见 lib/perf.ts）默认进入性能模式：
-  // 关掉 canvas 动波纹 + 3D 倾斜，叠加 CSS 关掉磨砂；用户仍可点「恢复特效」手动开回来。
+  // 关掉 canvas 动波纹，叠加 CSS 关掉磨砂；用户仍可点「恢复特效」手动开回来。
   const perfMode = ref(isLowPerf())
   if (perfMode.value) {
     fx.ripple = false
-    fx.tilt = false
   }
 
   function togglePerfMode () {
     perfMode.value = !perfMode.value
     if (perfMode.value) {
       fx.ripple = false   // 停掉 canvas 动波纹 → 静态纯色
-      fx.tilt = false     // 卡片退化为纯平面
     } else {
       fx.ripple = fxSaved.ripple   // 还原用户原设置
-      fx.tilt = fxSaved.tilt
-      tilt.value = { rx: 0, ry: 0 }
     }
   }
 
@@ -468,33 +464,6 @@
       bgColor.value = res.data.color || bgColor.value
       bgImage.value = res.data.image || ''
     } catch { /* 旧后端/未部署 → 保持默认蓝色波纹 */ }
-  }
-
-  /* ---------- 3D 卡片：指针倾斜（★ 3D 只写在卡片自身 transform，不在父容器开 3D 场景） ---------- */
-  const tilt = ref({ rx: 0, ry: 0 })
-  const tiltEnabled = computed(() => fx.tilt
-    && !(typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches))
-  const cardStyle = computed(() => {
-    // 关键：perspective() 内联在卡片自己的 transform 上，卡片是 3D 物体、子元素 flat，
-    // 控件命中测试正常。关闭 3D 或 reduced-motion → transform: none（纯平面，玻璃/阴影保留）。
-    if (!tiltEnabled.value || (tilt.value.rx === 0 && tilt.value.ry === 0)) {
-      return { transform: 'none', transition: 'transform .4s ease' }
-    }
-    return {
-      transform: `perspective(1200px) rotateX(${tilt.value.rx}deg) rotateY(${tilt.value.ry}deg)`,
-      transition: 'transform .12s ease-out',
-    }
-  })
-  function onTilt (e: PointerEvent) {
-    if (!tiltEnabled.value) return
-    const el = (e.currentTarget as HTMLElement).getBoundingClientRect()
-    const px = (e.clientX - el.left) / el.width - 0.5
-    const py = (e.clientY - el.top) / el.height - 0.5
-    const MAX = 7
-    tilt.value = { rx: -py * MAX, ry: px * MAX }
-  }
-  function resetTilt () {
-    tilt.value = { rx: 0, ry: 0 }
   }
 
   /* ---------- 字号（个性化，存 localStorage 与设置页/个性化子页共用 wx_font_level） ---------- */

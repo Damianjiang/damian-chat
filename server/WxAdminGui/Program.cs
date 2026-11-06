@@ -61,6 +61,15 @@ internal sealed class WxConfig
     public bool AutoStartServer { get; set; }
     /// <summary>开机自启（写 HKCU Run 注册表；以本属性为准会在保存时同步注册表）。</summary>
     public bool AutoRun { get; set; }
+    /// <summary>
+    /// HTTPS 证书路径（PKCS#12 .pfx/.p12）。空 = 默认 Data/certs/selfsigned.pfx；
+    /// 文件存在即启用 HTTPS（网站设置）：主端口对外全 TLS，GUI 管理 API 走本机环回明文口。
+    /// 默认不开 HTTPS —— 不放证书就是纯 HTTP，行为与历史版本完全一致。
+    /// </summary>
+    public string CertPath { get; set; } = "";
+    /// <summary>HTTPS 端口（0=自动）：TLS 模式下 HTTPS 的监听端口 —— 自动时 443 空闲用 443，否则主端口+1。
+    /// 主端口保留明文仅做 307 跳转（用户习惯的 http://ip:主端口 依然可达并自动升级）。</summary>
+    public int HttpsPort { get; set; } = 0;
 
     public static WxConfig Load()
     {
@@ -137,6 +146,14 @@ internal sealed class MainForm : Form
     private readonly Button _btnPortSave = new() { Text = "保存配置", AutoSize = true };
     private readonly CheckBox _chkAutoRun = new() { Text = "开机自启动（当前用户）", AutoSize = true };
     private readonly CheckBox _chkAutoStartServer = new() { Text = "启动管理端时自动启动服务", AutoSize = true };
+
+    /* ---- 网站设置（HTTP/HTTPS）：证书路径 + 口令 + HTTP 跳转端口 ---- */
+    private readonly TextBox _txtCertPath = new() { Width = 300 };
+    private readonly TextBox _txtCertPass = new() { Width = 130, UseSystemPasswordChar = true };
+    private readonly NumericUpDown _nudHttpsPort = new() { Minimum = 0, Maximum = 65535, Value = 0, Width = 90 };
+    private readonly Button _btnCertBrowse = new() { Text = "浏览…", AutoSize = true };
+    private readonly Button _btnSiteSave = new() { Text = "保存并重启服务", AutoSize = true };
+    private readonly Label _lblSiteHint = new() { Text = "", AutoSize = true, ForeColor = Color.DimGray };
 
     /* ---- 在线用户（概览页） ---- */
     private readonly GroupBox _onlineBox = new() { Text = "在线用户", Dock = DockStyle.Fill, Padding = new Padding(8) };
@@ -301,6 +318,8 @@ internal sealed class MainForm : Form
         _btnOpenLogs.Click += (_, _) => OpenLogs();
         _btnOpenWeb.Click += (_, _) => OpenWeb();
         _btnPortSave.Click += (_, _) => Run(SavePort);
+        _btnCertBrowse.Click += (_, _) => BrowseCert();
+        _btnSiteSave.Click += (_, _) => Run(SaveSite);
         _chkAutoRun.CheckedChanged += (_, _) => Run(SaveAutoRun);
         _chkAutoStartServer.CheckedChanged += (_, _) => Run(() => { _cfg.AutoStartServer = _chkAutoStartServer.Checked; _cfg.Save(); });
         _btnSecRead.Click += (_, _) => RunAsync(async () => { await LoadSecurityAsync(); _msg.Text = "安全设置已读取"; });
@@ -396,6 +415,12 @@ internal sealed class MainForm : Form
         {
             RefreshStatus();
             _nudPort.Value = _cfg.Port;
+            // 网站设置回填：证书路径为空但默认路径文件存在 → 显式回填默认路径（用户能看到实际生效的证书）
+            _txtCertPath.Text = string.IsNullOrWhiteSpace(_cfg.CertPath) && File.Exists(DefaultCertHint)
+                ? DefaultCertHint
+                : _cfg.CertPath;
+            _nudHttpsPort.Value = _cfg.HttpsPort;
+            UpdateSiteHint();
             _suspendAutoRun = true;
             _chkAutoStartServer.Checked = _cfg.AutoStartServer;
             _chkAutoRun.Checked = QueryAutoRun();
@@ -475,6 +500,22 @@ internal sealed class MainForm : Form
             Padding = new Padding(8, 4, 8, 0),
         };
 
+        /* 网站设置（HTTP/HTTPS）：证书 + 口令 + HTTP 跳转端口（可选功能，默认纯 HTTP） */
+        var siteBox = new GroupBox { Text = "网站设置（HTTPS，可选 —— 不放证书就是纯 HTTP，默认行为不变）", Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(8) };
+        var siteCol = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false };
+        var certRow = new FlowLayoutPanel { AutoSize = true, WrapContents = true };
+        certRow.Controls.AddRange(new Control[] { new Label { Text = "证书文件(PFX)：", AutoSize = true, Padding = new Padding(0, 6, 0, 0) }, _txtCertPath, _btnCertBrowse });
+        var passRow = new FlowLayoutPanel { AutoSize = true, WrapContents = true };
+        passRow.Controls.AddRange(new Control[] { new Label { Text = "证书密码：", AutoSize = true, Padding = new Padding(0, 6, 0, 0) }, _txtCertPass, new Label { Text = "HTTPS 端口(0=自动)：", AutoSize = true, Padding = new Padding(14, 6, 0, 0) }, _nudHttpsPort, _btnSiteSave });
+        var siteHint = new Label
+        {
+            Text = "证书文件存在 = 主端口对外 HTTPS（管理 API 自动改走本机环回明文口）。「HTTP 跳转端口」绑一个明文口，\r\n收到的请求 307 跳到 https 主端口（0=关闭）。证书密码写入证书同目录 cert.pass（不进 git）。改动后点「保存并重启服务」。",
+            AutoSize = true,
+            ForeColor = Color.DimGray,
+        };
+        siteCol.Controls.AddRange(new Control[] { certRow, passRow, siteHint });
+        siteBox.Controls.Add(siteCol);
+
         var onlineTop = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(0, 0, 0, 4) };
         onlineTop.Controls.Add(_btnOnlineRefresh);
         onlineTop.Controls.Add(new Label { Text = "（服务运行中每 3 秒自动刷新）", AutoSize = true, ForeColor = Color.DimGray, Padding = new Padding(8, 6, 0, 0) });
@@ -482,6 +523,7 @@ internal sealed class MainForm : Form
         _onlineBox.Controls.Add(onlineTop);
 
         overview.Controls.Add(_onlineBox);
+        overview.Controls.Add(siteBox);
         overview.Controls.Add(autoHint);
         overview.Controls.Add(autoBox);
         overview.Controls.Add(portBox);
@@ -982,18 +1024,32 @@ internal sealed class MainForm : Form
             _msg.Text = $"端口 {_cfg.Port} 被占用。";
             return;
         }
-        if (File.Exists(Path.Combine(G.WebProject, "Data", "certs", "selfsigned.pfx")) && PortInUse(_cfg.Port + 1))
+        // 网站设置：证书存在 = TLS 模式 —— 主端口保留「明文 HTTP」，仅做 307 跳转到
+        // HTTPS 端口（用户习惯的 http://ip:主端口 依然可达并自动升级到 https）；
+        // HTTPS 走独立端口（默认自动：443 空闲用 443，否则主端口+1）；GUI 管理 API
+        // 走本机环回主端口+2（明文、仅本机，豁免跳转）。443 被占（Steam++ 等）自动让位。
+        var tls = File.Exists(ResolveCertPath());
+        var httpsPort = EffectiveHttpsPort();
+        if (tls)
         {
-            _msg.Text = $"管理端口 {_cfg.Port + 1} 被占用，无法启动（TLS 模式下该端口为 GUI 管理专用环回口）。";
-            return;
+            if (PortInUse(httpsPort))
+            {
+                _msg.Text = $"HTTPS 端口 {httpsPort} 被占用，无法启动（可在「网站设置」里改 HTTPS 端口或释放 443）。";
+                return;
+            }
+            if (PortInUse(_cfg.Port + 2))
+            {
+                _msg.Text = $"管理端口 {_cfg.Port + 2} 被占用，无法启动（TLS 模式下该端口为 GUI 管理专用环回口）。";
+                return;
+            }
         }
 
-        // TLS 模式（证书存在）：公网主端口与 443 全部提供 HTTPS；--urls 只绑本机环回管理明文口（GUI 管理专用、不对外暴露）
-        var tls = File.Exists(Path.Combine(G.WebProject, "Data", "certs", "selfsigned.pfx"));
-        var urlsArg = tls ? $"http://127.0.0.1:{_cfg.Port + 1}" : $"http://0.0.0.0:{_cfg.Port}";
+        var urlsArg = tls
+            ? $"http://0.0.0.0:{_cfg.Port},http://127.0.0.1:{_cfg.Port + 2}"
+            : $"http://0.0.0.0:{_cfg.Port}";
         AppendConsole($"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] ===== 启动服务 " +
                       (tls
-                          ? $"https://0.0.0.0:{_cfg.Port} + https://0.0.0.0:443（管理环回 http://127.0.0.1:{_cfg.Port + 1}）"
+                          ? $"https://0.0.0.0:{httpsPort}（主端口 http://0.0.0.0:{_cfg.Port} 仅做 307 跳转；管理环回 http://127.0.0.1:{_cfg.Port + 2}）"
                           : $"http://0.0.0.0:{_cfg.Port}（监听所有网卡，局域网用本机 IP 访问）") +
                       " =====");
 
@@ -1009,7 +1065,7 @@ internal sealed class MainForm : Form
         psi.ArgumentList.Add(G.WebDll);
         psi.ArgumentList.Add("--urls");
         psi.ArgumentList.Add(urlsArg);
-        ApplyHttpsEnv(psi);
+        ApplyHttpsEnv(psi, httpsPort);
         var proc = Spawn(psi)!;
 
         // 控制台输出（等价 dotnet 控制台）→ logs/console.log，GUI 日志页直读
@@ -1025,34 +1081,53 @@ internal sealed class MainForm : Form
             _msg.Text = "服务启动失败，请查看「日志/控制台」页。";
             return;
         }
-        _msg.Text = $"服务已启动：{(tls ? "https" : "http")}://0.0.0.0:{_cfg.Port}（PID {proc.Id}）";
+        _msg.Text = $"服务已启动：{(tls ? $"https://0.0.0.0:{httpsPort}（http://{_cfg.Port} 仅跳转）" : $"http://0.0.0.0:{_cfg.Port}")}（PID {proc.Id}）";
     }
 
-    /// <summary>
-    /// DEP-SEC HTTPS：证书存在即注入 WX_HTTPS_* 环境变量，主端口与 443 同时提供 TLS。
-    /// 某个端口被占（如 IIS）由服务端逐端口跳过并告警，绝不因绑定失败整站起不来。
-    /// </summary>
-    private void ApplyHttpsEnv(ProcessStartInfo psi)
+    /// <summary>TLS 模式的 HTTPS 端口：网站设置 >0 用设置；否则自动 —— 443 空闲用 443，被占（Steam++/IIS 等）退主端口+1。</summary>
+    private int EffectiveHttpsPort ()
     {
-        var cert = Path.Combine(G.WebProject, "Data", "certs", "selfsigned.pfx");
-        if (!File.Exists(cert)) return;
-        var tlsPorts = _cfg.Port == 443 ? "443" : $"{_cfg.Port},443";
-        psi.EnvironmentVariables["WX_HTTPS_CERT"] = cert;
-        psi.EnvironmentVariables["WX_HTTPS_CERT_PASSWORD"] = ReadCertPassword();
-        psi.EnvironmentVariables["WX_HTTPS_PORT"] = tlsPorts;
-        AppendConsole($"[HTTPS] 自签名证书已加载 → https://0.0.0.0:{tlsPorts}（对外全 TLS；管理 API 走本机环回 http://127.0.0.1:{_cfg.Port + 1}）");
+        if (_cfg.HttpsPort > 0) return _cfg.HttpsPort;
+        return PortInUse(443) ? _cfg.Port + 1 : 443;
     }
 
     /// <summary>
-    /// 证书口令：优先读 Data/certs/cert.pass（ACL 受限文件），读不到再退回历史固定值。
-    /// 此前口令硬编码在源码里 —— 仓库+证书文件同时到手即可导入；新部署请把口令写进
-    /// cert.pass（与证书一起放 data/certs/ 下，不进 git），源码里不再保存秘密。
+    /// DEP-SEC HTTPS：证书存在即注入 WX_HTTPS_* 环境变量（单 TLS 端口）。
+    /// 端口被占（如 IIS）由服务端逐端口跳过并告警，绝不因绑定失败整站起不来。
     /// </summary>
-    internal static string ReadCertPassword ()
+    private void ApplyHttpsEnv(ProcessStartInfo psi, int httpsPort)
+    {
+        var cert = ResolveCertPath();
+        if (!File.Exists(cert)) return;
+        psi.EnvironmentVariables["WX_HTTPS_CERT"] = cert;
+        psi.EnvironmentVariables["WX_HTTPS_CERT_PASSWORD"] = ReadCertPassword(cert);
+        psi.EnvironmentVariables["WX_HTTPS_PORT"] = httpsPort.ToString();
+        AppendConsole($"[HTTPS] 证书已加载（{cert}）→ https://0.0.0.0:{httpsPort}"
+                      + $"（主端口 http://0.0.0.0:{_cfg.Port} 仅 307 跳转；管理 API 走本机环回 http://127.0.0.1:{_cfg.Port + 2}）");
+    }
+
+    /// <summary>证书路径：GUI「网站设置」配置的路径优先，空则回退默认 Data/certs/selfsigned.pfx。</summary>
+    private string ResolveCertPath ()
+    {
+        if (!string.IsNullOrWhiteSpace(_cfg.CertPath))
+        {
+            var p = _cfg.CertPath.Trim();
+            if (!Path.IsPathRooted(p)) p = Path.Combine(G.WebProject, p);
+            return p;
+        }
+        return Path.Combine(G.WebProject, "Data", "certs", "selfsigned.pfx");
+    }
+
+    /// <summary>
+    /// 证书口令：优先读证书同目录的 cert.pass（ACL 受限文件），读不到再退回历史固定值。
+    /// 此前口令硬编码在源码里 —— 仓库+证书文件同时到手即可导入；新部署请把口令写进
+    /// cert.pass（与证书放同一目录，不进 git），源码里不再保存秘密。
+    /// </summary>
+    internal static string ReadCertPassword (string certPath)
     {
         try
         {
-            var passFile = Path.Combine(G.WebProject, "Data", "certs", "cert.pass");
+            var passFile = Path.Combine(Path.GetDirectoryName(certPath) ?? "", "cert.pass");
             if (File.Exists(passFile))
             {
                 var pass = File.ReadAllText(passFile).Trim();
@@ -1064,8 +1139,8 @@ internal sealed class MainForm : Form
         // 否则「拿到仓库 + 证书文件」仍可导入 —— 这里显式告警提醒。
         try
         {
-            if (File.Exists(Path.Combine(G.WebProject, "Data", "certs", "selfsigned.pfx")))
-                Console.Error.WriteLine("[HTTPS] 警告：Data/certs/cert.pass 不存在，证书口令使用源码内历史默认值。请生成 cert.pass（内容=证书口令）消除此告警。");
+            if (File.Exists(certPath))
+                Console.Error.WriteLine("[HTTPS] 警告：cert.pass 不存在（应与证书同目录），证书口令使用源码内历史默认值。");
         }
         catch { /* 忽略 */ }
         return "wxchat2026";   // 历史证书兼容（该口令随旧证书文件，仅自签名传输证书）
@@ -1162,6 +1237,86 @@ internal sealed class MainForm : Form
         RefreshStatus();
     }
 
+    /* ---------------- 网站设置（HTTP/HTTPS） ---------------- */
+
+    /// <summary>证书路径文本框为空时展示的默认路径（ Data/certs/selfsigned.pfx ）。</summary>
+    private string DefaultCertHint => Path.Combine(G.WebProject, "Data", "certs", "selfsigned.pfx");
+
+    private void UpdateSiteHint ()
+    {
+        var path = string.IsNullOrWhiteSpace(_txtCertPath.Text) ? DefaultCertHint : _txtCertPath.Text.Trim();
+        _lblSiteHint.Text = File.Exists(path)
+            ? $"HTTPS 已就绪：{path}（重启服务后按 TLS 模式启动）"
+            : "未找到证书文件 —— 当前将按纯 HTTP 启动（把 .pfx/.p12 放进上面路径即启用 HTTPS）。";
+    }
+
+    private void BrowseCert ()
+    {
+        using var dlg = new OpenFileDialog
+        {
+            Title = "选择 HTTPS 证书（PKCS#12 .pfx/.p12）",
+            Filter = "证书 (PFX/P12)|*.pfx;*.p12|全部文件|*.*",
+        };
+        if (dlg.ShowDialog(this) == DialogResult.OK)
+        {
+            _txtCertPath.Text = dlg.FileName;
+            UpdateSiteHint();
+        }
+    }
+
+    /// <summary>
+    /// 保存网站设置：证书路径 / 口令（写 cert.pass 到证书同目录）/ HTTP 跳转端口，
+    /// 并重启服务立即生效。口令只在磁盘 cert.pass 与界面之间流转，不写进 wxadmin.json。
+    /// </summary>
+    private void SaveSite ()
+    {
+        var path = _txtCertPath.Text.Trim();
+        if (path.Length == 0) path = DefaultCertHint;
+        if (!File.Exists(path))
+        {
+            var yes = MessageBox.Show(this, $"证书文件不存在：\n{path}\n\n按纯 HTTP 保存并重启服务？", "网站设置",
+                MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+            if (yes != DialogResult.Yes) return;
+        }
+        else if (_txtCertPass.Text.Length == 0)
+        {
+            var yes = MessageBox.Show(this, "证书密码为空（无密码证书可忽略）。继续保存并重启？", "网站设置",
+                MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+            if (yes != DialogResult.Yes) return;
+        }
+
+        _cfg.CertPath = path;
+        _cfg.HttpsPort = (int)_nudHttpsPort.Value;
+        _cfg.Save();
+
+        // 口令写 cert.pass（证书同目录，不进 git；已有内容且用户没改则保持不动）
+        if (File.Exists(path))
+        {
+            try
+            {
+                var dir = Path.GetDirectoryName(path)!;
+                Directory.CreateDirectory(dir);
+                var passFile = Path.Combine(dir, "cert.pass");
+                var existing = File.Exists(passFile) ? File.ReadAllText(passFile).Trim() : "";
+                if (_txtCertPass.Text.Length > 0 && existing != _txtCertPass.Text)
+                    File.WriteAllText(passFile, _txtCertPass.Text);
+            }
+            catch (Exception ex)
+            {
+                _msg.Text = $"cert.pass 写入失败：{ex.Message}（服务仍按原口令尝试加载）";
+            }
+        }
+
+        _msg.Text = "网站设置已保存，正在重启服务…";
+        Run(() =>
+        {
+            if (_running) StopServer();
+            StartServer();
+            RefreshStatus();
+            UpdateSiteHint();
+        });
+    }
+
     private void OpenLogs()
     {
         Directory.CreateDirectory(G.LogDir);
@@ -1173,7 +1328,7 @@ internal sealed class MainForm : Form
     private void OpenWeb()
     {
         // 前端已编译进后端 wwwroot，直接打开后端地址即可，无需另起前端
-        Spawn(new ProcessStartInfo { FileName = $"{(TlsMode ? "https" : "http")}://localhost:{_cfg.Port}", UseShellExecute = true });
+        Spawn(new ProcessStartInfo { FileName = $"{(TlsMode ? "https" : "http")}://localhost:{(TlsMode ? EffectiveHttpsPort() : _cfg.Port)}", UseShellExecute = true });
     }
 
     /// <summary>
@@ -1262,7 +1417,7 @@ internal sealed class MainForm : Form
 
         _lblStatus.Text = listening ? "状态：运行中" : "状态：未运行";
         _lblStatus.ForeColor = listening ? Color.FromArgb(7, 193, 96) : Color.Gray;
-        _lblDetail.Text = $"端口 {_cfg.Port}（{(listening ? "已监听" : "空闲")}） · PID {(_pid > 0 ? _pid.ToString() : (listening ? "未知（外部启动）" : "-"))} · {(TlsMode ? "https" : "http")}://0.0.0.0:{_cfg.Port}（前端已内置）";
+        _lblDetail.Text = $"端口 {_cfg.Port}（{(listening ? "已监听" : "空闲")}） · PID {(_pid > 0 ? _pid.ToString() : (listening ? "未知（外部启动）" : "-"))} · {(TlsMode ? $"https://0.0.0.0:{EffectiveHttpsPort()}（http:{_cfg.Port} 仅跳转）" : $"http://0.0.0.0:{_cfg.Port}")}（前端已内置）";
         _btnStart.Enabled = !listening;
         // 停止/重启：服务在跑就能尝试（pid 文件缺失时按端口兜底 kill），不再因 pid 未知而灰掉
         _btnStop.Enabled = listening;
@@ -1273,10 +1428,10 @@ internal sealed class MainForm : Form
 
     /* ---------------- 管理 API（X-Admin-Key 头） ---------------- */
 
-    // TLS 模式下管理 API 在环回明文口（主端口+1）；无证书的旧模式在主端口本身
-    private static bool TlsMode => File.Exists(Path.Combine(G.WebProject, "Data", "certs", "selfsigned.pfx"));
+    // TLS 模式下管理 API 在环回明文口（主端口+2）；无证书的旧模式在主端口本身
+    private bool TlsMode => File.Exists(ResolveCertPath());
 
-    private string Api(string path) => $"http://127.0.0.1:{(TlsMode ? _cfg.Port + 1 : _cfg.Port)}/api/admin/{path}";
+    private string Api(string path) => $"http://127.0.0.1:{(TlsMode ? _cfg.Port + 2 : _cfg.Port)}/api/admin/{path}";
 
     /// <summary>
     /// 管理鉴权：本机程序直接读取服务端生成的密钥文件（data/admin.key），无需用户输入任何密码。

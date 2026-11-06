@@ -10,6 +10,7 @@
  *  刷新/登出由浏览器自动携带该 cookie，前端不再把 refresh 落 localStorage。
  */
 import axios from 'axios'
+import { setCacheKey } from '@/lib/idb-crypto'
 
 const TOKEN_KEY = 'wx_access_token'
 /** 历史遗留 key：refresh 曾存这里。现在不再写入；clearTokens 顺带清理，杜绝旧数据残留。 */
@@ -70,6 +71,8 @@ api.interceptors.response.use(
         refreshing = refreshing ?? axios.post('/api/auth/refresh', undefined, { timeout: 20_000 })
           .then(res => {
             saveTokens(res.data.accessToken, res.data.refreshToken ?? res.data.accessToken)
+            // 本机缓存加密密钥随刷新下发（IDB AES-GCM 用）：新标签页没有 sessionStorage 时在此补上
+            if (res.data.cacheKey) setCacheKey(res.data.cacheKey)
             return res.data.accessToken as string
           })
           // 失败也要释放共享刷新 promise，finally 统一兜底

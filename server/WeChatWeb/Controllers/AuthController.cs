@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
@@ -267,8 +268,9 @@ public class AuthController : ControllerBase
         object IssueTokens (Models.User u)
         {
             var (access, refresh, sid) = CreateSessionTokens(u);
+            var cacheKey = EnsureCacheKey(u);
             SetRefreshCookie(refresh);   // refresh 落 httpOnly cookie（JS 读不到）
-            return new { accessToken = access, expiresIn = 7200, user = PublicUser(u) };
+            return new { accessToken = access, expiresIn = 7200, cacheKey, user = PublicUser(u) };
         }
     }
 
@@ -375,8 +377,9 @@ public class AuthController : ControllerBase
         _log.Write("auth", new { ts = DateTime.UtcNow, result = "register-ok", user = user.Id, account, ip = Ip, ua = Ua });
 
         var (access, refresh, _) = CreateSessionTokens(user);
+        var cacheKey = EnsureCacheKey(user);
         SetRefreshCookie(refresh);   // 注册成功即登录：refresh 落 httpOnly cookie
-        return Ok(new { accessToken = access, expiresIn = 7200, user = PublicUser(user) });
+        return Ok(new { accessToken = access, expiresIn = 7200, cacheKey, user = PublicUser(user) });
     }
 
     [HttpPost("refresh")]
@@ -403,11 +406,12 @@ public class AuthController : ControllerBase
             var oldSid = _store.FindSessionIdByToken(presented);
             var sid = oldSid ?? Guid.NewGuid().ToString("N");
             var (access, refresh) = _jwt.CreateTokens(user, sid);
+            var cacheKey = EnsureCacheKey(user);
             // RefreshTokens / 设备会话一律存哈希：store.json 外泄不再等于全站刷新链泄露
             _store.RefreshTokens[DataStore.HashRefreshToken(refresh)] = new RefreshToken { Value = DataStore.HashRefreshToken(refresh), UserId = user.Id, ExpiresAt = DateTime.UtcNow.AddDays(7) };
             _store.BindSession(user.Id, sid, refresh, Ua, Ip);
             SetRefreshCookie(refresh);   // 轮转后的新 refresh 写回 httpOnly cookie
-            return Ok(new { accessToken = access, expiresIn = 7200 });
+            return Ok(new { accessToken = access, expiresIn = 7200, cacheKey });
         }
     }
 
@@ -435,6 +439,17 @@ public class AuthController : ControllerBase
     /// 签发一对令牌并登记「登录设备会话」（设备=UA+IP，永久保存）。
     /// sid 随 access token 下发：被踢设备即使 token 未过期也立即失效（中间件校验）。
     /// </summary>
+    /// <summary>
+    /// 本机缓存加密密钥（按用户稳定）：首次登录签发 32B 随机数并随用户落盘，此后恒定。
+    /// 客户端对 IndexedDB 聊天记录/媒体缓存做 AES-GCM 加密用。锁内调用（登录/注册/刷新路径均已持锁）。
+    /// </summary>
+    private string EnsureCacheKey (Models.User u)
+    {
+        if (!string.IsNullOrEmpty(u.CacheKey)) return u.CacheKey;
+        u.CacheKey = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
+        return u.CacheKey;
+    }
+
     private (string access, string refresh, string sid) CreateSessionTokens (Models.User u)
     {
         string access;

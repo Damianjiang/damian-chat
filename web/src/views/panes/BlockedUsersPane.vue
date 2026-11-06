@@ -1,9 +1,9 @@
 <template>
   <v-sheet class="wx-panes" flat>
-    <v-app-bar class="wx-chat-bar" color="surface" density="compact" flat>
+    <div class="wx-pane-bar wx-chat-bar">
       <v-btn v-if="isMobile" icon="mdi-arrow-left" variant="text" @click="goBack" />
       <v-toolbar-title class="text-body-large font-weight-medium">{{ t('settings.blocked') }}</v-toolbar-title>
-    </v-app-bar>
+    </div>
 
     <div class="wx-blocked-bg flex-grow-1 overflow-y-auto wx-scroll pa-2">
       <div class="text-body-small text-medium-emphasis px-1 pb-1">

@@ -106,6 +106,20 @@ public sealed class FileStore
     /// <summary>内容哈希 → 文件元数据 索引：上传去重 O(1) 判定（此前每次上传在全局锁内全表线性扫）。</summary>
     private readonly Dictionary<string, Models.FileMeta> _hashIndex = new(StringComparer.Ordinal);
 
+    // ---- 配额增量计数器（此前每次上传在全局锁内全表扫两遍算配额，文件多时锁竞争放大）----
+    // 云盘「同盘多元数据」：同内容可被多个用户各自引用（多条 FileMeta 指向同一磁盘文件），
+    // 所以全站口径按「唯一内容键」计，单用户口径按「该用户名下的内容键」计。
+    private long _totalBytes;
+    /// <summary>内容键（Hash，异常空 Hash 退回 Id）→ (大小, 条目数)。条目数归零即从全站配额扣除。</summary>
+    private readonly Dictionary<string, (long Size, int Entries)> _contentStats = new(StringComparer.Ordinal);
+    /// <summary>用户 → 该用户名下引用过的内容键（去重集合，决定单用户已用字节）。</summary>
+    private readonly Dictionary<string, HashSet<string>> _userContent = new(StringComparer.Ordinal);
+    /// <summary>用户 → 已用字节（名下唯一内容键的尺寸和，与 _userContent 同步）。</summary>
+    private readonly Dictionary<string, long> _userBytes = new(StringComparer.Ordinal);
+
+    /// <summary>内容键：优先 Hash（同内容跨条目共享），历史空 Hash 条目退回 Id（宁可高估不可低估）。</summary>
+    private static string ContentKey (Models.FileMeta f) => string.IsNullOrEmpty(f.Hash) ? f.Id : f.Hash;
+
     public FileStore (DataStore data, ILogger<FileStore> log)
     {
         _data = data;
@@ -115,6 +129,88 @@ public sealed class FileStore
         {
             foreach (var f in data.Files.Values)
                 if (!string.IsNullOrEmpty(f.Hash)) _hashIndex[f.Hash] = f;
+            RecountQuotaLocked();
+
+            // 删号流程会直接摘除该用户的文件条目（DataStore.RemoveUser），
+            // 同锁内回调同步计数器，避免配额随删号漂移。
+            data.FileRemoved += OnFileRemoved;
+        }
+    }
+
+    /// <summary>启动全量重算一次（之后全部走增量 O(1)）。</summary>
+    private void RecountQuotaLocked ()
+    {
+        _totalBytes = 0;
+        _contentStats.Clear();
+        _userContent.Clear();
+        _userBytes.Clear();
+        foreach (var f in _data.Files.Values)
+        {
+            var key = ContentKey(f);
+            if (!_contentStats.TryGetValue(key, out var st))
+            {
+                st = (f.Size, 0);
+                _totalBytes += f.Size;
+            }
+            _contentStats[key] = (st.Size, st.Entries + 1);
+            if (!_userContent.TryGetValue(f.UploaderId, out var set))
+                _userContent[f.UploaderId] = set = new HashSet<string>(StringComparer.Ordinal);
+            if (set.Add(key))
+                _userBytes[f.UploaderId] = (_userBytes.TryGetValue(f.UploaderId, out var v) ? v : 0) + f.Size;
+        }
+    }
+
+    /// <summary>锁内增量登记一个条目（SaveAsync 新条目 / 云盘同盘多元数据共用）。</summary>
+    private void QuotaTrackLocked (string uploaderId, string key, long size, ref HashSet<string>? uc)
+    {
+        if (!_contentStats.TryGetValue(key, out var st))
+        {
+            st = (size, 0);
+            _totalBytes += size;
+        }
+        _contentStats[key] = (st.Size, st.Entries + 1);
+        if (uc == null && !_userContent.TryGetValue(uploaderId, out uc))
+            _userContent[uploaderId] = uc = new HashSet<string>(StringComparer.Ordinal);
+        if (uc.Add(key))
+            _userBytes[uploaderId] = (_userBytes.TryGetValue(uploaderId, out var v) ? v : 0) + size;
+    }
+
+    /// <summary>锁内同步：条目被移除（清理过期 / 删号）→ 计数器回退。</summary>
+    private void OnFileRemoved (Models.FileMeta f)
+    {
+        var key = ContentKey(f);
+        var size = 0L;
+        if (_contentStats.TryGetValue(key, out var st))
+        {
+            size = st.Size;
+            if (st.Entries <= 1)
+            {
+                _contentStats.Remove(key);
+                _totalBytes -= st.Size;
+                if (_totalBytes < 0) _totalBytes = 0;
+            }
+            else
+            {
+                _contentStats[key] = (st.Size, st.Entries - 1);
+            }
+        }
+        if (_userContent.TryGetValue(f.UploaderId, out var set)
+            && set.Remove(key))
+        {
+            _userBytes[f.UploaderId] = Math.Max(0, (_userBytes.TryGetValue(f.UploaderId, out var v) ? v : 0) - size);
+            if (set.Count == 0) _userContent.Remove(f.UploaderId);
+            if (_userBytes.TryGetValue(f.UploaderId, out var z) && z == 0) _userBytes.Remove(f.UploaderId);
+        }
+    }
+
+    /// <summary>云盘「同盘多元数据」在 FileStore 之外直接落 _store.Files（控制器分支）——
+    /// 落库后必须调用本方法同步配额计数器，否则全站/单用户已用空间会低估。</summary>
+    public void TrackEntry (Models.FileMeta meta)
+    {
+        lock (_data)
+        {
+            HashSet<string>? uc = null;
+            QuotaTrackLocked(meta.UploaderId, ContentKey(meta), meta.Size, ref uc);
         }
     }
 
@@ -202,30 +298,13 @@ public sealed class FileStore
                         CreatedAt = DateTime.UtcNow,
                     };
 
-                    // 存储配额：单用户 + 全站两道闸（此前上传字节完全不计入防火墙，
-                    // 单账号可每分钟灌数百 GB 直到磁盘写满、整站瘫痪）。去重命中
-                    // 不占新空间，已在上面的复用分支提前返回，不会走到这里。
-                    // 全站口径按「唯一内容（Hash）」计：同一份字节被 N 个人引用时
-                    // 磁盘上只有一份，按条目累加会把配额虚报 N 倍。Hash 为空的异常
-                    // 条目退回按 Id 计（宁可高估不可低估）。
-                    long totalUsed = 0;
-                    var seenContent = new System.Collections.Generic.HashSet<string>(StringComparer.Ordinal);
-                    foreach (var f in _data.Files.Values)
-                    {
-                        var key = string.IsNullOrEmpty(f.Hash) ? f.Id : f.Hash;
-                        if (!seenContent.Add(key)) continue;
-                        totalUsed += f.Size;
-                    }
-                    long userUsed = 0;
-                    var userContent = new System.Collections.Generic.HashSet<string>(StringComparer.Ordinal);
-                    foreach (var f in _data.Files.Values)
-                    {
-                        if (f.UploaderId != uploaderId) continue;
-                        var key = string.IsNullOrEmpty(f.Hash) ? f.Id : f.Hash;
-                        if (!userContent.Add(key)) continue;
-                        userUsed += f.Size;
-                    }
-                    if (totalUsed + meta.Size > Config.MaxTotalBytes || userUsed + meta.Size > Config.MaxUserBytes)
+                    // 存储配额：单用户 + 全站两道闸。计数器全程增量维护（启动重算一次），
+                    // 上传路径 O(1) —— 此前每次上传在全局锁内全表扫两遍，文件一多就把
+                    // 聊天消息锁一起拖慢（CC 上传时尤其明显）。口径与旧版一致：
+                    // 全站按唯一内容键、单用户按其名下内容键（空 Hash 退回 Id）。
+                    _userContent.TryGetValue(uploaderId, out var uc);
+                    var userUsed = _userBytes.TryGetValue(uploaderId, out var uu) ? uu : 0;
+                    if (_totalBytes + meta.Size > Config.MaxTotalBytes || userUsed + meta.Size > Config.MaxUserBytes)
                     {
                         TryDelete(final);
                         throw new StorageQuotaExceededException(
@@ -234,6 +313,7 @@ public sealed class FileStore
 
                     _data.Files[id] = meta;
                     _hashIndex[sha] = meta;
+                    QuotaTrackLocked(uploaderId, ContentKey(meta), meta.Size, ref uc);
                 }
                 PersistIndex();
                 return (id, false);
@@ -291,6 +371,8 @@ public sealed class FileStore
                 // 哈希索引同步剔除（下次同内容上传会重新入列）
                 if (!string.IsNullOrEmpty(f.Hash) && _hashIndex.TryGetValue(f.Hash, out var h) && ReferenceEquals(h, f))
                     _hashIndex.Remove(f.Hash);
+                // 配额计数器同步回退（全站/单用户）
+                OnFileRemoved(f);
                 toDelete.Add(f.Path);
                 removed++;
             }

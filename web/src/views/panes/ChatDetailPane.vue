@@ -1,7 +1,7 @@
 <template>
   <v-sheet class="wx-chat-surface wx-panes" flat>
     <!-- 顶栏 -->
-    <v-app-bar class="wx-chat-bar" color="surface" density="compact" flat>
+    <div class="wx-pane-bar wx-chat-bar">
       <v-btn v-if="isMobile" icon="mdi-arrow-left" variant="text" @click="goBack" />
 
       <user-avatar
@@ -56,7 +56,7 @@
           </v-list>
         </v-menu>
       </div>
-    </v-app-bar>
+    </div>
 
     <!-- 多选模式操作条：全选 / 逐条转发 / 合并转发 / 删除（QQ 式聊天记录打包）；
          勾选 ≥1 条即可转发/删除，投票等不可转发的消息会在转发时跳过并提示 -->

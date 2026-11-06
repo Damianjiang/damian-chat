@@ -226,6 +226,7 @@ public class FilesController : ControllerBase
                     CreatedAt = DateTime.UtcNow,
                 };
                 _store.Files[mine.Id] = mine;
+                _files.TrackEntry(mine);   // 同盘多元数据：同步全站/单用户配额计数器
                 id = mine.Id;
             }
         }

@@ -1,5 +1,5 @@
 import type { Plugin } from 'vite'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath, URL } from 'node:url'
 import Vue from '@vitejs/plugin-vue'
@@ -51,6 +51,44 @@ function stripUnsupportedFontPreload () {
   }
 }
 
+/**
+ * 构建后生成带「全量资源清单」的 sw.js：首访（SW 安装）即把整站 UI 资源
+ * 全部装进浏览器（预缓存 ~几 MB，用户要求的首访整包下载），之后二次打开/弱网/离线
+ * 全部走本地，不再逐个请求；「检查更新」因此真正有意义——新部署 = sw.js 字节必变
+ * （CACHE 版本随 BUILD_VERSION）→ 浏览器重装 SW → 预缓存新清单 → activate 清空旧缓存。
+ * 资源清单来自构建产物（dist/assets 内容哈希文件名），绝不含 /api、/files、/hubs。
+ */
+function generateSw () {
+  const files: string[] = []
+  const scan = (rel: string) => {
+    const abs = path.join(outDirAbs, rel)
+    let entries
+    try {
+      entries = readdirSync(abs, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const e of entries) {
+      const r = rel ? `${rel}/${e.name}` : e.name
+      if (e.isDirectory()) {
+        if (e.name === '.mimosa') continue   // 工具产物，不入缓存
+        scan(r)
+      } else if (/\.(js|css|woff2?|png|svg|ico|webp)$/.test(e.name)) {
+        files.push(`/${r}`)
+      }
+    }
+  }
+  scan('assets')
+  const roots = ['/manifest.json', '/favicon.ico', '/icon-192.png', '/icon-48.png', '/icon-512.png', '/apple-touch-icon.png', '/boot.js', '/robots.txt']
+    .filter(f => existsSync(path.join(outDirAbs, f)))
+  const precache = ['/', ...roots, ...new Set(files)]
+
+  // fetch/activate 逻辑与手写版一致：只拦同源 GET；/api、/files、/hubs、/swagger 永不缓存
+  const sw = `/*\n * Service Worker —— 由构建自动生成（模板见 web/vite.config.mts generateSw），请勿手改。\n * 预缓存清单：本构建的全部 UI 资源（${precache.length} 项，首访整包安装）。\n *\n * 安全边界（勿放宽）：\n *   ① 只拦同源 GET；跨源放行。\n *   ② 绝不缓存 /api/*、/files/*、/hubs/*、/swagger —— 实时数据/凭证/媒体必须走网络。\n *   ③ CACHE 带 BUILD_VERSION，新部署字节必变 → 重装 → activate 清空旧缓存。\n */\n'use strict'\n\nconst CACHE = 'wxui-${BUILD_VERSION}'\nconst PRECACHE = ${JSON.stringify(precache, null, 2)}\n\nconst EXCLUDE = ['/api/', '/files/', '/hubs/', '/swagger']\n\nfunction excluded (p) {\n  return EXCLUDE.some(pre => p.startsWith(pre))\n}\n\nfunction isUiAsset (p) {\n  return p.startsWith('/assets/') || p.startsWith('/favicon') || p.includes('.woff') || p.includes('.ttf') || p.includes('.eot')\n}\n\nfunction offlinePage () {\n  return new Response(\n    '<!doctype html><meta charset="utf-8"><title>大面聊天</title>'\n    + '<body style="margin:0;font-family:system-ui;background:#ededed;color:#181818">'\n    + '<div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:24px;text-align:center">'\n    + '<h1 style="font-size:18px;margin:0">网络连接不可用</h1>'\n    + '<p style="font-size:14px;color:#888;margin:0">没有可用的本地缓存，且当前处于离线状态。请检查网络后刷新。</p>'\n    + '<button style="margin-top:10px;padding:9px 22px;font-size:14px;border-radius:8px;border:none;background:#07c160;color:#fff;cursor:pointer" onclick="location.reload()">重新加载</button>'\n    + '</div></body>',\n    { status: 503, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } },\n  )\n}\n\nself.addEventListener('install', event => {\n  // 全量预缓存：逐项 add，单项失败不拖垮整个安装（根资源失败才算失败）\n  event.waitUntil(\n    caches.open(CACHE).then(async cache => {\n      for (const url of PRECACHE) {\n        try {\n          const res = await fetch(url, { cache: 'no-store' })\n          if (res && res.ok) await cache.put(url, res)\n        } catch { /* 单项失败：用到时再走网络 */ }\n      }\n      await self.skipWaiting()\n    }),\n  )\n})\n\nself.addEventListener('activate', event => {\n  event.waitUntil(\n    caches.keys()\n      .then(keys => Promise.all(keys.filter(k => k.startsWith('wxui-') && k !== CACHE).map(k => caches.delete(k))))\n      .then(() => self.clients.claim()),\n  )\n})\n\nself.addEventListener('message', event => {\n  if (event.data && event.data.type === 'SKIP_WAITING') {\n    self.skipWaiting()\n  }\n})\n\nself.addEventListener('fetch', event => {\n  const req = event.request\n  if (req.method !== 'GET') {\n    return\n  }\n\n  const url = new URL(req.url)\n  if (url.origin !== self.location.origin) {\n    return\n  }\n  if (excluded(url.pathname)) {\n    return\n  }\n\n  const isNavigate = req.mode === 'navigate'\n\n  if (isNavigate) {\n    // 顶层导航：index.html network-first，离线用缓存的 / 兜底 → 离线也能进登录页\n    event.respondWith(\n      fetch(req)\n        .then(res => {\n          if (res && res.ok) {\n            const copy = res.clone()\n            caches.open(CACHE).then(c => c.put('/', copy))\n          }\n          return res\n        })\n        .catch(() => caches.match('/', { cacheName: CACHE }).then(hit => hit || offlinePage())),\n    )\n    return\n  }\n\n  if (isUiAsset(url.pathname)) {\n    // 静态资源：cache-first（内容哈希不可变）\n    event.respondWith(\n      caches.match(req, { cacheName: CACHE }).then(hit => {\n        if (hit) {\n          return hit\n        }\n        return fetch(req).then(res => {\n          if (res && res.ok) {\n            const copy = res.clone()\n            caches.open(CACHE).then(c => c.put(req, copy))\n          }\n          return res\n        })\n      }),\n    )\n    return\n  }\n\n  // 其它同源 GET：network-first + 回退缓存\n  event.respondWith(\n    fetch(req).then(res => {\n      if (res && res.ok) {\n        const copy = res.clone()\n        caches.open(CACHE).then(c => c.put(req, copy))\n      }\n      return res\n    }).catch(() => caches.match(req, { cacheName: CACHE }).then(hit => hit || offlinePage())),\n  )\n})\n`
+  writeFileSync(path.join(outDirAbs, 'sw.js'), sw, 'utf8')
+  console.log(`[sw] 全量预缓存清单 -> ${precache.length} 项（assets ${files.length}）`)
+}
+
 /** closeBundle 后处理插件（显式 Plugin 类型，避免内联对象字面量让 defineConfig 报 TS2769）。 */
 const stripPlugin: Plugin = {
   name: 'strip-unsupported-font-preload',
@@ -58,6 +96,7 @@ const stripPlugin: Plugin = {
   closeBundle () {
     stripUnsupportedFontPreload()
     writeVersionManifest()
+    generateSw()
   },
 }
 

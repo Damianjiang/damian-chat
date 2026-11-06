@@ -304,6 +304,21 @@ body,
    紧凑搜索行 / 圆角弹层
    ============================================================ */
 
+/* pane 内本地顶栏：v-app-bar 是 Vuetify 布局级组件（fixed、横跨整个 main 区域），
+   桌面三栏布局里会盖在列表列上方，看起来"整块屏幕的顶部都成了它的"。
+   改用普通 flex 行，只属于自己所在的 pane；.wx-chat-bar 的配色/居中标题样式保留。 */
+.wx-pane-bar {
+  position: relative;
+  flex: none;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border-bottom: 1px solid rgb(var(--v-theme-wechat-divider));
+  z-index: 3;
+}
+
 /* 详情页顶栏（wx-chat-bar）：灰底 + 标题绝对居中（左右各留 56px 给返回/操作） */
 .wx-chat-bar {
   background: #ededed !important;

@@ -5,6 +5,7 @@ import type { User } from '@/types'
 import { defineStore } from 'pinia'
 import { api, clearTokens, saveTokens } from '@/lib/api'
 import { clearMediaCache } from '@/lib/files'
+import { setCacheKey } from '@/lib/idb-crypto'
 import { idbClearMedia, idbClearMessages } from '@/lib/idb'
 import { useContactsStore } from '@/stores/contacts'
 import { useConversationsStore } from '@/stores/conversations'
@@ -14,6 +15,8 @@ import { usePollsStore } from '@/stores/polls'
 export interface AuthPayload {
   accessToken: string
   refreshToken: string
+  /** 本机缓存加密密钥（服务端按用户签发）：IDB 聊天记录/媒体 AES-GCM 用 */
+  cacheKey?: string
   user: User
 }
 
@@ -30,6 +33,8 @@ export const useAuthStore = defineStore('auth', {
     /** 内部：保存令牌并写入用户 */
     applySession (payload: AuthPayload) {
       saveTokens(payload.accessToken, payload.refreshToken)
+      // 缓存加密密钥（sessionStorage，关标签页即清；新标签页由 refresh 响应补上）
+      if (payload.cacheKey) setCacheKey(payload.cacheKey)
       this.user = payload.user
       return payload.user
     },

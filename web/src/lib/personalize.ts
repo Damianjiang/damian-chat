@@ -13,21 +13,17 @@
 import { t } from '@/lib/i18n'
 import { idbGetUserBg, idbClearUserBg, idbPutUserBg } from '@/lib/idb'
 
-/** 用户可开关的特效集合。3D 倾斜默认关闭：卡片上的 3D 场（perspective/rotateX/rotateY）
- * 会干扰浏览器命中测试，导致卡片内输入框/按钮点不准；默认关保证可操作，
- * 用户可在「设置 → 个性化设置 → 组件与特效」里手动开启倾斜特效。 */
+/** 用户可开关的特效集合。登录卡片已移除（全端微信式平铺布局），3D 倾斜随之退役。 */
 export interface FxFlags {
   /** 登录页动波纹背景（canvas 正弦波纹；关则显示静态纯色） */
   ripple: boolean
-  /** 3D 指针倾斜（登录卡片；关则无倾斜，但保留玻璃质感） */
-  tilt: boolean
   /** 通用动效（进场动画 / 呼吸 logo / 消息弹出等；关则尊重并强化 reduced-motion） */
   motion: boolean
 }
 
 const FX_KEY = 'wx_fx_flags'
 
-export const FX_DEFAULTS: FxFlags = { ripple: true, tilt: true, motion: true }
+export const FX_DEFAULTS: FxFlags = { ripple: true, motion: true }
 
 function safeGet (): FxFlags {
   try {
@@ -36,7 +32,6 @@ function safeGet (): FxFlags {
     const p = JSON.parse(raw) as Partial<FxFlags>
     return {
       ripple: p.ripple !== false,
-      tilt: p.tilt !== false,
       motion: p.motion !== false,
     }
   } catch {
@@ -50,13 +45,12 @@ export function getFx (): FxFlags {
 
 /**
  * 应用特效到 documentElement：
- *  - data-fx-motion / data-fx-tilt 供 CSS 与组件读取
+ *  - data-fx-motion 供 CSS 与组件读取
  *  - 关「动效」时额外挂 prefers-reduced-motion 覆盖类，停掉所有非必需动画
  * 返回取消函数。
  */
 export function applyFx (fx: FxFlags, root: HTMLElement = document.documentElement): void {
   root.dataset.fxMotion = fx.motion ? 'on' : 'off'
-  root.dataset.fxTilt = fx.tilt ? 'on' : 'off'
   // motion 关 → 用 :root 上的类停掉全站 transition/animation（CSS 里配合）
   if (fx.motion) root.classList.remove('wx-no-motion')
   else root.classList.add('wx-no-motion')

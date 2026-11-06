@@ -1,10 +1,10 @@
 <template>
   <v-sheet class="wx-panes" flat>
-    <v-app-bar class="wx-chat-bar" color="surface" density="compact" flat>
+    <div class="wx-pane-bar wx-chat-bar">
       <v-btn v-if="isMobile" icon="mdi-arrow-left" variant="text" @click="goBack" />
       <!-- 连点「设置」5 次 = 解锁开发者模式（见 onTitleClick） -->
       <v-toolbar-title class="text-body-large font-weight-medium" @click="onTitleClick">{{ t('settings.title') }}</v-toolbar-title>
-    </v-app-bar>
+    </div>
 
     <div class="wx-settings-bg flex-grow-1 overflow-y-auto wx-scroll pa-2">
       <!-- 账号 -->

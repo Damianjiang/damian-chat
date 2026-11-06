@@ -1,9 +1,9 @@
 <template>
   <v-sheet class="wx-panes" flat>
-    <v-app-bar class="wx-chat-bar" color="surface" density="compact" flat>
+    <div class="wx-pane-bar wx-chat-bar">
       <v-btn v-if="isMobile" icon="mdi-arrow-left" variant="text" @click="goBack" />
       <v-toolbar-title class="text-body-large font-weight-medium">{{ t('moments.detail.title') }}</v-toolbar-title>
-    </v-app-bar>
+    </div>
 
     <div class="flex-grow-1 overflow-y-auto wx-scroll pa-4">
       <moment-card

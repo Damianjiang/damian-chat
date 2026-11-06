@@ -1,9 +1,9 @@
 <template>
   <v-sheet class="wx-panes" flat>
-    <v-app-bar class="wx-chat-bar" color="surface" density="compact" flat>
+    <div class="wx-pane-bar wx-chat-bar">
       <v-btn v-if="isMobile" icon="mdi-arrow-left" variant="text" @click="goBack" />
       <v-toolbar-title class="text-body-large font-weight-medium">{{ t('settings.personalize') }}</v-toolbar-title>
-    </v-app-bar>
+    </div>
 
     <div class="wx-personalize-bg flex-grow-1 overflow-y-auto wx-scroll pa-2">
       <!-- 外观：主题配色 / 深色模式 / 字体大小（从设置根目录移入） -->
@@ -77,13 +77,6 @@
           <v-list-item-title>{{ t('personalize.motion') }}</v-list-item-title>
           <v-list-item-subtitle>{{ t('personalize.motion.desc') }}</v-list-item-subtitle>
           <template #append><v-switch v-model="motion" color="primary" density="compact" hide-details @update:model-value="toggleFx" /></template>
-        </v-list-item>
-
-        <v-list-item>
-          <template #prepend><v-icon icon="mdi-cube-outline" /></template>
-          <v-list-item-title>{{ t('personalize.tilt') }}</v-list-item-title>
-          <v-list-item-subtitle>{{ t('personalize.tilt.desc') }}</v-list-item-subtitle>
-          <template #append><v-switch v-model="tilt" color="primary" density="compact" hide-details @update:model-value="toggleFx" /></template>
         </v-list-item>
 
         <v-list-item>
@@ -227,7 +220,6 @@
 
   /* ---------- 特效开关 / 半透明（背景图功能已移除） ---------- */
   const motion = ref(true)
-  const tilt = ref(true)
   const ripple = ref(true)
   const alpha = ref(100)
   /** 半透明度弹窗（点击行 → 窗内滑条调节，与字体预览同一「草稿 + 应用」范式） */
@@ -248,16 +240,15 @@
     toast(t('personalize.alpha.saved', { n }))
   }
 
-  /** 任一特效开关变化 → 整体保存（ripple/tilt/motion 三态一起落盘 + 实时生效） */
+  /** 任一特效开关变化 → 整体保存（ripple/motion 一起落盘 + 实时生效） */
   function toggleFx () {
-    saveFx({ ripple: ripple.value, tilt: tilt.value, motion: motion.value })
+    saveFx({ ripple: ripple.value, motion: motion.value })
   }
 
   onMounted(() => {
     // 恢复持久化的特效开关与半透明
     const fx = getFx()
     motion.value = fx.motion
-    tilt.value = fx.tilt
     ripple.value = fx.ripple
     alpha.value = getAlpha()
 

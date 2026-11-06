@@ -37,6 +37,14 @@ public class User
     /// <summary>密码最近一次修改时刻（UTC）。改密时：refresh token 全部吊销 + 踢掉实时连接，
     /// 中间件按令牌内的 pwd 签发时间戳拒绝「改密前签发」的 access token（不必等 2h 自然过期）。</summary>
     public DateTime PasswordChangedAt { get; set; } = DateTime.MinValue;
+
+    /// <summary>
+    /// 本机缓存加密密钥（服务端签发、按用户稳定的 32B 随机数，base64）。
+    /// 客户端用它对 IndexedDB 里的聊天记录/媒体缓存做 AES-GCM 加密 —— 磁盘上的缓存
+    /// 以密文存储，裸提取 IDB 文件读不到任何聊天内容。密钥仅经鉴权接口下发，
+    /// 绝不出现在任何公开 DTO；泄露面=用户自己的浏览器会话，与缓存数据同源同权。
+    /// </summary>
+    public string CacheKey { get; set; } = "";
 }
 
 public class Contact
