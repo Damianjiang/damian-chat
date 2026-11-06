@@ -546,6 +546,9 @@ app.Use(async (ctx, next) =>
 // 压缩中间件须早挂（包住控制器 + 静态文件）：只压响应体，不影响认证/限流逻辑
 app.UseResponseCompression();
 
+// 防重放（B 阶段 1）：敏感写接口按 X-Request-Nonce 短时窗去重 + X-Request-Timestamp 时间窗。
+// 必须早于认证/限流：重放包先被 401 挡掉，不消耗限流配额，也绕不开归属校验。
+app.UseMiddleware<ReplayProtectMiddleware>();
 app.UseMiddleware<AuthRateLimitMiddleware>();
 app.UseAuthentication();
 // ApiRateLimit 的「按用户（JWT sub）限流」依赖 context.User —— 必须在认证之后，
