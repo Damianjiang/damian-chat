@@ -21,6 +21,10 @@ public sealed class FileStorageConfig
     /// 默认 0 不伤现有体验（服务端本地实测 42~87 MB/s，慢的是公网上行带宽）。</summary>
     public long MaxDownloadBytesPerSecond { get; set; } = 0L;
 
+    /// <summary>头像单文件上限（默认 10MB，管理端可调，热生效）。
+    /// 前端本地压缩到 ~512px/0.85 后通常几 KB，此上限是给「压缩失败/大图」的兜底硬墙。</summary>
+    public long MaxAvatarBytes { get; set; } = 10L * 1024 * 1024;
+
     /// <summary>文件保留天数（默认 7 天，与聊天记录保留期对齐），后台定时清理过期文件。</summary>
     public int KeepDays { get; set; } = 7;
 
@@ -49,13 +53,14 @@ public sealed class FileStorageConfig
                 MaxFileBytes = MaxFileBytes,
                 MaxUploadBytesPerSecond = MaxUploadBytesPerSecond,
                 MaxDownloadBytesPerSecond = MaxDownloadBytesPerSecond,
+                MaxAvatarBytes = MaxAvatarBytes,
                 KeepDays = KeepDays,
                 MaxUserBytes = MaxUserBytes,
                 MaxTotalBytes = MaxTotalBytes,
             };
     }
 
-    public void Apply (long? maxBytes, long? bytesPerSecond, long? downloadBytesPerSecond, int? keepDays)
+    public void Apply (long? maxBytes, long? bytesPerSecond, long? downloadBytesPerSecond, long? maxAvatarBytes, int? keepDays)
     {
         lock (_gate)
         {
@@ -66,6 +71,8 @@ public sealed class FileStorageConfig
             if (downloadBytesPerSecond is not null)
                 MaxDownloadBytesPerSecond = downloadBytesPerSecond.Value < 0
                     ? 0L : Math.Min(downloadBytesPerSecond.Value, 1L * 1024 * 1024 * 1024);
+            // 头像上限：默认 10MB；管理端可设 1~100MB（头像不该比登录背景还大，夹到 100MB 防误设）
+            if (maxAvatarBytes is > 0) MaxAvatarBytes = Math.Clamp(maxAvatarBytes.Value, 1L * 1024 * 1024, 100L * 1024 * 1024);
             if (keepDays is >= 1) KeepDays = Math.Clamp(keepDays.Value, 1, 365);
         }
         Save();
@@ -119,6 +126,7 @@ public sealed class FileStorageConfig
                 MaxFileBytes = c.MaxFileBytes;
                 MaxUploadBytesPerSecond = c.MaxUploadBytesPerSecond;
                 MaxDownloadBytesPerSecond = c.MaxDownloadBytesPerSecond;
+                MaxAvatarBytes = c.MaxAvatarBytes;
                 KeepDays = c.KeepDays;
                 MaxUserBytes = c.MaxUserBytes;
                 MaxTotalBytes = c.MaxTotalBytes;
@@ -139,6 +147,8 @@ public sealed class FileStorageConfig
         // 0 = 不限速（默认）；正数限到 1GB/s 上限；负数归 0
         MaxDownloadBytesPerSecond = MaxDownloadBytesPerSecond < 0
             ? 0L : Math.Min(MaxDownloadBytesPerSecond, 1L * 1024 * 1024 * 1024);
+        // 头像上限：默认 10MB；未配置/异常值时夹到 1~100MB
+        MaxAvatarBytes = Math.Clamp(MaxAvatarBytes, 1L * 1024 * 1024, 100L * 1024 * 1024);
         KeepDays = Math.Clamp(KeepDays, 1, 365);
         return this;
     }
@@ -270,11 +280,11 @@ public sealed class FileStore
     /// <summary>当前配置（由管理 API 修改后即时生效）。</summary>
     public FileStorageConfig Config { get; private set; } = FileStorageConfig.Load();
 
-    public void UpdateConfig (long? maxBytes, long? bytesPerSecond, long? downloadBytesPerSecond, int? keepDays)
+    public void UpdateConfig (long? maxBytes, long? bytesPerSecond, long? downloadBytesPerSecond, long? maxAvatarBytes, int? keepDays)
     {
-        Config.Apply(maxBytes, bytesPerSecond, downloadBytesPerSecond, keepDays);
-        _log.LogInformation("文件存储配置已更新：单文件上限 {Max}，上传限速 {Up}/s，下载限速 {Down}/s，保留 {Days} 天",
-            Config.MaxFileBytes, Config.MaxUploadBytesPerSecond, Config.MaxDownloadBytesPerSecond, Config.KeepDays);
+        Config.Apply(maxBytes, bytesPerSecond, downloadBytesPerSecond, maxAvatarBytes, keepDays);
+        _log.LogInformation("文件存储配置已更新：单文件上限 {Max}，上传限速 {Up}/s，下载限速 {Down}/s，头像上限 {Av}，保留 {Days} 天",
+            Config.MaxFileBytes, Config.MaxUploadBytesPerSecond, Config.MaxDownloadBytesPerSecond, Config.MaxAvatarBytes, Config.KeepDays);
     }
 
     public string Dir => Path.Combine(Directory.GetCurrentDirectory(), "data", "files");

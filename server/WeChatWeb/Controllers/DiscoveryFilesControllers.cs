@@ -133,6 +133,7 @@ public class FilesController : ControllerBase
     private readonly WeChatWeb.Services.FileStore _files;
     private readonly SensitiveWordService _sw;
     private readonly ActionRateLimiter _actionLimiter;
+    private readonly LogService _log;
 
     // 功能性类型约束：头像要渲染成头像、语音要能播放，故限定图片/音频。
     // 普通「文件」上传（kind=file/默认）不限扩展名 —— 云盘逻辑，什么都能传（含 .exe/.zip/脚本）。
@@ -140,12 +141,13 @@ public class FilesController : ControllerBase
     private static readonly string[] AllowedAudio = { ".mp3", ".m4a", ".ogg", ".wav", ".amr", ".webm" };
 
     public FilesController(DataStore store, WeChatWeb.Services.FileStore files,
-        SensitiveWordService sw, ActionRateLimiter actionLimiter)
+        SensitiveWordService sw, ActionRateLimiter actionLimiter, LogService log)
     {
         _store = store;
         _files = files;
         _sw = sw;
         _actionLimiter = actionLimiter;
+        _log = log;
         // 全查回调：记忆缓存未命中时按需遍布在库用户（一次会后回填缓存）
         _ipHashScan = hash =>
         {
@@ -208,7 +210,7 @@ public class FilesController : ControllerBase
         var cap = kind switch
         {
             "voice" => Math.Min(cfg.MaxFileBytes, 10L * 1024 * 1024),
-            "avatar" => Math.Min(cfg.MaxFileBytes, 5L * 1024 * 1024),
+            "avatar" => Math.Min(cfg.MaxFileBytes, cfg.MaxAvatarBytes),   // 默认 10MB（files-config 可配）
             _ => cfg.MaxFileBytes,   // 文件/默认：放开到全局 1GB
         };
         if (file.Length > cap) return BadRequest(new { error = $"文件超过大小限制（{cap / 1024 / 1024}MB）" });
@@ -220,6 +222,30 @@ public class FilesController : ControllerBase
         var uploaderId = me;
         string id;
         bool dedup;
+
+        // 头像会走内联渲染路径（&lt;img&gt; / 同源可被脚本读像素）：读文件头做魔数校验，
+        // 挡掉「.exe/.js 改名 .jpg」夹带木马 —— 云盘模式放行任意扩展名，但头像必须
+        // 真是声称的图片格式（扩展名可改、魔数改不掉）。voice 走 &lt;audio&gt; 播放、
+        // 伪装木马无法播放，风险低，不在此拦。
+        if (kind == "avatar")
+        {
+            var head = new byte[32];
+            uploadStream.Read(head, 0, 32);
+            uploadStream.Position = 0;   // SaveAsync 要从 0 重读整个流
+            if (!ImageMagic.Match(head, ext))
+            {
+                _log.Write("auth", new
+                {
+                    ts = DateTime.UtcNow,
+                    result = "avatar-magic-reject",
+                    user = uploaderId,
+                    ext,
+                    ip = HttpContext.Connection.RemoteIpAddress?.ToString(),
+                });
+                return BadRequest(new { error = "头像不是真实的图片文件（已拒绝伪装/夹带文件）" });
+            }
+        }
+
         try
         {
             (id, dedup) = await _files.SaveAsync(uploadStream, ext, uploaderId, safeName, HttpContext.RequestAborted, kind);

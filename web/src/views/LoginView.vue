@@ -1,5 +1,5 @@
 <template>
-  <v-container class="wx-login-page" :class="{ 'wx-perf': perfMode }" fluid>
+  <v-container class="wx-login-page" :class="{ 'wx-perf': !fx.ripple }" fluid>
     <!-- 背景层：微软 Fluent 风格全幅柔和渐变（默认）；后台配置为波纹时叠加 canvas 动波纹（个性化开启才渲染）。 -->
     <div class="wx-login-bg">
       <!-- 微软 Fluent 风格：全幅柔和蓝色渐变底（纯 CSS，绑定 bgStyle）；
@@ -40,16 +40,6 @@
         :title="t('settings.about')"
         @click="aboutDialog = true"
       >v{{ appVersion }}</v-chip>
-      <v-btn
-        class="wx-perf-btn-head"
-        :color="perfMode ? 'primary' : undefined"
-        :variant="perfMode ? 'flat' : 'tonal'"
-        density="comfortable"
-        size="small"
-        :icon="perfMode ? 'mdi-bolt' : 'mdi-gauge'"
-        :title="perfMode ? t('login.perf.on.title') : t('login.perf.off.title')"
-        @click="togglePerfMode"
-      >{{ perfMode ? t('login.perf.on') : t('login.perf.off') }}</v-btn>
       <v-menu :close-on-content-click="false" location="bottom end">
         <template #activator="{ props }">
           <v-btn v-bind="props" density="comfortable" icon="mdi-tune" size="small" :title="t('login.personalize')" variant="tonal" />
@@ -95,6 +85,18 @@
                 @click="applyFont(f.level)"
               >{{ f.label }}</v-btn>
             </v-btn-group>
+
+            <div class="text-body-small text-medium-emphasis my-2">{{ t('login.personalize.ripple') }}</div>
+            <div class="d-flex align-center gap-2">
+              <v-switch
+                v-model="fx.ripple"
+                color="primary"
+                density="compact"
+                hide-details
+                @update:model-value="toggleRipple"
+              />
+              <span class="text-caption text-medium-emphasis">{{ t('login.personalize.ripple.desc') }}</span>
+            </div>
           </v-card-text>
         </v-card>
       </v-menu>
@@ -358,7 +360,7 @@
   import { api } from '@/lib/api'
   import { t } from '@/lib/i18n'
   import { resolveDark } from '@/lib/theme'
-  import { getFx } from '@/lib/personalize'
+  import { getFx, saveFx } from '@/lib/personalize'
   import { isLowPerf } from '@/lib/perf'
   import { APP_VERSION } from '@/lib/version'
   import { useAuthStore } from '@/stores/auth'
@@ -391,30 +393,21 @@
     langStore.setLang(val as 'auto' | 'zh' | 'en')
   }
 
-  /* ---------- 个性化特效：波纹 / 3D 倾斜 / 动效（lib/personalize，设置→个性化可开关） ---------- */
+  /* ---------- 个性化特效：波纹 / 动效（lib/personalize，与「设置→个性化」页共用同一持久化 key） ---------- */
   const fx = reactive({ ...getFx() })
-  // 记住打开本页时用户原本的波纹 / 3D 设置，关闭性能模式时还原（避免误改个性化设置）
-  const fxSaved = { ...fx }
+
+  // 低端设备（手机/平板/旧电脑，见 lib/perf.ts）进入登录页时本地临时关波纹保流畅：
+  // 只改本页 reactive，不写 localStorage（不污染个性化设置）；用户可在个性化菜单手动开回。
+  if (isLowPerf()) fx.ripple = false
 
   /**
-   * 性能模式：仅供卡顿用户在登录界面一键「关闭动波纹背景 + 关闭磨砂模糊」。
-   *  - 纯登录页临时状态，不写 localStorage、不影响个性化设置；关闭时还原 fxSaved。
-   *  - 表单内所有控件完全不受影响，仍可正常操作。
+   * 波纹特效开关（与个性化页共用 wx_fx_flags，登录页右上角菜单 + 设置→个性化同一份）。
+   *  - 关波纹 = 同时关磨砂（模板 .wx-perf 绑到 !fx.ripple）+ 停 canvas 动波纹 → 静态纯色底。
+   *  - saveFx 落 localStorage，三处（登录页 / 个性化页 / 启动 initPersonalize）一致，跨刷新保留。
    */
-  // 低端设备（手机/平板/旧电脑，见 lib/perf.ts）默认进入性能模式：
-  // 关掉 canvas 动波纹，叠加 CSS 关掉磨砂；用户仍可点「恢复特效」手动开回来。
-  const perfMode = ref(isLowPerf())
-  if (perfMode.value) {
-    fx.ripple = false
-  }
-
-  function togglePerfMode () {
-    perfMode.value = !perfMode.value
-    if (perfMode.value) {
-      fx.ripple = false   // 停掉 canvas 动波纹 → 静态纯色
-    } else {
-      fx.ripple = fxSaved.ripple   // 还原用户原设置
-    }
+  function toggleRipple (on: boolean | null) {
+    fx.ripple = !!on
+    saveFx({ ...fx })
   }
 
   /* ---------- 右上角：版本号 + 个性化（主题/明暗/字号，本地持久化） ---------- */
@@ -995,8 +988,6 @@ html[data-dm-mode='dark'] .wx-login-version {
   background: rgba(24, 28, 38, 0.7);
 }
 
-/* 右上角性能按钮 */
-.wx-perf-btn-head { max-width: 150px; }
 
 /* ★ 右上角「语言 / 关闭特效 / 个性化」中性按钮：登录页是浅蓝全幅背景，
    Vuetify 4 的 tonal 底色 = currentColor 的低透明度铺底，接近全透明 → 按钮看不见。
