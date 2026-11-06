@@ -12,4 +12,22 @@
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!--
+      运行期数据绝不进发布包。
+      Web SDK 默认把项目目录下所有非代码文件当 Content 拷进 publish 输出，于是
+      dotnet publish 会把整个 Data/ 一起打走 —— 里面有 store.json（全部用户与消息）、
+      Data/config/security.json（管理员注册密码）、honey/、证书目录；
+      根目录的 security.json 是迁移前的历史配置，同样带明文注册密码。
+      发布 zip 是要传 GitHub Releases 的，漏一次等于把整站数据和口令公开。
+      （历史包 v1.5.4~v1.5.6 只带了根 security.json，Data 是后来新增文件才被卷进来的。）
+    -->
+    <Content Remove="Data/**" />
+    <None Remove="Data/**" />
+    <Content Remove="security.json" />
+    <None Remove="security.json" />
+    <Content Remove="logs/**" />
+    <None Remove="logs/**" />
+  </ItemGroup>
+
 </Project>
