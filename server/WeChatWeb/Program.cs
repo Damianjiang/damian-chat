@@ -420,7 +420,10 @@ app.UseCors();
 // 防"黑客刷流量"（多 IP 代理池、下载型 DDoS、慢连接灌水）；正常用户远达不到阈值，不误伤。
 // 环回（127.0.0.1 / ::1，本机 GUI 管理 API）完全豁免。
 app.UseMiddleware<TrafficFirewallMiddleware>();
-app.UseMiddleware<SecurityHeadersMiddleware>();
+// 自签名部署（caBootstrap.Enabled = 证书目录里有本地 CA）时关闭 HSTS：
+// 客户端不信任这张证书，HSTS 只会把「用 http 打开 /ca 装证书」这条唯一出路锁死。
+// 换成公信证书（Let's Encrypt 等）后证书目录里不会有 tcraft-ca.crt，HSTS 自动恢复。
+app.UseMiddleware<SecurityHeadersMiddleware>(!caBootstrap.Enabled);
 
 /*
  * 全局安全异常兜底（BE-SEC / API-SEC）：

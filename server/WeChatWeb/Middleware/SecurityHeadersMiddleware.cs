@@ -7,8 +7,19 @@ namespace WeChatWeb.Middleware;
 public sealed class SecurityHeadersMiddleware
 {
     private readonly RequestDelegate _next;
+    private readonly bool _enableHsts;
 
-    public SecurityHeadersMiddleware (RequestDelegate next) => _next = next;
+    /// <param name="enableHsts">
+    /// 是否下发 Strict-Transport-Security。**自签名部署必须传 false**：
+    /// 客户端本来就不信任这张证书，一旦记住 HSTS，连「用 http 打开根证书安装页」
+    /// 这条唯一出路都会被浏览器自动升级成 https 堵死 —— 实测踩过，手机端直接死锁，
+    /// 只能去 chrome://net-internals/#hsts 手动删域或改用 IP 访问才救得回来。
+    /// </param>
+    public SecurityHeadersMiddleware (RequestDelegate next, bool enableHsts = true)
+    {
+        _next = next;
+        _enableHsts = enableHsts;
+    }
 
     public async Task InvokeAsync (HttpContext context)
     {
@@ -45,7 +56,15 @@ public sealed class SecurityHeadersMiddleware
               + "form-action 'self'";
 
             // 其它纵深防御
-            h["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains";
+            //
+            // HSTS 的双重闸门：
+            //   ① 全局开关 —— 自签名部署直接关掉（见构造函数注释，否则是自伤）；
+            //   ② 引导页三条路径永远不发 —— 它们的存在意义就是「给还没信任本证书的设备用」，
+            //      给它们发 HSTS 等于装上锁再把钥匙锁进去。
+            var bootstrapPath = Services.CaBootstrap.Paths.Contains(
+                context.Request.Path.Value ?? "", StringComparer.OrdinalIgnoreCase);
+            if (_enableHsts && !bootstrapPath)
+                h["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains";
             h["Cross-Origin-Resource-Policy"] = "same-origin";
             h["X-DNS-Prefetch-Control"] = "off";
             h["Origin-Agent-Cluster"] = "?1";
