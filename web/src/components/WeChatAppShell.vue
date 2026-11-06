@@ -130,14 +130,46 @@
   import { t } from '@/lib/i18n'
   import { useAuthStore } from '@/stores/auth'
 
-  /** pane chunk 加载中的极简占位（三颗呼吸点）：只在空闲预取没赶上首跳时短暂出现 */
+  /**
+   * pane chunk 加载中的极简占位（三颗呼吸点）：只在空闲预取没赶上首跳时短暂出现。
+   *
+   * ★ 全部用**内联样式**写死，不依赖 wechat.scss 是否已加载。
+   *   之前只挂 class，一旦样式表加载慢/被旧缓存顶掉，三个 `display:block` 的
+   *   span 就会各占一行 → 用户看到的是「竖着的呼吸点」。
+   *   内联 row + nowrap + 固定尺寸，任何情况下都是横排三点。
+   */
+  const DOT_BASE: Record<string, string> = {
+    display: 'block',
+    flex: '0 0 auto',
+    width: '8px',
+    height: '8px',
+    borderRadius: '50%',
+    background: '#9ba1a6',
+    opacity: '0.35',
+    animation: 'wx-pane-dot 1.1s ease-in-out infinite',
+  }
+
   const PaneLoading = defineComponent({
     name: 'PaneLoading',
     render () {
-      return h('div', { class: 'wx-pane-loading' }, [
-        h('span', { class: 'wx-pane-loading-dot' }),
-        h('span', { class: 'wx-pane-loading-dot' }),
-        h('span', { class: 'wx-pane-loading-dot' }),
+      return h('div', {
+        class: 'wx-pane-loading',
+        style: {
+          display: 'flex',
+          flexDirection: 'row',
+          flexWrap: 'nowrap',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '7px',
+          width: '100%',
+          height: '100%',
+          minHeight: '120px',
+          background: 'transparent',
+        },
+      }, [
+        h('span', { class: 'wx-pane-loading-dot', style: { ...DOT_BASE } }),
+        h('span', { class: 'wx-pane-loading-dot', style: { ...DOT_BASE, animationDelay: '0.18s' } }),
+        h('span', { class: 'wx-pane-loading-dot', style: { ...DOT_BASE, animationDelay: '0.36s' } }),
       ])
     },
   })

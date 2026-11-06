@@ -71,6 +71,13 @@
         0%, 100% { opacity: .25; transform: scale(.78); }
         50%      { opacity: 1;   transform: scale(1); }
       }
+      /* 面板加载三点（WeChatAppShell 的 PaneLoading 用内联样式引这个名字）。
+         在首屏内联 CSS 里也定义一份：万一面板样式表还没加载完，
+         内联的 animation 引用不到 keyframes 就只剩静态三点 —— 定义在这里就不会。 */
+      @keyframes wx-pane-dot {
+        0%, 100% { opacity: .3; }
+        50%      { opacity: 1; }
+      }
       .wx-loader-pct { font-size: 13px; font-weight: 600; color: #8a9096; margin-left: 5px; font-variant-numeric: tabular-nums; }
       html[data-dm-mode="dark"] .wx-loader-pct { color: #9ba1a6; }
       .wx-loader-file { font-size: 12px; color: #9aa0a6; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
