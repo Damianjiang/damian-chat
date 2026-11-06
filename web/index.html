@@ -53,18 +53,28 @@
       }
       html[data-dm-mode="dark"] .sg-blocked a { background: #303238; }
 
-      /* 资源加载（首进 / 下载必要资源时）：进度条 + 当前文件名；Vue 挂载成功后 main.ts 移除本层 */
-      .wx-loader { position: fixed; inset: 0; z-index: 9999; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; background: #ededed; }
+      /* 资源加载（首进 / 下载必要资源时）：三个横排呼吸点 + 一行进度小字。
+         早期版本是「转圈 + 百分比 + 240×4 进度条 + 文件名」竖向堆叠，用户看到的是一条竖杠，
+         现固定为横排三点呼吸（与聊天列表懒加载的 wx-pane-loading 同一观感）。
+         全部零依赖写法：不引 CSS 变量、不依赖主题类，避免旧浏览器上解析失败变形。 */
+      .wx-loader { position: fixed; inset: 0; z-index: 9999; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; background: #ededed; }
       html[data-dm-mode="dark"] .wx-loader { background: #111214; }
-      .wx-loader-ring { width: 46px; height: 46px; border: 3px solid rgba(0,0,0,0.12); border-top-color: #07c160; border-radius: 50%; animation: wx-spin .8s linear infinite; }
-      @keyframes wx-spin { to { transform: rotate(360deg); } }
-      .wx-loader-pct { font-size: 16px; font-weight: 600; color: #181818; }
-      html[data-dm-mode="dark"] .wx-loader-pct { color: #e9ecef; }
-      .wx-loader-bar { width: 240px; height: 4px; border-radius: 2px; background: rgba(0,0,0,0.1); overflow: hidden; }
-      html[data-dm-mode="dark"] .wx-loader-bar { background: rgba(255,255,255,0.12); }
-      .wx-loader-bar i { display: block; height: 100%; width: 0%; background: #07c160; border-radius: 2px; transition: width .25s ease; }
-      .wx-loader-file { font-size: 12px; color: #888; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-      html[data-dm-mode="dark"] .wx-loader-file { color: #9ba1a6; }
+      .wx-loader-row { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; justify-content: center; gap: 9px; }
+      .wx-loader-dot {
+        display: block; width: 10px; height: 10px; border-radius: 50%;
+        background: #07c160; opacity: 0.25;
+        animation: wx-loader-breath 1.2s ease-in-out infinite;
+      }
+      .wx-loader-dot:nth-child(2) { animation-delay: .16s; }
+      .wx-loader-dot:nth-child(3) { animation-delay: .32s; }
+      @keyframes wx-loader-breath {
+        0%, 100% { opacity: .25; transform: scale(.78); }
+        50%      { opacity: 1;   transform: scale(1); }
+      }
+      .wx-loader-pct { font-size: 13px; font-weight: 600; color: #8a9096; margin-left: 5px; font-variant-numeric: tabular-nums; }
+      html[data-dm-mode="dark"] .wx-loader-pct { color: #9ba1a6; }
+      .wx-loader-file { font-size: 12px; color: #9aa0a6; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      html[data-dm-mode="dark"] .wx-loader-file { color: #8d9499; }
 
       /* 网络错误 / 离线态：有 UI 缓存时资源全走本地，仍无网 → 显示本页 */
       .wx-neterr { position: fixed; inset: 0; z-index: 9998; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 24px; text-align: center; background: #ededed; }
@@ -104,11 +114,14 @@
       </div>
     </div>
 
-    <!-- 资源加载：首进显示进度条 + 正在下载的文件名；Vue 成功挂载后由 main.ts 移除本层 -->
+    <!-- 资源加载：三个横排呼吸点 + 进度/文件名小字；Vue 成功挂载后由 main.ts 移除本层 -->
     <div class="wx-loader" id="wx-loader">
-      <div class="wx-loader-ring"></div>
-      <div class="wx-loader-pct" id="wx-loader-pct">0%</div>
-      <div class="wx-loader-bar"><i id="wx-loader-bar"></i></div>
+      <div class="wx-loader-row">
+        <i class="wx-loader-dot"></i>
+        <i class="wx-loader-dot"></i>
+        <i class="wx-loader-dot"></i>
+        <span class="wx-loader-pct" id="wx-loader-pct">0%</span>
+      </div>
       <div class="wx-loader-file" id="wx-loader-file">正在下载必要资源…</div>
     </div>
 

@@ -111,9 +111,11 @@ window.__wxHideLoader = function () {
 /* ---------- ④ 资源加载进度（百分比 + 进度条 + 文件名） ---------- */
 ;(function () {
   const pct = document.querySelector('#wx-loader-pct')
+  // 首屏已改为三点呼吸动画，进度条元素不再存在；保留可选引用，
+  // 兼容被 Service Worker 缓存的旧版 index.html。
   const bar = document.querySelector('#wx-loader-bar')
   const file = document.querySelector('#wx-loader-file')
-  if (!pct || !bar || !file) {
+  if (!pct || !file) {
     return
   }
 
@@ -123,7 +125,9 @@ window.__wxHideLoader = function () {
   function showProgress (p) {
     const clamped = Math.max(0, Math.min(100, p))
     pct.textContent = Math.round(clamped) + '%'
-    bar.style.width = clamped + '%'
+    if (bar) {
+      bar.style.width = clamped + '%'
+    }
   }
 
   function showFile (name) {
