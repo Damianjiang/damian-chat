@@ -169,6 +169,8 @@ public class Group
     public DateTime NoticeUpdatedAt { get; set; } = DateTime.UtcNow;
     /// <summary>群投票（微信式：发起/投票/实时看票数，可多选，发起人或群主可截止）。</summary>
     public List<Poll> Polls { get; set; } = new();
+    /// <summary>群接龙（报数/报名）：发起、参与、取消、截止，实时同步全员。</summary>
+    public List<Solitaire> Solitaires { get; set; } = new();
     /// <summary>入群问题（JoinPolicy=question 时生效）：申请者答对即自动进群（QQ 式「回答问题入群」）。</summary>
     public string JoinQuestion { get; set; } = "";
     /// <summary>入群问题的标准答案（不区分大小写比较；仅群主/管理员与入群流程可见）。</summary>
@@ -196,6 +198,35 @@ public class PollOption
     public string Text { get; set; } = "";
     /// <summary>投给该选项的用户 id 列表（实时统计票数与占比）。</summary>
     public List<string> UserIds { get; set; } = new();
+}
+
+/// <summary>
+/// 群接龙（微信「群接龙」式）：发起人建一条接龙，成员按顺序占位，可填备注、可取消、可截止。
+/// 与投票一样挂在 Group 下（随 store.json 持久化），消息体只存 id，卡片按 id 取实时数据。
+/// </summary>
+public class Solitaire
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    /// <summary>接龙标题（如「周六聚餐报名」）。</summary>
+    public string Title { get; set; } = "";
+    /// <summary>发起人补充说明（选填）。</summary>
+    public string Note { get; set; } = "";
+    public string CreatedBy { get; set; } = "";
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    /// <summary>是否已截止（截止后只读，发起人/群主/管理员可截止）。</summary>
+    public bool Closed { get; set; }
+    /// <summary>接龙条目（按加入顺序编号 1..N）。</summary>
+    public List<SolitaireEntry> Entries { get; set; } = new();
+}
+
+public class SolitaireEntry
+{
+    public string UserId { get; set; } = "";
+    /// <summary>参与时的昵称快照（防改名后历史条目串名）。</summary>
+    public string Nickname { get; set; } = "";
+    /// <summary>备注（如「带一个朋友」「吃辣」），可空。</summary>
+    public string Note { get; set; } = "";
+    public DateTime At { get; set; } = DateTime.UtcNow;
 }
 
 public class GroupMember

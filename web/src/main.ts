@@ -67,41 +67,15 @@ try {
     }
   } catch { /* 无这些全局函数时忽略 */ }
 
-  // 注册 Service Worker：仅同源 + secure context（https 或 localhost/127.0.0.1）才注册。
-  // 缓存的只是 UI 静态资源（见 public/sw.js 的安全边界），绝不碰 /api、/files、/hubs。
-  //
-  // 关键：注册后立即 update() + 监听 updatefound。
-  // 一旦服务端的新 sw.js 字节与本机激活版不同（每次发版都会改 CACHE 版本号），
-  // 新 SW 安装完成后自动刷新一次页面，让旧 bundle / 旧 JS（含旧版全局确认框等 bug）
-  // 从所有端（PC/手机）被替换掉 —— 修掉"电脑版一直加载旧 UI 导致遮罩锁死、
-  // 点不动任何按钮"的根源。只刷新 UI 静态资源，API/会话数据不受影响（无 token 风险）。
+  // 版本检测 / Service Worker 更新统一交给 lib/updater：
+  // 打开即检测新版本 → 弹「立即更新 / 稍后 / 忽略」，点击更新才切换 SW 并刷新。
+  // 旧逻辑在 updatefound 里直接 location.reload()（新 SW 还没 activate）→ 刷新后仍是旧版，
+  // 而且 install 里 skipWaiting 抢班会造成新旧资源混用，这就是"点了更新没反应"的根因。
   try {
-    const secureCtx
-      = location.protocol === 'https:'
-        || location.hostname === 'localhost'
-        || location.hostname === '127.0.0.1'
-    if ('serviceWorker' in navigator && secureCtx) {
-      const reg = await navigator.serviceWorker.register('/sw.js')
-      // 记录激活的 SW 脚本 URL，问题反馈快照里据此判断客户端跑的是哪版 UI
-      try {
-        ;(window as unknown as Record<string, unknown>).__swVersion = (reg as unknown as { scriptURL?: string }).scriptURL ?? ''
-      } catch { /* 忽略 */ }
-      reg.update().catch(error => {
-        console.warn('[sw] update() 检查失败', error)
-      })
-      logMark('Service Worker 已注册')
-      navigator.serviceWorker.addEventListener('updatefound', () => {
-        const nw = reg.installing
-        if (!nw) return
-        nw.addEventListener('statechange', () => {
-          // 有激活中的旧 SW 且新 SW 已安装（sw.js 带 skipWaiting/claim）→ 刷新接管新版 UI
-          if (nw.state === 'installed' && navigator.serviceWorker.controller) {
-            location.reload()
-          }
-        })
-      })
-    }
-  } catch { /* 隐私模式等场景下忽略 */ }
+    const { initUpdater } = await import('@/lib/updater')
+    initUpdater()
+    logMark('更新检测已启动')
+  } catch { /* 隐私模式 / 非安全上下文：不注册 SW，设置页仍可手动检查 */ }
 } catch (error) {
   // 不吞异常现场：控制台留痕；资源没下完 → 显示网络错误页（不再停在纯 HTML 门）
   console.error('[boot] Vue 挂载失败，使用纯 HTML 确认门 / 网络错误提示', error)

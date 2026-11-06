@@ -53,7 +53,7 @@ public static class Validate
 
     /// <summary>允许的消息类型白名单（防止伪造 type 触发未处理的分支）。poll = 群投票卡片（content 为 pollId）。
     /// forward = 合并转发「聊天记录」卡片（ForwardJson 携带快照）。</summary>
-    public static readonly string[] MessageTypes = { "text", "image", "voice", "file", "sticker", "system", "pat", "poll", "forward" };
+    public static readonly string[] MessageTypes = { "text", "image", "voice", "file", "sticker", "system", "pat", "poll", "forward", "solitaire" };
 
     /// <summary>合并转发 JSON 上限（64KB，约可装 300 条纯文本；前端硬上限 50 条先卡）。</summary>
     public const int MaxForwardJson = 64 * 1024;

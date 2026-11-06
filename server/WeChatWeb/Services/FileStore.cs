@@ -28,8 +28,11 @@ public sealed class FileStorageConfig
 
     private static readonly JsonSerializerOptions Opts = new() { WriteIndented = true };
 
-    public static string FilePath =>
-        Path.Combine(Directory.GetCurrentDirectory(), "data", "files-config.json");
+    /// <summary>运行期配置目录（与 security.json / group-config.json 同处，部署不覆盖）。</summary>
+    public static string FilePath => ConfigPaths.File("files-config.json");
+
+    /// <summary>旧位置（data/files-config.json）：仅用于首次启动迁移。</summary>
+    private static string LegacyFilePath => Path.Combine(Directory.GetCurrentDirectory(), "data", "files-config.json");
 
     private readonly object _gate = new();
 
@@ -70,6 +73,7 @@ public sealed class FileStorageConfig
 
     public static FileStorageConfig Load ()
     {
+        ConfigPaths.MigrateIfMissing(FilePath, LegacyFilePath);
         try
         {
             if (File.Exists(FilePath))
@@ -79,7 +83,7 @@ public sealed class FileStorageConfig
                 else
                 {
                     var c = JsonSerializer.Deserialize<FileStorageConfig>(raw);
-                    if (c != null) return c;
+                    if (c != null) return c.Normalized();
                 }
             }
         }
@@ -88,6 +92,41 @@ public sealed class FileStorageConfig
             Console.Error.WriteLine($"[FileStore] {FilePath} 解析失败，使用默认存储配置：{ex.GetType().Name}: {ex.Message}");
         }
         return new FileStorageConfig();
+    }
+
+    /// <summary>从磁盘重新读取并原地更新（配置热加载）。</summary>
+    public bool Reload ()
+    {
+        try
+        {
+            if (!File.Exists(FilePath)) return false;
+            if (!SensitiveFile.TryReadAllText(FilePath, out var raw)) return false;
+            var c = JsonSerializer.Deserialize<FileStorageConfig>(raw);
+            if (c == null) return false;
+            c = c.Normalized();
+            lock (_gate)
+            {
+                MaxFileBytes = c.MaxFileBytes;
+                MaxUploadBytesPerSecond = c.MaxUploadBytesPerSecond;
+                KeepDays = c.KeepDays;
+                MaxUserBytes = c.MaxUserBytes;
+                MaxTotalBytes = c.MaxTotalBytes;
+            }
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[FileStore] 热加载失败（保留当前值）：{ex.GetType().Name}: {ex.Message}");
+            return false;
+        }
+    }
+
+    private FileStorageConfig Normalized ()
+    {
+        MaxFileBytes = Math.Clamp(MaxFileBytes, 1L * 1024 * 1024, 1L * 1024 * 1024 * 1024);
+        MaxUploadBytesPerSecond = Math.Clamp(MaxUploadBytesPerSecond, 64L * 1024, 200L * 1024 * 1024);
+        KeepDays = Math.Clamp(KeepDays, 1, 365);
+        return this;
     }
 }
 

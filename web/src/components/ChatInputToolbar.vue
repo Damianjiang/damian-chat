@@ -174,6 +174,8 @@
     typing: []
     /** 打开发起投票对话框（仅群聊显示入口） */
     poll: []
+    /** 打开发起接龙对话框（仅群聊显示入口） */
+    solitaire: []
   }>()
 
   const draft = ref('')
@@ -218,6 +220,8 @@
     { icon: 'mdi-microphone', label: t('input.voice'), event: startRecording },
     // 群投票（微信式）：仅群聊显示入口
     ...(props.isGroup ? [{ icon: 'mdi-poll', label: t('poll.create'), event: () => emit('poll') }] : []),
+    // 群接龙（报名/报数）：仅群聊显示入口
+    ...(props.isGroup ? [{ icon: 'mdi-format-list-numbered', label: t('solitaire.create'), event: () => emit('solitaire') }] : []),
   ])
 
   /* ---------- 真实语音录音（MediaRecorder） ---------- */

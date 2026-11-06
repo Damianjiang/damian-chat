@@ -143,6 +143,11 @@
         <poll-card :conversation-id="message.conversationId" :poll-id="message.content" />
       </div>
 
+      <!-- 群接龙卡片：content 为接龙 id，数据在 solitaires store（SolitaireUpdated 实时刷新） -->
+      <div v-else-if="message.type === 'solitaire'" class="wx-media">
+        <solitaire-card :conversation-id="message.conversationId" :solitaire-id="message.content" />
+      </div>
+
       <!-- 其它 -->
       <div v-else :class="bubbleClass">{{ unescape(message.content) }}</div>
 
@@ -236,6 +241,7 @@
   import { mediaKindOf } from '@/lib/media'
   import ContextMenu from '@/components/ContextMenu.vue'
   import PollCard from '@/components/PollCard.vue'
+  import SolitaireCard from '@/components/SolitaireCard.vue'
 
   const props = defineProps<{
     message: Message

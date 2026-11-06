@@ -113,11 +113,12 @@
           </template>
         </v-list-item>
 
-        <!-- 更新 App：拉取最新 UI 资源（Service Worker），进度条 + 完成自动刷新，失败给手动刷新 -->
-        <v-list-item @click="openUpdate">
+        <!-- 检查更新：与服务端 version.json 比对，有新版由全局弹窗询问「更新/忽略」 -->
+        <v-list-item @click="onCheckUpdate">
           <v-list-item-title>{{ t('settings.update') }}</v-list-item-title>
 
           <template #append>
+            <span v-if="checkingUpdate" class="text-body-small text-medium-emphasis mr-1">{{ t('settings.update.checking') }}</span>
             <v-icon v-if="updateAvailable" color="secondary" icon="mdi-update" size="20" />
             <v-icon v-else icon="mdi-chevron-right" size="small" />
           </template>
@@ -126,7 +127,7 @@
 
       <!-- 关于 -->
       <v-list bg-color="surface" class="wx-settings-group mt-2">
-        <v-list-item @click="aboutDialog = true">
+        <v-list-item @click="openAbout">
           <v-list-item-title>{{ t('settings.about') }}</v-list-item-title>
 
           <template #append>
@@ -456,60 +457,57 @@
       </v-card>
     </v-dialog>
 
-    <!-- 更新 App（真·检查更新：版本比对 + Service Worker 拉新资源） -->
-    <v-dialog v-model="updateDialog" max-width="380">
+    <!-- 关于：系统信息 + 构建版本 + GitHub 项目地址（用户要求放进设置页） -->
+    <v-dialog v-model="aboutDialog" max-width="400">
       <v-card>
-        <v-card-title class="text-body-large">{{ t('settings.update') }}</v-card-title>
+        <v-card-title class="text-body-large">{{ t('settings.about') }}</v-card-title>
 
         <v-card-text>
-          <div class="text-body-small text-medium-emphasis mb-2">
-            {{ t('settings.update.hint') }}
+          <div class="wx-about-brand">
+            <img alt="大面聊天" class="wx-about-logo" src="/icon-192.png">
+            <div class="min-width-0">
+              <div class="text-body-large font-weight-medium">{{ t('about.systemName') }}</div>
+              <div class="text-body-small text-medium-emphasis">{{ t('about.desc') }}</div>
+            </div>
           </div>
 
-          <v-sheet class="rounded pa-2 mb-2" color="wechat-chat-bg" variant="tonal">
-            <div class="text-body-small d-flex justify-space-between">
-              <span class="text-medium-emphasis">{{ t('settings.update.running') }}</span>
-              <span class="text-truncate" style="max-width: 60%">{{ runningVersion }}</span>
+          <div class="wx-about-rows mt-3">
+            <div class="wx-about-row">
+              <span class="text-medium-emphasis">{{ t('settings.version') }}</span>
+              <span class="wx-about-val">{{ appVersion }}</span>
             </div>
-            <div class="text-body-small d-flex justify-space-between">
-              <span class="text-medium-emphasis">{{ t('settings.update.server') }}</span>
-              <span class="text-truncate" style="max-width: 60%">{{ latestVersion }}</span>
+            <div class="wx-about-row">
+              <span class="text-medium-emphasis">{{ t('about.build') }}</span>
+              <span class="wx-about-val">{{ formatBuild(currentBuildVersion) }}</span>
             </div>
-            <div v-if="hasUpdate" class="text-body-small text-primary mt-1 d-flex align-center gap-1">
-              <v-icon icon="mdi-update" size="16" />
-              <span>{{ t('settings.update.found', { n: latestVersion }) }}</span>
+            <div class="wx-about-row">
+              <span class="text-medium-emphasis">{{ t('about.serverAddr') }}</span>
+              <span class="wx-about-val">{{ serverOrigin }}</span>
             </div>
-          </v-sheet>
+            <div class="wx-about-row">
+              <span class="text-medium-emphasis">{{ t('about.device') }}</span>
+              <span class="wx-about-val">{{ deviceLabel(deviceKind) }}</span>
+            </div>
+            <div class="wx-about-row">
+              <span class="text-medium-emphasis">{{ t('about.stack') }}</span>
+              <span class="wx-about-val">{{ t('settings.about.tech') }}</span>
+            </div>
+          </div>
 
-          <v-progress-linear
-            v-if="updating"
-            class="my-4"
-            color="primary"
-            :indeterminate="updateProgress === null"
-            :model-value="updateProgress ?? 0"
-          />
+          <div class="wx-about-links">
+            <a class="wx-about-link" href="https://github.com/Damianjiang/damian-chat" rel="noopener noreferrer" target="_blank">
+              <v-icon icon="mdi-github" size="16" />{{ t('about.github') }}
+            </a>
+            <a class="wx-about-link" href="https://github.com/Damianjiang/damian-chat/releases" rel="noopener noreferrer" target="_blank">
+              <v-icon icon="mdi-tag-outline" size="16" />{{ t('about.releases') }}
+            </a>
+            <a class="wx-about-link" href="https://github.com/Damianjiang/damian-chat/issues" rel="noopener noreferrer" target="_blank">
+              <v-icon icon="mdi-bug-outline" size="16" />{{ t('about.issues') }}
+            </a>
+          </div>
 
-          <div class="text-body-small" :class="updateMsg ? 'text-medium-emphasis' : 'text-primary'">{{ updateMsg || (hasUpdate ? t('settings.update.found.short') : t('settings.update.btn.check')) }}</div>
-        </v-card-text>
-
-        <v-card-actions>
-          <v-spacer />
-          <v-btn variant="text" @click="closeUpdate">{{ t('common.close') }}</v-btn>
-          <v-btn v-if="!updating" color="primary" @click="runUpdate">{{ hasUpdate ? t('settings.update.btn.do') : t('settings.check.update') }}</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
-
-    <!-- 关于 -->
-    <v-dialog v-model="aboutDialog" max-width="340">
-      <v-card>
-        <v-card-title>{{ t('settings.about') }}</v-card-title>
-
-        <v-card-text>
-          <div class="text-body-medium mb-1">{{ t('settings.version') }}：{{ appVersion }}</div>
-          <div class="text-body-medium mb-1">{{ t('settings.about.tech') }}</div>
-          <div class="text-body-medium mb-1">{{ t('settings.about.device', { n: deviceLabel(deviceKind), m: deviceKind }) }}</div>
-          <div class="text-body-small text-medium-emphasis" style="word-break: break-all">{{ uaShort }}</div>
+          <div class="text-body-small text-medium-emphasis mt-3">{{ t('about.license') }}</div>
+          <div class="text-body-small text-medium-emphasis mt-1" style="word-break: break-all">{{ uaShort }}</div>
         </v-card-text>
 
         <v-card-actions>
@@ -614,6 +612,7 @@
   import { clearMediaCache, mediaCacheCount } from '@/lib/files'
   import { idbEstimateBytes } from '@/lib/idb'
   import { stopRealtime } from '@/lib/realtime'
+  import { checkForUpdate, formatBuild, RUNNING_VERSION, updateState } from '@/lib/updater'
   import { APP_VERSION } from '@/lib/version'
   import { useAuthStore } from '@/stores/auth'
   import { useContactsStore } from '@/stores/contacts'
@@ -984,180 +983,39 @@
     }
   }
 
-  /* ---------- 更新 App（真·检查更新：拉服务端 version.json 与当前运行版本比对） ---------- */
-  const updateDialog = ref(false)
-  const updating = ref(false)
-  const updateProgress = ref<number | null>(null)
-  const updateMsg = ref('')
-  /** 是否有新版本待激活（SW updatefound 时置 true，列表行显示更新标记） */
-  const updateAvailable = ref(false)
-  /** 当前运行版本 / 服务端最新版本的展示（「检查更新」结果落在这） */
-  const runningVersion = ref('--')
-  const latestVersion = ref('--')
-  const hasUpdate = ref(false)
-
-  /** 产品语义版本号（「关于」对话框 / 设置行展示，统一来自 lib/version.ts，发版只改那一处） */
+  /* ---------- 更新 App（统一走 lib/updater：检测 → 全局弹窗「立即更新/稍后/忽略」） ---------- */
+  const checkingUpdate = ref(false)
+  /** 产品语义版本号（「关于」/设置行展示，发版只改 lib/version.ts） */
   const appVersion = APP_VERSION
+  /** 当前运行构建指纹（与 UpdateNotice 同源） */
+  const currentBuildVersion = RUNNING_VERSION
+  /** 有可用更新：列表行亮「更新」标记（真正交互在全局弹窗） */
+  const updateAvailable = computed(() => updateState.value.available)
 
-  let updateHandlerBound = false
-
-  /** 当前运行的构建版本（构建期注入）。 */
-  const currentBuildVersion = typeof __BUILD_VERSION__ !== 'undefined' ? __BUILD_VERSION__ : 'local'
-
-  /** 拉取服务端 version.json，判断是否有更新。返回 true = 有新版待更新。 */
-  async function checkVersion (): Promise<boolean> {
-    runningVersion.value = currentBuildVersion
-    let serverVer = ''
+  async function onCheckUpdate () {
+    if (checkingUpdate.value) return
+    checkingUpdate.value = true
     try {
-      const res = await fetch('/version.json?t=' + Date.now(), { cache: 'no-store' })
-      if (res.ok) {
-        const v = await res.json()
-        serverVer = (v && v.version) || ''
-      }
-    } catch { /* 拿不到 version.json（旧后端未部署）→ 视为无更新来源 */ }
-    latestVersion.value = serverVer || t('settings.update.noManifest')
-    hasUpdate.value = !!serverVer && serverVer !== currentBuildVersion
-    return hasUpdate.value
-  }
-
-  /**
-   * 监听新 SW 下载完成 → 列表行亮「更新」标记。
-   * 注意：updatefound 是在 **ServiceWorkerRegistration** 上派发的，
-   * navigator.serviceWorker（ServiceWorkerContainer）上永远收不到 —— 早期挂在
-   * container 上导致标记从不亮起。这里等 registration ready 后再绑。
-   */
-  function bindSwUpdateWatcher () {
-    if (updateHandlerBound || !('serviceWorker' in navigator)) return
-    updateHandlerBound = true
-    navigator.serviceWorker.ready
-      .then(reg => {
-        reg.addEventListener('updatefound', () => {
-          updateAvailable.value = true
-        })
-      })
-      .catch(() => { /* SW 未就绪：用户手动点「检查更新」时仍会走 runUpdate 的等价逻辑 */ })
-  }
-
-  onMounted(() => {
-    bindSwUpdateWatcher()
-    void checkVersion().then(has => {
-      if (has) updateAvailable.value = true
-    })
-  })
-
-  async function runUpdate () {
-    updating.value = true
-    updateProgress.value = 0
-    updateMsg.value = t('settings.update.checking')
-    // 阶段 0：真·版本比对。没有新版本就到此为止，不白折腾 SW。
-    const needUpdate = await checkVersion()
-    if (!needUpdate) {
-      updateProgress.value = 100
-      updateMsg.value = t('settings.update.latest', { n: latestVersion.value })
-      updating.value = false
-      setTimeout(() => {
-        updateMsg.value = ''
-        updateProgress.value = null
-      }, 1500)
-      return
-    }
-
-    // 有新版 → 拉新 SW 并接管刷新
-    updateMsg.value = t('settings.update.found', { n: latestVersion.value })
-    // 浏览器只在「安全上下文」（https 或 localhost）允许 Service Worker。
-    // 通过 http://局域网IP 访问时注册必然失败 —— 给出可操作的原因，而不是笼统的"未注册"。
-    if (!('serviceWorker' in navigator) || !window.isSecureContext) {
-      updateMsg.value = t('settings.update.sw.insecure')
-      updating.value = false
-      return
-    }
-    let reg: ServiceWorkerRegistration
-    try {
-      reg = await navigator.serviceWorker.ready
-    } catch {
-      updateMsg.value = t('settings.update.sw.notReg')
-      updating.value = false
-      return
-    }
-    try {
-      updateProgress.value = 30
-      const regAny = reg as ServiceWorkerRegistration & { updateWithValidation?: () => Promise<void> }
-      await (regAny.updateWithValidation ? regAny.updateWithValidation().catch(() => reg.update()) : reg.update())
-
-      const target: ServiceWorker | null = reg.waiting ?? reg.installing
-      if (target && reg.active !== target) {
-        updateProgress.value = 60
-        updateMsg.value = t('settings.update.downloading')
-        await new Promise<void>(resolve => {
-          if (target.state === 'installed') {
-            resolve()
-            return
-          }
-          const onState = () => {
-            if (target.state === 'installed' || target.state === 'activated') {
-              target.removeEventListener('statechange', onState)
-              resolve()
-            }
-          }
-          target.addEventListener('statechange', onState)
-          // 超时兜底也要摘掉监听：否则 worker 晚到时回调仍挂在旧对象上
-          setTimeout(() => {
-            target.removeEventListener('statechange', onState)
-            resolve()
-          }, 5000)
-        })
-        updateProgress.value = 70
-        updateMsg.value = t('settings.update.applying')
-        target.postMessage({ type: 'SKIP_WAITING' })
-        await new Promise<void>(resolve => {
-          target.addEventListener('statechange', () => {
-            if (target.state === 'activated') resolve()
-          }, { once: true })
-          setTimeout(() => resolve(), 3000)
-        })
-        updateProgress.value = 100
-        updateMsg.value = t('settings.update.reloading')
-        updating.value = false
-        updateAvailable.value = false
-        setTimeout(() => location.reload(), 400)
-        return
-      }
-
-      updateProgress.value = 100
-      updateMsg.value = t('settings.update.upToDate')
-      updating.value = false
-      setTimeout(() => {
-        updateMsg.value = ''
-        updateProgress.value = null
-      }, 1500)
-    } catch {
-      updateMsg.value = t('settings.update.fetchFail')
-      toast(t('settings.update.fail'))
-      updating.value = false
+      const has = await checkForUpdate(true)
+      if (has) return // 有新版：全局 UpdateNotice 弹窗自动出现
+      const latest = updateState.value.latest
+      toast(latest && latest !== RUNNING_VERSION
+        ? t('settings.update.ignoredTip')
+        : t('settings.update.latest', { n: formatBuild(RUNNING_VERSION) }))
+    } finally {
+      checkingUpdate.value = false
     }
   }
 
-  function closeUpdate () {
-    if (updating.value) return // 正在刷新中不允许关闭
-    updateDialog.value = false
-    updateMsg.value = ''
-    updateProgress.value = null
+  /** 打开「关于」时顺手刷新版本元数据（不弹更新窗，避免打断） */
+  function openAbout () {
+    aboutDialog.value = true
+    void checkForUpdate(false)
   }
 
   /* ---------- 关于 ---------- */
-  /** 打开「更新系统」弹窗即重新比对版本（拉最新 version.json），让 hasUpdate / 按钮文案
-   *  反映服务端最新情况：刚发版时打开就能看到「立即更新」按钮，不会停在上次过期的值。
-   *  只做比对、不自动下载，实际更新仍由「立即更新」按钮触发（避免打开设置页就自动刷新）。 */
-  async function openUpdate () {
-    updateDialog.value = true
-    updateMsg.value = t('settings.update.checking')
-    const need = await checkVersion()
-    updateAvailable.value = need
-    if (updating.value) return
-    updateMsg.value = need ? t('settings.update.found') : t('settings.update.latest', { n: latestVersion.value })
-  }
-
   const aboutDialog = ref(false)
+  const serverOrigin = location.origin
   const uaShort = navigator.userAgent
 
   /* ---------- 退出登录 ---------- */
@@ -1421,4 +1279,64 @@ html[data-dm-mode='dark'] .wx-lang-btn {
   color: #f5f5f5;
 }
 html[data-dm-mode='dark'] .wx-lang-btn:hover { background: rgba(255, 255, 255, 0.18); }
+
+/* ---------- 关于弹窗：品牌区 / 信息行 / GitHub 链接 ---------- */
+.wx-about-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.wx-about-logo {
+  width: 44px;
+  height: 44px;
+  border-radius: 11px;
+  flex: 0 0 auto;
+}
+
+.wx-about-rows {
+  background: rgba(0, 0, 0, 0.035);
+  border-radius: 10px;
+  padding: 6px 12px;
+}
+
+html[data-dm-mode='dark'] .wx-about-rows { background: rgba(255, 255, 255, 0.07); }
+
+.wx-about-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  line-height: 26px;
+}
+
+.wx-about-val {
+  text-align: right;
+  word-break: break-all;
+  font-weight: 500;
+}
+
+.wx-about-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.wx-about-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  text-decoration: none;
+  color: rgb(var(--v-theme-primary));
+  background: rgba(var(--v-theme-primary), 0.08);
+}
+
+.wx-about-link:hover { background: rgba(var(--v-theme-primary), 0.16); }
+
+.min-width-0 { min-width: 0; }
 </style>

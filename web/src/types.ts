@@ -1,4 +1,23 @@
-export type MessageType = 'text' | 'image' | 'voice' | 'file' | 'sticker' | 'quote' | 'system' | 'pat' | 'poll' | 'forward'
+export type MessageType = 'text' | 'image' | 'voice' | 'file' | 'sticker' | 'quote' | 'system' | 'pat' | 'poll' | 'forward' | 'solitaire'
+
+/** 群接龙条目（服务端 SolitaireEntry 镜像）。 */
+export interface SolitaireEntry {
+  userId: string
+  nickname: string
+  note: string
+  at: string
+}
+
+/** 群接龙（服务端 Solitaire 镜像；entries 顺序即接龙编号）。 */
+export interface Solitaire {
+  id: string
+  title: string
+  note: string
+  createdBy: string
+  createdAt: string
+  closed: boolean
+  entries: SolitaireEntry[]
+}
 
 /** 群投票（服务端 Poll 模型镜像；options[].userIds 为投票人 id 列表）。 */
 export interface Poll {

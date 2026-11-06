@@ -50,8 +50,10 @@ function offlinePage () {
 }
 
 self.addEventListener('install', event => {
+  // 只安装、不抢班：新 SW 停在 waiting，等客户端点「立即更新」发 SKIP_WAITING。
+  // （install 里直接 skipWaiting 会与旧页面同时存在，造成新旧资源混用）
   event.waitUntil(
-    caches.open(CACHE).then(cache => cache.addAll(PRECACHE)).then(() => self.skipWaiting()),
+    caches.open(CACHE).then(cache => cache.addAll(PRECACHE)),
   )
 })
 

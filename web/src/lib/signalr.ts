@@ -1,4 +1,4 @@
-import type { Message, Poll } from '@/types'
+import type { Message, Poll, Solitaire } from '@/types'
 /**
  * lib/signalr.ts
  *
@@ -30,6 +30,8 @@ export interface ChatHubEvents {
   onTyping?: (conversationId: string, userId: string, at: string) => void
   /** 群投票有变化（有人投票/被截止）：打开的投票卡片实时刷新。 */
   onPollUpdated?: (conversationId: string, poll: Poll) => void
+  /** 群接龙有变化（有人接龙/取消/截止）：打开的接龙卡片实时刷新。 */
+  onSolitaireUpdated?: (conversationId: string, solitaire: Solitaire) => void
   /** 收到好友申请（实时推送）：接收端立刻刷新「新的朋友」并提示，不再等手动刷新。 */
   onFriendRequested?: (payload: { id: string, from: { id: string, nickname: string }, message: string }) => void
   /** 本设备被踢（登录设备管理）：立即清凭据并回登录页。 */
@@ -62,6 +64,7 @@ function build (events: ChatHubEvents): HubConnection {
   conn.on('NoticeUpdated', (groupId, payload) => events.onNoticeUpdated(groupId, payload))
   conn.on('Typing', (conversationId, userId, at) => events.onTyping?.(conversationId, userId, at))
   conn.on('PollUpdated', (conversationId, poll) => events.onPollUpdated?.(conversationId, poll as Poll))
+  conn.on('SolitaireUpdated', (conversationId, solitaire) => events.onSolitaireUpdated?.(conversationId, solitaire as Solitaire))
   conn.on('FriendRequested', payload => events.onFriendRequested?.(payload as { id: string, from: { id: string, nickname: string }, message: string }))
   conn.on('ForceLogout', sid => events.onForceLogout?.(String(sid ?? '')))
   conn.on('AccountSecurity', payload => events.onAccountSecurity?.(payload as { type: string, device?: string, ip?: string, email?: string, time?: string }))

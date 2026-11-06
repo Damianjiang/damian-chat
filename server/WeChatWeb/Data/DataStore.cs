@@ -52,7 +52,7 @@ public sealed class OnlineUser
 }
 
 /// <summary>
-/// 群限制：包装可热更新的 GroupConfig（data/group-config.json），
+/// 群限制：包装可热更新的 GroupConfig（Data/config/group-config.json），
 /// 暴露 AdminController 需要的只读属性 + Apply。
 /// </summary>
 public sealed class GroupLimits
@@ -64,6 +64,9 @@ public sealed class GroupLimits
 
     public void Apply (int? maxMembers, int? maxAdmins, int? maxSelectOnCreate)
         => _cfg.Apply(maxMembers, maxAdmins, maxSelectOnCreate);
+
+    /// <summary>配置热加载：文件被 GUI/管理员改动后原地生效，无需重启服务。</summary>
+    public bool Reload () => _cfg.Reload();
 }
 
 /// <summary>

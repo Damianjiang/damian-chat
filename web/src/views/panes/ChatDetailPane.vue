@@ -260,6 +260,7 @@
       @send="onSend"
       @typing="onSelfTyping"
       @poll="openPollDialog"
+      @solitaire="openSolitaireDialog"
     />
 
     <!-- 发起群投票（微信式：标题 + 选项，单选/多选）。
@@ -305,6 +306,38 @@
           <v-spacer />
           <v-btn variant="text" @click="pollDialog = false">{{ t('common.cancel') }}</v-btn>
           <v-btn color="primary" :disabled="!pollValid" :loading="pollCreating" @click="createPoll">{{ t('common.confirm') }}</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- 发起群接龙（报名/报数）：标题 + 可选说明，创建后以卡片消息进聊天流 -->
+    <v-dialog v-model="solitaireDialog" max-width="380">
+      <v-card>
+        <v-card-title class="text-body-large">{{ t('solitaire.create') }}</v-card-title>
+        <v-card-text>
+          <v-text-field
+            v-model="solitaireTitle"
+            autofocus
+            density="compact"
+            :label="t('solitaire.title.ph')"
+            :placeholder="t('solitaire.title.ph')"
+            variant="outlined"
+          />
+          <v-textarea
+            v-model="solitaireNote"
+            auto-grow
+            density="compact"
+            :label="t('solitaire.note.optional')"
+            :placeholder="t('solitaire.note.optional.ph')"
+            rows="2"
+            variant="outlined"
+          />
+          <div class="text-body-small text-medium-emphasis mt-1">{{ t('solitaire.createHint') }}</div>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="solitaireDialog = false">{{ t('common.cancel') }}</v-btn>
+          <v-btn color="primary" :disabled="!solitaireValid" :loading="solitaireCreating" @click="createSolitaire">{{ t('common.confirm') }}</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -368,6 +401,7 @@
   import { useContactsStore } from '@/stores/contacts'
   import { useConversationsStore } from '@/stores/conversations'
   import { usePollsStore } from '@/stores/polls'
+  import { useSolitairesStore } from '@/stores/solitaires'
 
   const route = useRoute()
   const router = useRouter()
@@ -752,6 +786,56 @@
     }
   }
 
+  /* ---------- 群接龙（微信式）：标题 + 说明，创建后以卡片消息进聊天流 ---------- */
+  const solitaireDialog = ref(false)
+  const solitaireTitle = ref('')
+  const solitaireNote = ref('')
+  const solitaireCreating = ref(false)
+  const solitaireValid = computed(() => solitaireTitle.value.trim().length > 0)
+
+  function openSolitaireDialog () {
+    solitaireTitle.value = ''
+    solitaireNote.value = ''
+    solitaireDialog.value = true
+  }
+
+  async function createSolitaire () {
+    if (!solitaireValid.value || !isGroup.value || solitaireCreating.value) return
+    solitaireCreating.value = true
+    try {
+      const res = await api.post(`/groups/${convId.value}/solitaires`, {
+        title: solitaireTitle.value.trim(),
+        note: solitaireNote.value.trim(),
+      })
+      solitaireDialog.value = false
+      let s = session.value
+      if (!s) {
+        s = {
+          id: convId.value,
+          kind: 'group',
+          title: title.value,
+          avatar: '',
+          memberId: convId.value,
+          unread: 0,
+          pinned: false,
+          muted: false,
+        } as Conversation
+      }
+      store.send(s, { type: 'solitaire', content: res.data.id } as Partial<Message>).catch((err: any) => {
+        snackMsg.value = err?.response?.data?.error ?? t('msg.send.failed')
+        snack.value = true
+      })
+      useSolitairesStore().load(convId.value)
+      snackMsg.value = t('solitaire.created')
+      snack.value = true
+    } catch (error: any) {
+      snackMsg.value = error?.response?.data?.error ?? t('solitaire.fail')
+      snack.value = true
+    } finally {
+      solitaireCreating.value = false
+    }
+  }
+
   function onSend (payload: Record<string, any>) {
     // ★ 关键修复：从「通讯录」点进新会话时，该会话刚由服务端 ensure 创建，尚未同步进
     //   store.sessions（loadSessions 还没跑完 / 或新开的页没拉），此时 session 为 null，
@@ -959,9 +1043,9 @@
   const viewerOpen = ref(false)
   const viewerBundle = ref<ForwardBundle | null>(null)
 
-  /** 投票卡片不可转发（pollId 只在原群有效）；拍一拍/系统消息进不了打包 */
+  /** 投票 / 接龙卡片不可转发（id 只在原群有效）；拍一拍/系统消息进不了打包 */
   function forwardable (m: Message) {
-    return m.type !== 'poll' && m.type !== 'pat' && m.type !== 'system'
+    return m.type !== 'poll' && m.type !== 'solitaire' && m.type !== 'pat' && m.type !== 'system'
   }
 
   /** 多选栏入口：multi-one = 每个目标各收逐条消息；merged = 打包成一张「聊天记录」卡片。
@@ -985,9 +1069,9 @@
     forwardOpen.value = true
   }
 
-  /** 单条消息的转发载荷（quote 降级为纯文本；投票/系统返回 null 不可转） */
+  /** 单条消息的转发载荷（quote 降级为纯文本；投票/接龙/系统返回 null 不可转） */
   function forwardPayload (m: Message): Partial<Message> | null {
-    if (m.type === 'poll' || m.type === 'system') return null
+    if (m.type === 'poll' || m.type === 'solitaire' || m.type === 'system') return null
     if (m.type === 'forward') return { type: 'forward', content: '[聊天记录]', forwardJson: m.forwardJson }
     if (m.type === 'quote' || m.type === 'text') return { type: 'text', content: m.content }
     const payload: Partial<Message> = { type: m.type }
@@ -1377,8 +1461,11 @@
     // ★ 先同步会话列表（从通讯录进来的新会话可能本地还没有）再加载历史/群信息
     await store.loadSessions().catch(() => {})
     await Promise.all([loadGroup(), loadNames()])
-    // 群聊：拉取投票列表（投票卡片数据源；后续靠 PollUpdated 实时刷新）
-    if (isGroup.value) usePollsStore().load(convId.value)
+    // 群聊：拉取投票 / 接龙列表（卡片数据源；后续靠 PollUpdated / SolitaireUpdated 实时刷新）
+    if (isGroup.value) {
+      usePollsStore().load(convId.value)
+      useSolitairesStore().load(convId.value)
+    }
     try {
       await store.openConversation(convId.value)
     } finally {

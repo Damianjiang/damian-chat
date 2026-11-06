@@ -1258,4 +1258,133 @@ public class GroupsController : ControllerBase
         await ChatHub.BroadcastPoll(_hub, _store, id, poll);
         return Ok(poll);
     }
+
+    /* ---------------- 群接龙（微信式报数/报名） ---------------- */
+
+    public record CreateSolitaireRequest(string Title, string? Note);
+    public record SolitaireJoinRequest(string? Note);
+
+    /// <summary>发起接龙：标题 + 可选说明。仅群成员；每条接龙随群持久化。</summary>
+    [HttpPost("groups/{id}/solitaires")]
+    public IActionResult CreateSolitaire(string id, [FromBody] CreateSolitaireRequest req)
+    {
+        var me = HttpContext.GetUserId();
+        var title = Validate.Clean(req.Title, 60) ?? "";
+        var note = Validate.Clean(req.Note, 200) ?? "";
+        if (string.IsNullOrWhiteSpace(title))
+            return BadRequest(new { error = "接龙需要一个标题" });
+
+        Solitaire solitaire;
+        lock (_store)
+        {
+            if (!_store.Groups.TryGetValue(id, out var g) || !g.Members.Any(m => m.UserId == me))
+                return NotFound(new { error = "群不存在或你不是群成员" });
+            // 防刷：每群最多 200 条接龙（每条随群落盘，无限追加会撑大 store.json）
+            if (g.Solitaires.Count >= 200)
+                return BadRequest(new { error = "本群接龙已达上限（200 条），请先删除旧接龙" });
+            solitaire = new Solitaire
+            {
+                Title = title,
+                Note = note,
+                CreatedBy = me,
+            };
+            g.Solitaires.Add(solitaire);
+            _store.MarkDirty();
+        }
+        return Ok(solitaire);
+    }
+
+    /// <summary>群内接龙列表（进聊天页拉一次 + SolitaireUpdated 实时刷新）。</summary>
+    [HttpGet("groups/{id}/solitaires")]
+    public IActionResult Solitaires(string id)
+    {
+        var me = HttpContext.GetUserId();
+        lock (_store)
+        {
+            if (!_store.Groups.TryGetValue(id, out var g) || !g.Members.Any(m => m.UserId == me))
+                return NotFound(new { error = "群不存在或你不是群成员" });
+            return Ok(g.Solitaires);
+        }
+    }
+
+    /// <summary>参与接龙（同一人重复提交 = 更新备注，不重复占号）。返回最新接龙并全员广播。</summary>
+    [HttpPost("groups/{id}/solitaires/{solitaireId}/join")]
+    public async Task<IActionResult> JoinSolitaire(string id, string solitaireId, [FromBody] SolitaireJoinRequest req)
+    {
+        var me = HttpContext.GetUserId();
+        Solitaire solitaire;
+        lock (_store)
+        {
+            if (!_store.Groups.TryGetValue(id, out var g) || !g.Members.Any(m => m.UserId == me))
+                return NotFound(new { error = "群不存在或你不是群成员" });
+            solitaire = g.Solitaires.FirstOrDefault(s => s.Id == solitaireId);
+            if (solitaire == null) return NotFound(new { error = "接龙不存在" });
+            if (solitaire.Closed) return BadRequest(new { error = "接龙已截止" });
+
+            var note = Validate.Clean(req.Note, 80) ?? "";
+            var mine = solitaire.Entries.FirstOrDefault(e => e.UserId == me);
+            if (mine != null)
+            {
+                mine.Note = note;
+                mine.Nickname = NicknameOf(me);
+                mine.At = DateTime.UtcNow;
+            }
+            else
+            {
+                if (solitaire.Entries.Count >= 1000)
+                    return BadRequest(new { error = "接龙人数已达上限（1000 人）" });
+                solitaire.Entries.Add(new SolitaireEntry
+                {
+                    UserId = me,
+                    Nickname = NicknameOf(me),
+                    Note = note,
+                });
+            }
+            _store.MarkDirty();
+        }
+        await ChatHub.BroadcastSolitaire(_hub, _store, id, solitaire);
+        return Ok(solitaire);
+    }
+
+    /// <summary>取消自己的接龙（编号会重新排，保持连续）。</summary>
+    [HttpPost("groups/{id}/solitaires/{solitaireId}/leave")]
+    public async Task<IActionResult> LeaveSolitaire(string id, string solitaireId)
+    {
+        var me = HttpContext.GetUserId();
+        Solitaire solitaire;
+        lock (_store)
+        {
+            if (!_store.Groups.TryGetValue(id, out var g) || !g.Members.Any(m => m.UserId == me))
+                return NotFound(new { error = "群不存在或你不是群成员" });
+            solitaire = g.Solitaires.FirstOrDefault(s => s.Id == solitaireId);
+            if (solitaire == null) return NotFound(new { error = "接龙不存在" });
+            if (solitaire.Closed) return BadRequest(new { error = "接龙已截止" });
+            solitaire.Entries.RemoveAll(e => e.UserId == me);
+            _store.MarkDirty();
+        }
+        await ChatHub.BroadcastSolitaire(_hub, _store, id, solitaire);
+        return Ok(solitaire);
+    }
+
+    /// <summary>截止接龙：发起人、群主或管理员。截止后只读。</summary>
+    [HttpPost("groups/{id}/solitaires/{solitaireId}/close")]
+    public async Task<IActionResult> CloseSolitaire(string id, string solitaireId)
+    {
+        var me = HttpContext.GetUserId();
+        Solitaire solitaire;
+        lock (_store)
+        {
+            if (!_store.Groups.TryGetValue(id, out var g) || !g.Members.Any(m => m.UserId == me))
+                return NotFound(new { error = "群不存在或你不是群成员" });
+            solitaire = g.Solitaires.FirstOrDefault(s => s.Id == solitaireId);
+            if (solitaire == null) return NotFound(new { error = "接龙不存在" });
+            var member = g.Members.FirstOrDefault(m => m.UserId == me);
+            var canClose = solitaire.CreatedBy == me || g.OwnerId == me || member?.Role == "admin";
+            if (!canClose) return Forbid();
+            solitaire.Closed = true;
+            _store.MarkDirty();
+        }
+        await ChatHub.BroadcastSolitaire(_hub, _store, id, solitaire);
+        return Ok(solitaire);
+    }
 }

@@ -3,7 +3,9 @@ using System.Text.Json;
 namespace WeChatWeb.Services;
 
 /// <summary>
-/// 群聊限制配置（落盘 data/group-config.json，管理端 GUI 可改，运行中即时生效）。
+/// 群聊限制配置（落盘 Data/config/group-config.json，管理端 GUI 可改，运行中即时生效）。
+///
+/// ★ 路径与安全配置一起搬出源码目录：部署覆盖源码时不会再把这些限制值盖回默认值。
 /// </summary>
 public sealed class GroupConfig
 {
@@ -18,8 +20,10 @@ public sealed class GroupConfig
 
     private static readonly JsonSerializerOptions Opts = new() { WriteIndented = true };
 
-    public static string FilePath =>
-        Path.Combine(Directory.GetCurrentDirectory(), "data", "group-config.json");
+    public static string FilePath => ConfigPaths.File("group-config.json");
+
+    /// <summary>旧位置（Data/group-config.json）：仅用于首次启动迁移。</summary>
+    private static string LegacyFilePath => Path.Combine(Directory.GetCurrentDirectory(), "data", "group-config.json");
 
     private readonly object _gate = new();
 
@@ -45,14 +49,24 @@ public sealed class GroupConfig
     {
         try
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
-            File.WriteAllText(FilePath, JsonSerializer.Serialize(Clone(), Opts));
+            var dir = Path.GetDirectoryName(FilePath);
+            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+            lock (_gate)
+            {
+                var snapshot = new GroupConfig { MaxMembers = MaxMembers, MaxAdmins = MaxAdmins, MaxSelectOnCreate = MaxSelectOnCreate };
+                File.WriteAllText(FilePath, JsonSerializer.Serialize(snapshot, Opts));
+            }
+            SensitiveFile.RestrictToOwner(FilePath);
         }
-        catch { /* 只读环境：仅内存生效 */ }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[配置] 写入 {FilePath} 失败：{ex.GetType().Name}: {ex.Message}（仅内存生效）");
+        }
     }
 
     public static GroupConfig Load ()
     {
+        ConfigPaths.MigrateIfMissing(FilePath, LegacyFilePath);
         try
         {
             if (File.Exists(FilePath))
@@ -62,7 +76,7 @@ public sealed class GroupConfig
                 else
                 {
                     var c = JsonSerializer.Deserialize<GroupConfig>(raw);
-                    if (c != null) return c;
+                    if (c != null) return c.Normalized();
                 }
             }
         }
@@ -71,5 +85,38 @@ public sealed class GroupConfig
             Console.Error.WriteLine($"[GroupConfig] {FilePath} 解析失败，使用默认群配置：{ex.GetType().Name}: {ex.Message}");
         }
         return new GroupConfig();
+    }
+
+    /// <summary>从磁盘重新读取并**原地**更新（群限制热加载）。返回 true = 已应用。</summary>
+    public bool Reload ()
+    {
+        try
+        {
+            if (!File.Exists(FilePath)) return false;
+            if (!SensitiveFile.TryReadAllText(FilePath, out var raw)) return false;
+            var c = JsonSerializer.Deserialize<GroupConfig>(raw);
+            if (c == null) return false;
+            c = c.Normalized();
+            lock (_gate)
+            {
+                MaxMembers = c.MaxMembers;
+                MaxAdmins = c.MaxAdmins;
+                MaxSelectOnCreate = c.MaxSelectOnCreate;
+            }
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[GroupConfig] 热加载失败（保留当前值）：{ex.GetType().Name}: {ex.Message}");
+            return false;
+        }
+    }
+
+    private GroupConfig Normalized ()
+    {
+        MaxMembers = Math.Clamp(MaxMembers, 2, 1000);
+        MaxAdmins = Math.Clamp(MaxAdmins, 0, Math.Max(0, MaxMembers - 1));
+        MaxSelectOnCreate = Math.Clamp(MaxSelectOnCreate, 2, Math.Max(2, MaxMembers - 1));
+        return this;
     }
 }

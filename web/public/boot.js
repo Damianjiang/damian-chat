@@ -25,55 +25,25 @@
   }
 })()
 
-/* ---------- ①⁺ UI 版本自愈哨兵（关键！解决"电脑版点不动"的旧缓存死锁） ----------
+/* ---------- ①⁺ 只暴露服务端版本号，更新交给 lib/updater ----------
  *
- * 背景：电脑版卡死是因为 Service Worker 装着旧版，一直喂「旧 JS」；旧 JS 里有一个
- * 永远打开、无法关闭的全屏弹窗 → Vuetify 给整页加了 inert → 所有按钮/输入框全点不动。
- * 而"自动刷新"代码只在新 JS 里，旧 JS 没有 → 旧页面永远不会自我更新（死锁）。
- *
- * boot.js 是每次加载都强制走网络的经典脚本（SW 的 fetch 对它走 network-first，
- * 不缓存命中），所以无论当前跑的是哪一版 JS，本页加载时执行的都是「最新」boot.js。
- * 因此把自愈放在这里：只要服务器发过新版（version.json 变了），就把旧 SW 注销、
- * 清掉所有 UI 缓存、强制整站重载一次，让所有端（PC/手机）一步到位换血。
- * 只做一次：换血后 localStorage 里记下最新 version，后续不再重复刷新。 */
+ * 旧版这里会在检测到 version.json 变化时「注销 SW + 清空 wxui- 缓存 + 强制刷新」。
+ * 实测副作用很大：页面刚打开就被强制重载、用户点「忽略」也会被拉回刷新、
+ * 而且和 SW 的 skipWaiting 抢班叠加，容易出现「刷新后还是旧版 / 白屏」。
+ * 现在这里只做一件事：把服务端版本号放到 window，供 App 弹「发现新版本」用；
+ * 是否更新、何时更新由用户决定（lib/updater + UpdateNotice 组件）。 */
 ;(function () {
   try {
-    if (typeof fetch !== 'function' || !navigator.onLine) return // 离线时不折腾
+    if (typeof fetch !== 'function' || !navigator.onLine) return
     fetch('/version.json', { cache: 'no-store' })
       .then(function (r) { return r.ok ? r.json() : null })
       .then(function (v) {
-        var ver = v && v.version
-        if (!ver) return
-        var stored = null
-        try { stored = localStorage.getItem('wx_ui_gen') } catch (e) {}
-        if (stored !== ver) {
-          // 有新 UI 版本：彻底注销旧 SW + 清缓存，再强制重载拿到新 JS
-          var doReset = function () {
-            try { localStorage.setItem('wx_ui_gen', ver) } catch (e) {}
-            location.replace('/')
-          }
-          var swReady = Promise.resolve()
-          if ('serviceWorker' in navigator) {
-            swReady = navigator.serviceWorker.getRegistrations().then(function (rs) {
-              return Promise.all(rs.map(function (r) { return r.unregister() }))
-            })
-          }
-          var cacheReady = 'caches' in window
-            ? caches.keys().then(function (ks) {
-                // 只清本应用自己命名的 UI 缓存（wxui- 前缀），绝不触碰其它数据。
-                // （聊天记录/文件在 IndexedDB「wx_cache」，登录态在 localStorage，均不受影响）
-                return Promise.all(ks.filter(function (k) { return k.indexOf('wxui-') === 0 }).map(function (k) { return caches.delete(k) }))
-              })
-            : Promise.resolve()
-          Promise.all([swReady, cacheReady]).then(doReset)
-        } else {
-          // 已是最新：确保哨兵值在（首访时存下）
-          try { if (stored === null) localStorage.setItem('wx_ui_gen', ver) } catch (e) {}
-        }
+        if (v && v.version) window.__wxServerVersion = String(v.version)
       })
-      .catch(function () { /* 拿不到 version.json（离线/旧后端）不干预，保持现状 */ })
-  } catch (e) { /* 哨兵失败绝不影响正常加载 */ }
+      .catch(function () { /* 拿不到（离线/旧后端）不干预 */ })
+  } catch (e) { /* 失败绝不影响正常加载 */ }
 })()
+
 
 /* ---------- ② 按钮（外部监听，替代被 CSP 拦截的 onclick=） ---------- */
 function wxBrowserConfirmed () {

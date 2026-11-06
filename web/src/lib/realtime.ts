@@ -7,6 +7,7 @@ import { createChatConnection, stopChatConnection } from '@/lib/signalr'
 import { useAuthStore } from '@/stores/auth'
 import { useConversationsStore } from '@/stores/conversations'
 import { usePollsStore } from '@/stores/polls'
+import { useSolitairesStore } from '@/stores/solitaires'
 import { useContactsStore } from '@/stores/contacts'
 import { clearTokens } from '@/lib/api'
 import { showSecurityAlert } from '@/lib/securityAlert'
@@ -58,6 +59,10 @@ export function initRealtime () {
     onPollUpdated: (conversationId, poll) => {
       // 群投票有变化（他人投票/截止）：打开的投票卡片实时刷新
       usePollsStore().applyUpdated(conversationId, poll)
+    },
+    onSolitaireUpdated: (conversationId, solitaire) => {
+      // 群接龙有变化（他人接龙/取消/截止）：打开的接龙卡片实时刷新
+      useSolitairesStore().applyUpdated(conversationId, solitaire)
     },
     onFriendRequested: payload => {
       // 收到好友申请：立刻刷新「新的朋友」列表（原来只能手动刷新/重进页面才能看到）

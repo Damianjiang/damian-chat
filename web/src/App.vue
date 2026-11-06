@@ -57,6 +57,9 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <!-- 全局「发现新版本」：打开 webapp 即检测服务端构建，更新/稍后/忽略 -->
+    <update-notice />
   </v-app>
 </template>
 
@@ -64,6 +67,7 @@
   import { onMounted, ref } from 'vue'
   import { useRouter } from 'vue-router'
   import BrowserGate from '@/components/BrowserGate.vue'
+  import UpdateNotice from '@/components/UpdateNotice.vue'
   import { confirmState, resolveConfirm } from '@/lib/confirm'
   import { clearTokens, getAccessToken } from '@/lib/api'
   import { dismissSecurityAlert, securityAlertState } from '@/lib/securityAlert'

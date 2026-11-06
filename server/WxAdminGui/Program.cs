@@ -33,9 +33,40 @@ internal static class G
     public static string WebDll { get; } = Path.Combine(WebProject, "bin", "Debug", "net8.0", "WeChatWeb.dll");
     public static string ConfigFile { get; } = Path.Combine(WxAdminDir, "wxadmin.json");
     public static string PidFile { get; } = Path.Combine(WxAdminDir, ".server.pid");
-    public static string SecurityFile { get; } = Path.Combine(WebProject, "security.json");
+    /// <summary>
+    /// 运行期配置目录 = 服务端 Data/config（与 security.json / group-config.json / files-config.json 同处）。
+    /// ★ 绝不能再用 WebProject 根目录的 security.json：部署覆盖源码时会把管理员改过的
+    ///   注册密码/限速整组盖回去（真实事故），所以配置统一搬到不进 git、不参与发布的 Data 区。
+    /// </summary>
+    public static string ConfigDir { get; } = Path.Combine(WebProject, "Data", "config");
+    public static string SecurityFile { get; } = Path.Combine(ConfigDir, "security.json");
+    public static string GroupConfigFile { get; } = Path.Combine(ConfigDir, "group-config.json");
+    public static string FilesConfigFile { get; } = Path.Combine(ConfigDir, "files-config.json");
+    /// <summary>旧版本位置：仅迁移用（源码根 security.json / data 下的两份配置）。</summary>
+    public static string LegacySecurityFile { get; } = Path.Combine(WebProject, "security.json");
+    public static string LegacyGroupConfigFile { get; } = Path.Combine(WebProject, "data", "group-config.json");
+    public static string LegacyFilesConfigFile { get; } = Path.Combine(WebProject, "data", "files-config.json");
     public static string LogDir { get; } = Path.Combine(WebProject, "logs");
     public static string ConsoleLogFile { get; } = Path.Combine(LogDir, "console.log");
+
+    /// <summary>确保配置目录存在，并把旧位置的文件迁移过来（目标已存在时绝不覆盖）。</summary>
+    public static void EnsureConfigMigrated ()
+    {
+        try { Directory.CreateDirectory(ConfigDir); } catch { /* 只读环境：下面写入会失败并提示 */ }
+        Migrate(LegacySecurityFile, SecurityFile);
+        Migrate(LegacyGroupConfigFile, GroupConfigFile);
+        Migrate(LegacyFilesConfigFile, FilesConfigFile);
+    }
+
+    private static void Migrate (string legacy, string target)
+    {
+        try
+        {
+            if (File.Exists(target) || !File.Exists(legacy)) return;
+            File.Copy(legacy, target, overwrite: false);
+        }
+        catch { /* 迁移失败不阻断 GUI：服务端启动时也会自行迁移一次 */ }
+    }
 
     public static HttpClient Http { get; } = new() { Timeout = TimeSpan.FromSeconds(5) };
 
@@ -127,7 +158,69 @@ internal sealed class SecurityCfg
         return new SecurityCfg();
     }
 
-    public void SaveFile() => File.WriteAllText(G.SecurityFile, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
+    public void SaveFile()
+    {
+        Directory.CreateDirectory(G.ConfigDir);
+        File.WriteAllText(G.SecurityFile, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
+    }
+}
+
+/// <summary>群限制（服务端 GroupConfig 镜像，落盘 Data/config/group-config.json）。</summary>
+internal sealed class GroupConfigFile
+{
+    public int MaxMembers { get; set; } = 100;
+    public int MaxAdmins { get; set; } = 5;
+    public int MaxSelectOnCreate { get; set; } = 99;
+
+    public static GroupConfigFile Load ()
+    {
+        try
+        {
+            if (File.Exists(G.GroupConfigFile))
+            {
+                var c = JsonSerializer.Deserialize<GroupConfigFile>(File.ReadAllText(G.GroupConfigFile));
+                if (c != null) return c;
+            }
+        }
+        catch { /* 损坏则默认 */ }
+        return new GroupConfigFile();
+    }
+
+    public void Save ()
+    {
+        Directory.CreateDirectory(G.ConfigDir);
+        File.WriteAllText(G.GroupConfigFile, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
+    }
+}
+
+/// <summary>文件存储限制（服务端 FileStorageConfig 镜像，落盘 Data/config/files-config.json）。</summary>
+internal sealed class FilesConfigFile
+{
+    public long MaxFileBytes { get; set; } = 1L * 1024 * 1024 * 1024;
+    public long MaxUploadBytesPerSecond { get; set; } = 10L * 1024 * 1024;
+    public int KeepDays { get; set; } = 7;
+    public long MaxUserBytes { get; set; } = 5L * 1024 * 1024 * 1024;
+    public long MaxTotalBytes { get; set; } = 100L * 1024 * 1024 * 1024;
+
+    public static FilesConfigFile Load ()
+    {
+        try
+        {
+            if (File.Exists(G.FilesConfigFile))
+            {
+                var c = JsonSerializer.Deserialize<FilesConfigFile>(File.ReadAllText(G.FilesConfigFile));
+                if (c != null) return c;
+            }
+        }
+        catch { /* 损坏则默认 */ }
+        return new FilesConfigFile();
+    }
+
+    public void Save ()
+    {
+        Directory.CreateDirectory(G.ConfigDir);
+        File.WriteAllText(G.FilesConfigFile, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
+    }
 }
 
 internal sealed class MainForm : Form
@@ -286,6 +379,9 @@ internal sealed class MainForm : Form
     {
         _startHidden = startHidden;
         Text = "大面聊天 · 图形管理端";
+
+        // 配置迁移要最早做：后续所有读写都指向 Data/config
+        G.EnsureConfigMigrated();
 
         Icon = SafeExeIcon();
 
@@ -534,7 +630,7 @@ internal sealed class MainForm : Form
         /* 安全 */
         var security = new TabPage("安全设置") { AutoScroll = true };
         _securityTab = security;
-        var secBox = new GroupBox { Text = "安全（运行中走管理 API 即时生效；停止时写 security.json）", Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(8) };
+        var secBox = new GroupBox { Text = "安全（直接写 Data/config/security.json，服务运行中 1~2 秒热加载生效）", Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(8) };
         // 窄窗口自适应：TopDown 流式布局 + AutoScroll，放不下的行出滚动条而不是被裁掉
         var secLayout = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new Padding(0), AutoScroll = true };
 
@@ -1822,13 +1918,10 @@ internal sealed class MainForm : Form
 
     private async Task LoadSecurityAsync()
     {
-        SecurityDto? s = null;
-        if (_running)
-        {
-            try { s = await GetJsonAsync<SecurityDto>("security"); }
-            catch { /* 退回文件 */ }
-        }
-        s ??= JsonSerializer.Deserialize<SecurityDto>(JsonSerializer.Serialize(SecurityCfg.LoadFile()));
+        // 始终读文件：文件是唯一事实来源（服务端 2 秒热加载同一份），
+        // 不再依赖管理 API —— 避免「API 读的是内存旧值 / 文件才是真配置」的两套状态。
+        await Task.CompletedTask;
+        var s = JsonSerializer.Deserialize<SecurityDto>(JsonSerializer.Serialize(SecurityCfg.LoadFile()));
 
         _txtRegKey.Text = s!.RegisterKey;
         _chkCaptcha.Checked = s.EnableCaptcha;
@@ -1851,7 +1944,7 @@ internal sealed class MainForm : Form
         _txtSmtpPass.PlaceholderText = s.hasPass == true ? "已设置（留空=不修改）" : "未设置";
         _txtSmtpFrom.Text = s.SmtpFrom;
         _chkSmtpSsl.Checked = s.SmtpSsl;
-        _lblSecHint.Text = _running ? "来源：管理 API（运行中，保存即时生效）" : "来源：security.json（服务停止，启动后生效）";
+        _lblSecHint.Text = $"来源：{G.SecurityFile}（直接改文件，服务运行中 1~2 秒自动生效）";
     }
 
     private sealed class LimitsDto
@@ -1866,31 +1959,36 @@ internal sealed class MainForm : Form
 
     private async Task LoadLimitsAsync()
     {
-        var s = await GetJsonAsync<LimitsDto>("limits");
-        if (s == null) return;
-        _nudMaxFileMb.Value = Math.Clamp((int)s.MaxFileMb, 1, 1024);
-        _nudSpeedMb.Value = Math.Clamp((int)s.UploadSpeedMb, 1, 200);
-        _nudKeepDays.Value = Math.Clamp(s.KeepDays, 1, 365);
-        _nudGroupMembers.Value = Math.Clamp(s.MaxGroupMembers, 2, 1000);
-        _nudGroupAdmins.Value = Math.Clamp(s.MaxGroupAdmins, 0, 50);
-        _lblLimitsHint.Text = "同内容文件自动去重（只存一份），超期文件每小时自动清理";
+        await Task.CompletedTask;
+        var f = FilesConfigFile.Load();
+        var g = GroupConfigFile.Load();
+        _nudMaxFileMb.Value = Math.Clamp((int)(f.MaxFileBytes / 1024 / 1024), 1, 1024);
+        _nudSpeedMb.Value = Math.Clamp((int)(f.MaxUploadBytesPerSecond / 1024 / 1024), 1, 200);
+        _nudKeepDays.Value = Math.Clamp(f.KeepDays, 1, 365);
+        _nudGroupMembers.Value = Math.Clamp(g.MaxMembers, 2, 1000);
+        _nudGroupAdmins.Value = Math.Clamp(g.MaxAdmins, 0, 50);
+        _lblLimitsHint.Text = $"来源：Data/config（group-config.json / files-config.json），保存后 1~2 秒自动生效；同内容文件自动去重，超期文件每小时清理";
     }
 
     private async Task SaveLimitsAsync()
     {
-        var payload = JsonSerializer.Serialize(new
-        {
-            maxFileMb = (long)_nudMaxFileMb.Value,
-            uploadSpeedMb = (long)_nudSpeedMb.Value,
-            keepDays = (int)_nudKeepDays.Value,
-            maxGroupMembers = (int)_nudGroupMembers.Value,
-            maxGroupAdmins = (int)_nudGroupAdmins.Value,
-            maxSelectOnCreate = Math.Max(2, (int)_nudGroupMembers.Value - 1),
-        });
-        using var req = ApiRequest(HttpMethod.Put, "limits", payload);
-        using var resp = await G.Http.SendAsync(req);
-        if (resp.IsSuccessStatusCode) await LoadLimitsAsync();
-        else _msg.Text = "保存失败：" + (int)resp.StatusCode;
+        // 直接写两份配置文件（服务端热加载），不走管理 API。
+        var f = FilesConfigFile.Load();
+        f.MaxFileBytes = Math.Clamp((long)_nudMaxFileMb.Value, 1, 1024) * 1024 * 1024;
+        f.MaxUploadBytesPerSecond = Math.Clamp((long)_nudSpeedMb.Value, 1, 200) * 1024 * 1024;
+        f.KeepDays = Math.Clamp((int)_nudKeepDays.Value, 1, 365);
+        f.Save();
+
+        var g = GroupConfigFile.Load();
+        g.MaxMembers = Math.Clamp((int)_nudGroupMembers.Value, 2, 1000);
+        g.MaxAdmins = Math.Clamp((int)_nudGroupAdmins.Value, 0, Math.Max(0, g.MaxMembers - 1));
+        g.MaxSelectOnCreate = Math.Max(2, g.MaxMembers - 1);
+        g.Save();
+
+        _msg.Text = _running
+            ? "限制已保存到 Data/config —— 1~2 秒内自动生效（无需重启）。"
+            : "限制已保存到 Data/config —— 服务启动后生效。";
+        await LoadLimitsAsync();
     }
 
     private async Task CleanupFilesAsync()
@@ -1952,20 +2050,12 @@ internal sealed class MainForm : Form
             SmtpSsl = _chkSmtpSsl.Checked,
         };
 
-        if (_running)
-        {
-            using var req = ApiRequest(HttpMethod.Put, "security", JsonSerializer.Serialize(s));
-            using var resp = await G.Http.SendAsync(req);
-            if (resp.IsSuccessStatusCode)
-            {
-                _msg.Text = "已通过管理 API 保存并即时生效。";
-                await LoadSecurityAsync();
-                return;
-            }
-            _msg.Text = $"管理 API 保存失败（{(int)resp.StatusCode}），改为写入文件。";
-        }
+        // 直接写文件（用户明确要求：不走管理 API）。服务端有配置热加载，
+        // 运行中 1~2 秒内自己读走新值并打印到控制台，不需要重启、也不需要 API 往返。
         JsonSerializer.Deserialize<SecurityCfg>(JsonSerializer.Serialize(s))!.SaveFile();
-        _msg.Text = $"已写入 {G.SecurityFile}" + (_running ? "" : "（重启后生效）。");
+        _msg.Text = _running
+            ? "已保存到 Data/config/security.json —— 服务运行中，1~2 秒内自动生效（无需重启）。"
+            : "已保存到 Data/config/security.json —— 服务启动后生效。";
         await LoadSecurityAsync();
     }
 
