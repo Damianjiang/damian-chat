@@ -803,18 +803,6 @@ html[data-dm-mode='dark'] body.wx-has-user-bg::after {
   transform: scale(0.9);
 }
 
-/* ===== 加载骨架：静态浅色底（不再做无限扫光动画，短暂出现不必动） ===== */
-.wx-skeleton {
-  border-radius: 6px;
-  background:
-    linear-gradient(
-      90deg,
-      rgb(var(--v-theme-on-surface), 0.05) 25%,
-      rgb(var(--v-theme-on-surface), 0.11) 37%,
-      rgb(var(--v-theme-on-surface), 0.05) 63%
-    );
-}
-
 /* ===== 用户偏好减少动态效果：关掉一切非必要动画 ===== */
 @media (prefers-reduced-motion: reduce) {
   .wx-rail-item .v-icon,

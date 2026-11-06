@@ -481,10 +481,6 @@
               <span class="wx-about-val">{{ formatBuild(currentBuildVersion) }}</span>
             </div>
             <div class="wx-about-row">
-              <span class="text-medium-emphasis">{{ t('about.serverAddr') }}</span>
-              <span class="wx-about-val">{{ serverOrigin }}</span>
-            </div>
-            <div class="wx-about-row">
               <span class="text-medium-emphasis">{{ t('about.device') }}</span>
               <span class="wx-about-val">{{ deviceLabel(deviceKind) }}</span>
             </div>
@@ -1015,7 +1011,7 @@
 
   /* ---------- 关于 ---------- */
   const aboutDialog = ref(false)
-  const serverOrigin = location.origin
+  // 不在界面上展示 location.origin：访问地址对用户没有价值，截图外传反而暴露部署信息
   const uaShort = navigator.userAgent
 
   /* ---------- 退出登录 ---------- */

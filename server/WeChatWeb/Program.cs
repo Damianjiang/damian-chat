@@ -2,6 +2,9 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
+using Microsoft.AspNetCore.Server.Kestrel.Https;
+using System.Net.Security;
+using System.Security.Cryptography.X509Certificates;
 using System.Threading.RateLimiting;
 using Microsoft.IdentityModel.Tokens;
 using WeChatWeb.Data;
@@ -49,6 +52,67 @@ var httpsEnabled = !string.IsNullOrWhiteSpace(httpsCert) && File.Exists(httpsCer
 // 未设置（手动裸跑服务端）时回退：实际绑定成功的第一个 TLS 端口，再退 443。
 int? httpsRedirectPort = int.TryParse(Environment.GetEnvironmentVariable("WX_HTTPS_REDIRECT_PORT"), out var redirectPort) && redirectPort > 0
     ? redirectPort : null;
+
+/*
+ * 证书自检（**只读诊断，不参与握手**）。
+ *
+ * 「装了根证书、浏览器仍报证书无效」的真实原因不在服务端，而在客户端信任库：
+ * Root 里同时存在多份 CN=tcraft（旧 CA + 新 CA）时，验证方会挑到旧的那张去验签，
+ * 必然失败。修法是保证 Root 里**只有当前这一份 CA**，旧的全部删掉。
+ * 浏览器（Chrome/Edge 走 Windows 存储）重启后即恢复正常，无需改握手逻辑。
+ *
+ * 这里只打印 PFX 内容，便于判断到底是「PFX 缺链」还是「客户端缺信任」：
+ *   - 站点 1 + CA 1 → PFX 没问题，问题在客户端信任库
+ *   - 站点 1 + CA 0 → GUI 导出的 PFX 丢了链，需要把 tcraft-ca.crt 一起打进去
+ *
+ * 反例（别再试）：.NET 8 的 Kestrel 没有接受 SslStreamCertificateContext 的 UseHttps 重载。
+ * 用 HttpsConnectionAdapterOptions.OnAuthenticate 覆盖 ServerCertificateContext 会让
+ * SChannel 在 ServerHello 之后直接断连（openssl 报 unexpected eof / no peer certificate），
+ * 实测不可用。另外 X509KeyStorageFlags.EphemeralKeySet 加载的私钥 SChannel 也取不到，同样断连。
+ */
+SslStreamCertificateContext? httpsCertContext = null;
+X509Certificate2? httpsLeaf = null;
+if (httpsEnabled)
+{
+    try
+    {
+        var bag = new X509Certificate2Collection();
+        // 必须用默认 KeySet：EphemeralKeySet 的私钥不落盘，Windows SChannel 取不到，
+        // 握手会在 ServerHello 之后直接断连（openssl 报 unexpected eof / no peer certificate）。
+        bag.Import(httpsCert!, httpsCertPass, X509KeyStorageFlags.DefaultKeySet);
+
+        var caOnly = new X509Certificate2Collection();
+        foreach (var c in bag)
+        {
+            if (c.HasPrivateKey) httpsLeaf = c;
+            else caOnly.Add(c);
+        }
+
+        // PFX 里只有站点证书时，补同目录的 CA（GUI 导出的 PFX 有时不带链）
+        if (caOnly.Count == 0)
+        {
+            var sibling = Path.Combine(Path.GetDirectoryName(httpsCert!) ?? ".", "tcraft-ca.crt");
+            if (File.Exists(sibling)) caOnly.Add(new X509Certificate2(sibling));
+        }
+
+        if (httpsLeaf is null)
+        {
+            Console.Error.WriteLine("[HTTPS] PFX 中没有带私钥的站点证书，服务将无法完成握手。");
+        }
+        else
+        {
+            httpsCertContext = SslStreamCertificateContext.Create(httpsLeaf, caOnly, offline: true);
+            Console.WriteLine($"[HTTPS] PFX 校验：站点证书 1 张 + CA {caOnly.Count} 张（签发者 {httpsLeaf.GetNameInfo(X509NameType.SimpleName, false)} 的上级）");
+            // 明确不用它做握手：见上方反例。保留引用仅为将来 .NET 版本提供重载时可直接切换。
+            _ = httpsCertContext;
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"[HTTPS] 证书读取失败（服务可能起不来）：{ex.Message}");
+
+    }
+}
 
 var httpsBound = false; // ConfigureKestrel 回调里置位；跳转中间件按请求时读取（回调在 host 构建时已执行）
 // 实际绑定成功的 TLS 端口（配置的端口可能被占用而跳过）—— 跳转中间件只跳到这里

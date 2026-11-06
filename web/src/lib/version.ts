@@ -5,4 +5,4 @@
  *   ・__BUILD_VERSION__ —— 机器读的时间戳指纹，构建即变，用于服务端 version.json 比对。
  * 发版时只改这一处，登录页与「关于」对话框自动同步。
  */
-export const APP_VERSION = '1.10.1'
+export const APP_VERSION = '1.10.2'

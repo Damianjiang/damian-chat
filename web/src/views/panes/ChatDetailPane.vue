@@ -176,10 +176,13 @@
         @click="loadEarlier"
       >{{ t('chat.load.earlier') }}</v-btn>
 
-      <!-- 打开会话时的加载骨架：此前首帧直接显示「暂无聊天记录」，等历史回来才换成消息，
-           中间那一下空态闪现看着像"数据丢了" -->
-      <div v-if="firstLoading" class="wx-loading-wrap">
-        <div v-for="i in 5" :key="i" class="wx-skeleton wx-skeleton-row" :style="{ width: `${[62, 48, 70, 55, 40][i - 1]}%`, alignSelf: i % 2 === 0 ? 'flex-end' : 'flex-start' }" />
+      <!-- 打开会话时的加载态：三个横排呼吸点（微信同款）。
+           曾经用 5 条骨架横杠竖着堆一列占位，观感就是"一竖条"，用户明确否掉；
+           这里固定为 row + nowrap 的单行三点，只做透明度呼吸，不做位移。 -->
+      <div v-if="firstLoading" class="wx-msg-loading">
+        <span class="wx-msg-loading-dot" />
+        <span class="wx-msg-loading-dot" />
+        <span class="wx-msg-loading-dot" />
       </div>
       <template v-else-if="groupedByDate.length > 0">
 
@@ -1609,15 +1612,40 @@
 }
 
 /* 首屏加载骨架：宽窄交替、左右错落，暗示"正在载入一批对话" */
-.wx-loading-wrap {
+/* 打开会话时的消息加载态：三个横排呼吸点。
+   显式写 row + nowrap，圆点用 display:block 固定尺寸、颜色写死，
+   不依赖主题变量（旧浏览器 rgb(var(--x), alpha) 解析失败会让点变形）。 */
+.wx-msg-loading {
   display: flex;
-  flex-direction: column;
-  gap: 14px;
-  padding: 18px;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 26px 0;
 }
 
-.wx-skeleton-row {
-  height: 38px;
+.wx-msg-loading-dot {
+  display: block;
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #9ba1a6;
+  opacity: 0.35;
+  animation: wx-msg-dot 1.1s ease-in-out infinite;
+}
+
+/* 本文件是纯 <style scoped>（无 lang="scss"），这里必须平铺写选择器：
+   用 & 嵌套会被编译成原生 CSS 嵌套语法，旧浏览器整条丢弃 → 圆点直接不显示。 */
+.wx-msg-loading-dot:nth-child(2) { animation-delay: 0.18s; }
+
+.wx-msg-loading-dot:nth-child(3) { animation-delay: 0.36s; }
+
+@keyframes wx-msg-dot {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
 }
 
 .wx-chat-bar {
