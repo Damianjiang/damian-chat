@@ -710,7 +710,8 @@
       snackMsg.value = t('group.avatar.tooBig'); snack.value = true; return
     }
     // 头像显示极小：上传前压到长边 640，相机原图不再全尺寸入库/传输
-    const upload = await compressImage(file, 640)
+    // 群头像同样 256 封顶（见 ProfilePane 同处注释：640 对头像来说纯属浪费带宽）
+    const upload = await compressImage(file, 256)
     if (avatarObjectUrl) { URL.revokeObjectURL(avatarObjectUrl); avatarObjectUrl = '' }
     avatarObjectUrl = URL.createObjectURL(upload)
     avatarPreview.value = avatarObjectUrl

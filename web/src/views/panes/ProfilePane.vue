@@ -388,7 +388,10 @@
     }
 
     // 头像显示极小（≤72px）：上传前压到长边 640，相机原图不再全尺寸入库/传输
-    const upload = await compressImage(file, 640)
+    // 头像最长边 256 足够：界面里最大也就 80px 显示，256 已是 3 倍高清。
+    // 之前用 640 —— 单张 40~80KB，一个会话列表几十个头像就是好几 MB，
+    // 首次进站/换设备时会明显拖慢（用户反馈"头像加载太慢"）。降到 256 后约 8~15KB。
+    const upload = await compressImage(file, 256)
     // 先清理上一份预览
     if (avatarObjectUrl) {
       URL.revokeObjectURL(avatarObjectUrl); avatarObjectUrl = ''

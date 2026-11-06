@@ -62,7 +62,42 @@ export function mediaCacheCount (): number {
  *  ③ 命中 IDB 直接离线可用；同文件只下载一次，长会话/反复渲染不再打服务端。
  */
 const pending = new Map<string, Promise<string>>()
-const MAX_HOT = 300 // 热层 objectURL 上限：长会话无界增长时按插入序淘汰并 revoke
+/**
+ * 热层 objectURL 上限。
+ *
+ * 取值远大于 IDB 的 MEDIA_MAX_COUNT(500) —— 正常情况下**永远不该触发淘汰**。
+ * 曾经的 300 是个严重 bug：第二次打开页面时 IDB 全量命中，会话列表 + 消息里的
+ * 头像/图片会在几百毫秒内并发创建几百个 objectURL，淘汰一启动就把**此刻正挂在
+ * <img src> 上**的那些 revoke 掉 → 整屏图片变成裂图（用户反馈的"第二次打开全破损"）。
+ * 现在把上限抬高，并按下面的方式安全淘汰。
+ */
+const MAX_HOT = 2000
+
+/**
+ * 下载并发闸门。
+ *
+ * 进会话列表/打开聊天时，几十个头像与图片会在同一帧里全部调用 fileUrl。
+ * 不加限制就是几十个请求一起冲，每个都要过服务端 JWT 校验 + 归属校验 + 磁盘读取，
+ * 互相挤占之后「每一个都很慢」。限到 6 个（与浏览器同源并发上限同量级）后，
+ * 排队反而让整体完成时间明显缩短，首屏头像也能更早陆续出现。
+ */
+const MAX_PARALLEL_FETCH = 6
+let activeFetch = 0
+const fetchWaiters: Array<() => void> = []
+
+function acquireFetchSlot (): Promise<void> {
+  if (activeFetch < MAX_PARALLEL_FETCH) {
+    activeFetch++
+    return Promise.resolve()
+  }
+  return new Promise<void>(resolve => fetchWaiters.push(resolve)).then(() => { activeFetch++ })
+}
+
+function releaseFetchSlot (): void {
+  activeFetch--
+  const next = fetchWaiters.shift()
+  if (next) next()
+}
 
 /** 取可访问地址（objectURL）；未命中/失败返回空串，调用方按无图处理。 */
 export async function fileUrl (id?: string | null): Promise<string> {
@@ -90,6 +125,8 @@ export async function fileUrl (id?: string | null): Promise<string> {
 
   const myEpoch = cacheEpoch
   const task = (async () => {
+    // 并发闸门：只有真正要发网络请求的才占位，命中 IDB/热层的不受影响
+    await acquireFetchSlot()
     try {
       // timeout:0 —— 大文件（视频/文档，1GB 内）下载可能远超 20s，
       // 旧的全局 20s 超时会把"1GB 以内"的正常文件误判成失败（"上传/下载失败"）。
@@ -109,6 +146,7 @@ export async function fileUrl (id?: string | null): Promise<string> {
       // 失效 fileId / 网络失败：返回空，调用方按无媒体处理，不再反复打 404
       return ''
     } finally {
+      releaseFetchSlot()
       pending.delete(id)
     }
   })()
@@ -117,7 +155,16 @@ export async function fileUrl (id?: string | null): Promise<string> {
   return task
 }
 
-/** 热层 objectURL 超上限时按插入序淘汰并 revoke，防长会话无界内存增长。 */
+/**
+ * 热层超上限时按插入序淘汰。
+ *
+ * ★ 只从 Map 移出，**绝不 revokeObjectURL**。
+ *   调用方拿到 URL 后立刻塞进 <img src> / CSS url() / <video src>，这里根本无从得知
+ *   它此刻是否还在渲染。一旦 revoke，那个元素当场变裂图，而且不会再恢复 —— 用户看到
+ *   的就是"头像、图片、图标全破损"。
+ *   真正需要释放的时机只有两个：登出 / 用户主动清缓存（clearMediaCache），
+ *   以及页面销毁时浏览器自动回收。宁可多占一点内存，也不能让界面崩成一片裂图。
+ */
 function evictHotIfNeeded () {
   if (blobCache.size <= MAX_HOT) {
     return
@@ -125,30 +172,21 @@ function evictHotIfNeeded () {
   const overflow = blobCache.size - MAX_HOT
   const keys = Array.from(blobCache.keys()).slice(0, overflow)
   for (const k of keys) {
-    try {
-      URL.revokeObjectURL(blobCache.get(k)!)
-    } catch { /* 已 revoke */ }
     blobCache.delete(k)
   }
 }
 
-/** 下载附件：命中本地 blob 缓存直接用，未命中走带鉴权下载（不走裸链接/票据）。
- *  文档类（大文件）只在有热层/IDB 时复用，不额外写入 IDB，避免白占磁盘。 */
+/** 下载附件：优先取本地 blob，未命中走带鉴权下载（不走裸链接/票据）。
+ *  文档类（大文件）只在 IDB 有缓存时复用，不额外写入 IDB，避免白占磁盘。
+ *
+ *  ★ 不要用 `fetch(objectURL, { cache: 'only-if-cached' })` 回读 ——
+ *    `only-if-cached` 是 HTTP 缓存指令，对 `blob:` URL 没有定义语义，
+ *    实测拿到的可能是空/截断内容，用户下到的文件打不开。
+ *    直接从 IndexedDB 取原始 Blob（存进去的就是服务端返回的字节），最可靠。 */
 export async function downloadFile (id: string, fileName?: string): Promise<void> {
   let blob: Blob | null = null
-  const hot = blobCache.get(id)
-  if (hot) {
-    try {
-      // blob: URL 回读（带 init 对象；第二个参数同时表明这不是可被服务端代理的远程请求）
-      blob = await fetch(hot, { cache: 'only-if-cached', credentials: 'omit' }).then(r => r.blob()).catch(() => null)
-    } catch {
-      blob = null
-    }
-  }
-  if (!blob) {
-    const rec = await idbGetMedia(id).catch(() => null)
-    blob = rec?.blob ?? null
-  }
+  const rec = await idbGetMedia(id).catch(() => null)
+  blob = rec?.blob ?? null
   if (!blob) {
     const res = await api.get(`/files/${id}`, { responseType: 'blob', timeout: 0 })
     blob = res.data as Blob
