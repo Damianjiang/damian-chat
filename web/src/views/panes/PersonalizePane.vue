@@ -12,6 +12,8 @@
 
         <v-list-item>
           <v-list-item-title>{{ t('login.personalize.theme') }}</v-list-item-title>
+          <!-- 用户反馈「个性化改颜色不知道有啥用」：说明它改的是哪些地方，而不是只给几个色点 -->
+          <v-list-item-subtitle class="text-body-small">{{ t('personalize.theme.desc') }}</v-list-item-subtitle>
           <template #append>
             <div class="dm-theme-swatches">
               <button

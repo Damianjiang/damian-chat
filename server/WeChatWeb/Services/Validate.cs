@@ -195,9 +195,33 @@ public static class Validate
     }
 
     /// <summary>
-    /// 消息正文专用：尖括号转义为 &amp;lt; / &amp;gt; 而不是删除。
-    /// 持久化数据从此不含任何原始标签结构（注入面归零），前端渲染时反向解码，
-    /// 用户输入什么对方就看到什么。控制字符同样剥离（保留换行/制表符）。
+    /// 消息正文专用（当前策略）：<b>原样保留用户输入</b>，只剥离控制字符（保留换行/制表符）。
+    ///
+    /// 为什么不再做 HTML 转义：
+    ///  1. 前端所有消息出口都是 Vue 的 <c>{{ }}</c> 文本插值（全站无 v-html / innerHTML），
+    ///     浏览器会把文本当纯文本渲染，XSS 面本来就为零；
+    ///  2. 旧策略把 &amp; / &lt; / &gt; 转义后落库，导致「输入 &amp; 聊天里显示 &amp;amp;」，
+    ///     并且聊天记录搜索 "&amp;" 永远搜不到 —— 用户输入与看到的内容必须一致；
+    ///  3. 转义后落库还会让乐观气泡（原文）与服务端回声（转义文本）内容不相等，
+    ///     弱网下对账失败会多出一个重复气泡。
+    ///
+    /// 历史数据（旧版本落库的 &amp;amp; / &amp;lt; / &amp;gt;）由前端 <c>unescapeEntities</c> 单遍解码兼容。
+    /// </summary>
+    public static string SanitizeMessage (string? s)
+    {
+        if (string.IsNullOrEmpty(s)) return s ?? "";
+        var sb = new System.Text.StringBuilder(s.Length);
+        foreach (var c in s)
+        {
+            if (char.IsControl(c) && c != '\n' && c != '\t') continue;
+            sb.Append(c);
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// 历史兼容：旧版本把正文里的 &amp; / &lt; / &gt; 转义成实体后落库。
+    /// 保留此方法用于迁移旧数据（DataStore 启动时反向解码一遍），新消息请用 <see cref="SanitizeMessage"/>。
     /// </summary>
     public static string EscapeMessage (string? s)
     {

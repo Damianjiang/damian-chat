@@ -160,11 +160,12 @@ public class MessagesController : ControllerBase
             if (fileName == null) return BadRequest(new { error = "文件名不合法" });
         }
 
-        // 文本消息正文：先打散任何 HTML/标签结构（存储型 XSS 纵深防御），再做敏感词过滤
-        // 非文本消息也统一剥离，保证持久化数据与转发/日志里永远不含可注入标记
-        // 文本正文：尖括号转义而非删除（防注入 + 原样显示，前端解码渲染）；其余类型仍剥标记
-        var content = type == "text"
-            ? _sw.Filter(Validate.EscapeMessage(req.Content ?? "")) ?? ""
+        // 文本正文：原样保留用户输入（只剥控制字符），前端用 {{ }} 文本插值渲染 —— 无 XSS 面。
+        // 不再做 HTML 转义：转义后落库会让「输入 & 聊天里显示 &amp;」、搜索 & 搜不到，
+        // 且乐观气泡（原文）与服务端回声（转义文本）对不上，弱网下会多出重复气泡。
+        // 历史数据由前端 unescapeEntities 单遍解码兼容。
+        var content = type is "text" or "quote"
+            ? _sw.Filter(Validate.SanitizeMessage(req.Content ?? "")) ?? ""
             : Validate.StripHtml(req.Content ?? "");
 
         // 引用 JSON 解析（重操作：JsonDocument.Parse + 字段读取）放到全局锁外先做，
@@ -1166,14 +1167,19 @@ public class GroupsController : ControllerBase
     {
         var me = HttpContext.GetUserId();
         var title = Validate.Clean(req.Title, 60) ?? "";
-        // 选项去重去空，最多 20 个（微信投票风格），每个上限 40 字
-        var optionTexts = (req.Options ?? new List<string>())
+        // 选项去空 + 折半角后比较，最多 20 个（微信投票风格），每个上限 40 字
+        var rawOptions = (req.Options ?? new List<string>())
             .Select(o => Validate.Clean(o, 40) ?? "")
             .Where(o => o.Length > 0)
-            .Distinct()
-            .Take(20)
             .ToList();
-        if (string.IsNullOrWhiteSpace(title) || optionTexts.Count < 2)
+        var optionTexts = rawOptions.Distinct().Take(20).ToList();
+        // ★ 提示要精确：此前重复选项被 Distinct 吃掉后只剩 1 个，统一报「至少需要 2 个选项」，
+        //   用户明明填了两项却被告知数量不够，完全不知道是重复导致的。
+        if (string.IsNullOrWhiteSpace(title))
+            return BadRequest(new { error = "投票需要标题" });
+        if (rawOptions.Count >= 2 && optionTexts.Count < rawOptions.Count)
+            return BadRequest(new { error = "选项不能重复，请修改重复的选项" });
+        if (optionTexts.Count < 2)
             return BadRequest(new { error = "投票需要标题和至少 2 个选项" });
 
         Poll poll;

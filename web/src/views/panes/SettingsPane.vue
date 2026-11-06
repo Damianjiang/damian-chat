@@ -898,16 +898,17 @@
   /** UA → 可读设备名（手机/桌面 + 浏览器内核） */
   function sessionLabel (ua: string): string {
     const s = ua || ''
-    const os = /Android/i.test(s) ? 'Android'
-      : /iPhone|iPad|iOS/i.test(s) ? 'iOS'
-      : /Windows/i.test(s) ? 'Windows'
-      : /Macintosh|Mac OS/i.test(s) ? 'macOS' : '未知设备'
-    const browser = /DingTalk/i.test(s) ? '钉钉内置'
-      : /MicroMessenger/i.test(s) ? '微信内置'
-      : /Edg\//i.test(s) ? 'Edge'
-      : /Chrome/i.test(s) ? 'Chrome'
-      : /Safari/i.test(s) ? 'Safari'
-      : /Firefox/i.test(s) ? 'Firefox' : ''
+    const os = /Android/i.test(s) ? t('settings.sessions.os.android')
+      : /iPhone|iPad|iOS/i.test(s) ? t('settings.sessions.os.ios')
+      : /Windows/i.test(s) ? t('settings.sessions.os.windows')
+      : /Macintosh|Mac OS/i.test(s) ? t('settings.sessions.os.macos')
+      : t('settings.sessions.os.unknown')
+    const browser = /DingTalk/i.test(s) ? t('settings.sessions.app.dingtalk')
+      : /MicroMessenger/i.test(s) ? t('settings.sessions.app.wechat')
+      : /Edg\//i.test(s) ? t('settings.sessions.app.edge')
+      : /Chrome/i.test(s) ? t('settings.sessions.app.chrome')
+      : /Safari/i.test(s) ? t('settings.sessions.app.safari')
+      : /Firefox/i.test(s) ? t('settings.sessions.app.firefox') : ''
     return browser ? `${os} · ${browser}` : os
   }
 
@@ -1052,6 +1053,16 @@
       }
       if (cacheOpts.media) {
         await clearMediaCache()
+        // ★ Cache Storage（Service Worker 预缓存的 JS/CSS/图标，通常就是清不掉的几 MB）
+        //   也要一起清：navigator.storage.estimate() 统计的是整个 origin 占用，
+        //   之前只清 IndexedDB，用户清完仍看到「还有 5.5MB 清不掉」。
+        //   删掉后下次打开会从网络重新拉资源（功能不受影响，只是首屏稍慢）。
+        try {
+          if (typeof caches !== 'undefined') {
+            const keys = await caches.keys()
+            await Promise.all(keys.map(k => caches.delete(k)))
+          }
+        } catch { /* 隐私模式 / 不支持 Cache API 时忽略 */ }
       }
       if (cacheOpts.local) {
         const { keys } = localCacheBytes()

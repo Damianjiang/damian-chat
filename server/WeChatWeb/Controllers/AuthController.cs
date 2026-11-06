@@ -183,7 +183,9 @@ public class AuthController : ControllerBase
 
         // 双重人机验证 ②：滑块挑战换来的 pass token（一次性、90 秒、绑定 IP、签发 1.2 秒后才可消费）。
         // 管理端可关（EnableSlider）：关闭后不再要求 passToken（图形验证码仍在）。
-        var pass = _slider.ConsumePass(req.PassToken, Ip);
+        // ★ 这里必须真的判开关：之前只写了注释没判，管理端关掉滑块后
+        //   登录/注册仍然一律要求 passToken → 谁都登不上。
+        var pass = _sec.EnableSlider ? _slider.ConsumePass(req.PassToken, Ip) : SliderPassResult.Ok;
         if (pass != SliderPassResult.Ok)
         {
             // 同上：没过滑块说明还没走到「猜密码」那一步，只计 IP 不记账号
@@ -301,7 +303,7 @@ public class AuthController : ControllerBase
         }
 
         // 双重人机验证 ②：滑块 pass token（管理端可关 EnableSlider）。NotReady=延时门未到。
-        var pass = _slider.ConsumePass(req.PassToken, Ip);
+        var pass = _sec.EnableSlider ? _slider.ConsumePass(req.PassToken, Ip) : SliderPassResult.Ok;
         if (pass != SliderPassResult.Ok)
         {
             _guard.RecordFailure(Ip, "", _sec);

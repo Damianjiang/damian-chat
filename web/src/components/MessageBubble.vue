@@ -1,7 +1,7 @@
 <template>
-  <!-- 系统消息：居中灰字，无头像无气泡 -->
+  <!-- 系统消息：居中灰字，无头像无气泡。历史数据里的 &amp;/&lt;/&gt; 实体同样单遍解码 -->
   <div v-if="message.type === 'system'" class="wx-system-row">
-    <span class="wx-system-text">{{ message.content }}</span>
+    <span class="wx-system-text">{{ unescape(message.content) }}</span>
   </div>
 
   <!-- 拍一拍：微信式居中灰字「xx 拍了拍 yy」（双击头像触发，全群/对方可见） -->
@@ -19,6 +19,7 @@
     ]"
     @contextmenu.prevent="onContextMenu"
     @pointerdown="onDown"
+    @pointercancel="onUp"
     @pointerleave="onUp"
     @pointermove="onMove"
     @pointerup="onUp"
@@ -237,7 +238,7 @@
   import { api } from '@/lib/api'
   import { downloadFile as downloadFileById, fileUrl } from '@/lib/files'
   import { t } from '@/lib/i18n'
-  import { avatarColor, formatFileSize, timeLabel } from '@/lib/utils'
+  import { avatarColor, formatFileSize, timeLabel, unescapeEntities as unescape } from '@/lib/utils'
   import { mediaKindOf } from '@/lib/media'
   import ContextMenu from '@/components/ContextMenu.vue'
   import PollCard from '@/components/PollCard.vue'
@@ -296,7 +297,8 @@
    * 纯文本安全（{{ }} 插值，无 v-html），无 XSS 面。
    */
   const mentionSegments = computed<{ text: string, isMention: boolean }[]>(() => {
-    const text = props.message.content ?? ''
+    // 先解码历史实体：否则 "@张三 &amp; 你好" 里会带出 &amp; 字面量
+    const text = unescape(props.message.content)
     if (!text) return []
     // 匹配 @ 后紧跟的连续非空白、非 @ 字符（昵称）
     const re = /@([^\s@]+)/g
@@ -312,11 +314,7 @@
     return segs
   })
 
-  /** 服务端把 & < > 转义存储（防注入），渲染时单遍反向解码还原输入 */
-  function unescape (s?: string | null): string {
-    return (s ?? '').replace(/&(amp|lt|gt);/g, (_, e) => (e === 'amp' ? '&' : e === 'lt' ? '<' : '>'))
-  }
-
+  /** 服务端旧版本把 & < > 转义存储，渲染时单遍反向解码还原输入（新版本已存原文，解码对原文无副作用） */
   const quote = computed(() => {
     if (!props.message.quoteJson) return null
     try {
@@ -463,18 +461,27 @@
       clearTimeout(pressTimer)
       pressTimer = null
     }
-    menuOpen.value = true
-    // 把菜单锚定到鼠标位置（v-menu 默认跟随 activator，这里用事件坐标兜底）
+    // 已在菜单里（Android 长按会先由 timer 开菜单、再补一个 contextmenu 事件）：
+    // 不能再次置 true —— 否则关闭后残留状态会让下一次长按"看起来没反应"
+    if (menuOpen.value) return
     lastPoint.value = { x: e.clientX, y: e.clientY }
+    menuOpen.value = true
   }
 
   /** 手机长按：按住 500ms 弹菜单；期间移动视为滚动则取消 */
   function onDown (e: PointerEvent) {
+    // 上一次菜单没关干净（点遮罩时序异常 / 手势被系统打断）→ 先强制复位，
+    // 否则 menuOpen 一直是 true，后续长按把 true 赋成 true 不触发更新，菜单再也出不来。
+    if (menuOpen.value) menuOpen.value = false
+    if (pressTimer) {
+      clearTimeout(pressTimer)
+      pressTimer = null
+    }
     startPoint.value = { x: e.clientX, y: e.clientY }
     lastPoint.value = { x: e.clientX, y: e.clientY }
     pressTimer = setTimeout(() => {
-      menuOpen.value = true
       pressTimer = null
+      menuOpen.value = true
     }, 500)
   }
 
@@ -488,12 +495,12 @@
   const lastPoint = ref({ x: 0, y: 0 })
   const startPoint = ref({ x: 0, y: 0 })
 
-  /** 长按过程中移动超过 10px 视为滚动，取消菜单 */
+  /** 长按过程中移动超过 14px 视为滚动，取消菜单（小屏手指抖动余量，10px 太容易被误判） */
   function onMove (e: PointerEvent) {
     if (!pressTimer) return
     const dx = Math.abs(e.clientX - startPoint.value.x)
     const dy = Math.abs(e.clientY - startPoint.value.y)
-    if (dx > 10 || dy > 10) onUp()
+    if (dx > 14 || dy > 14) onUp()
   }
 
   onBeforeUnmount(() => {
@@ -543,7 +550,7 @@
         targetType: 'message',
         targetId: props.message.id,
         title: props.senderName,
-        preview: (props.message.content ?? '').slice(0, 60),
+        preview: unescape(props.message.content).slice(0, 60),
       })
       emit('favorite', props.message, res.data?.toggled ? 'added' : 'removed')
     } catch (error: any) {
@@ -553,8 +560,10 @@
 
   async function copy () {
     try {
-      await navigator.clipboard.writeText(props.message.content ?? '')
-      emit('copied', props.message.content ?? '')
+      // 复制给用户的是「看到的文字」：历史实体先解码，否则粘贴出来是 &amp;
+      const text = unescape(props.message.content)
+      await navigator.clipboard.writeText(text)
+      emit('copied', text)
       menuOpen.value = false
     } catch {
       menuOpen.value = false
@@ -637,6 +646,12 @@
   padding: 3px 18px;
   position: relative;
   align-items: flex-start;
+  /* 禁用系统文本选择 / 长按菜单：气泡自己有「复制」菜单项。
+     不禁用的话 Android 长按会先选中文字并弹系统选择手柄，把手势吃掉 ——
+     表现就是「长按一次之后就再也长按不出菜单」。 */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 
 .wx-bubble-row--me {

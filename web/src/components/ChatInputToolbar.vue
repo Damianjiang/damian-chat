@@ -14,6 +14,7 @@
       <input
         ref="fileRef"
         class="d-none"
+        multiple
         type="file"
         @change="onFile"
       >
@@ -22,6 +23,7 @@
         ref="imageRef"
         accept="image/*"
         class="d-none"
+        multiple
         type="file"
         @change="onFile"
       >
@@ -411,10 +413,47 @@
     cancelRec()
   })
 
+  /**
+   * 选择文件/图片。
+   *
+   * ★ 必须支持多选：相册一次选 3 张，之前 <input> 没有 multiple，而且代码只取
+   *   files[0] —— 用户看到「选了两张只发出去一张」。现在逐张串行上传 + 逐条发出：
+   *   并发上传会在弱网下互相抢带宽、更容易整批超时，串行反而更快也更可靠；
+   *   一张失败不影响后面的，最后统一提示失败张数。
+   */
   async function onFile (e: Event) {
     const input = e.target as HTMLInputElement
-    const file = input.files?.[0]
-    if (!file) return
+    const files = Array.from(input.files ?? [])
+    // 立刻清空：部分安卓浏览器不清空时，再次选择同一张图不会触发 change
+    input.value = ''
+    if (files.length === 0) return
+    const total = files.length
+    uploading.value = true
+    uploadPercent.value = 0
+    uploadError.value = ''
+    let done = 0
+    let failed = 0
+    try {
+      for (const file of files) {
+        const ok = await uploadOne(file, ratio => {
+          // 总进度：已完成张数 + 当前张的进度
+          uploadPercent.value = Math.min(99, Math.round(((done + ratio) / total) * 100))
+        })
+        if (ok) done++
+        else failed++
+      }
+      if (failed > 0) {
+        uploadError.value = t('input.upload.partial', { ok: done, fail: failed })
+        setTimeout(() => { uploadError.value = '' }, 3500)
+      }
+    } finally {
+      uploading.value = false
+      uploadPercent.value = 0
+    }
+  }
+
+  /** 上传并发送单个文件；返回是否成功（失败已在界面上提示）。 */
+  async function uploadOne (file: File, onProgress: (ratio: number) => void): Promise<boolean> {
     // 云盘模式：任何文件都能传（不拦截）。这里只决定它进「图片消息」还是「文件消息」：
     // ・安全的位图图片 → 图片消息（聊天里 <img> 内联预览）；
     // ・其它一切（SVG/视频/文档/可执行/未知）→ 文件消息（下载卡片，浏览器强制下载，绝不内联渲染）。
@@ -423,28 +462,28 @@
     const kind = isSafeImage ? 'image' : 'file'
     // 位图图片先本地压缩（长边 1600 JPEG）：相机原图 3-8MB，气泡实际只显示 240px 宽，
     // 全尺寸上传/解码是老手机又慢又卡的主因；压不出收益（动图/小图）就原样传。文件消息不压。
-    const upload = isSafeImage ? await compressImage(file) : file
+    let upload = file
+    try {
+      if (isSafeImage) upload = await compressImage(file)
+    } catch { /* 压缩失败就用原图，不阻塞发送 */ }
     // 大小预检（与后端 1GB 上限对齐），超限直接提示，不上传白耗流量
     if (upload.size > MAX_UPLOAD) {
       const capLabel = MAX_UPLOAD >= 1024 * 1024 * 1024
         ? `${Math.floor(MAX_UPLOAD / 1024 / 1024 / 1024)}GB`
         : `${Math.floor(MAX_UPLOAD / 1024 / 1024)}MB`
       showError(t('input.file.tooBig', { n: capLabel }))
-      input.value = ''
-      return
+      return false
     }
     const form = new FormData()
     form.append('file', upload)
     form.append('kind', kind)
-    uploading.value = true
-    uploadPercent.value = 0
     try {
       // timeout:0 —— 大文件（1GB 内）上传耗时远超默认 20s，全局超时会把它误判失败
       const res = await api.post('/files/upload', form, {
         headers: { 'Content-Type': 'multipart/form-data' },
         timeout: 0,
         onUploadProgress: e => {
-          if (e.total) uploadPercent.value = Math.min(100, Math.round((e.loaded * 100) / e.total))
+          if (e.total) onProgress(Math.min(1, e.loaded / e.total))
         },
       })
       const meta = res.data
@@ -453,14 +492,13 @@
       } else {
         emit('send', { type: 'file', content: '', fileName: file.name, fileSize: file.size, imageId: meta.id })
       }
+      return true
     } catch (error: any) {
       uploadError.value = error?.response?.data?.error ?? t('input.upload.fail')
       setTimeout(() => {
         uploadError.value = ''
       }, 2500)
-    } finally {
-      uploading.value = false
-      input.value = ''
+      return false
     }
   }
 

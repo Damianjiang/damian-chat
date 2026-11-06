@@ -113,9 +113,13 @@
 
 <style scoped>
 .wx-poll-card {
-  /* 用 100% 而非 vw：卡片在气泡列内渲染，72vw 在 360px 屏上会顶穿列宽盖到头像 */
-  width: min(280px, 100%);
-  max-width: 100%;
+  /* 宽度必须由父容器（气泡列）约束：
+     min(280px, 100%) 里的 100% 是相对「flex 容器的内容盒」而不是气泡列的 max-width，
+     360px 屏上 280px 会顶穿 72% 的气泡列，把右侧自己的头像盖掉。
+     改成 width:100% + max-width，宽度永远不超过气泡列可用宽。 */
+  width: 100%;
+  max-width: 262px;
+  min-width: 0;
   padding: 10px 12px;
   border-radius: 12px;
   background: rgba(127, 127, 127, 0.1);

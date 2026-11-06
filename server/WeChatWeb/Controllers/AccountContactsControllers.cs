@@ -934,7 +934,8 @@ public class AccountController : ControllerBase
         }
 
         // 人机验证 ②：滑块挑战换来的 pass token（一次性、绑 IP、有效期 90 秒）
-        var pass = _slider.ConsumePass(req.PassToken, Ip);
+        // 与登录/注册保持一致：管理端关掉滑块时不再强制要求
+        var pass = _sec.EnableSlider ? _slider.ConsumePass(req.PassToken, Ip) : SliderPassResult.Ok;
         if (pass != SliderPassResult.Ok)
         {
             _guard.RecordFailure(Ip, "", _sec);

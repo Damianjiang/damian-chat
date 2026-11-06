@@ -90,10 +90,15 @@ function settlePending (list: Message[], incoming: Message): boolean {
   // 优先按 clientMsgId 精确对账（服务端回显前端生成的幂等 id）：
   // 按内容匹配会被服务端转义破坏（"a&b" 乐观气泡 vs "a&amp;b" 回声）→ 出现重复气泡
   if (incoming.clientMsgId) {
-    const i = list.findIndex(m => !!m.pending && m.localKey === incoming.clientMsgId)
+    // ① 还在转圈的乐观气泡
+    let i = list.findIndex(m => !!m.pending && m.localKey === incoming.clientMsgId)
+    // ② 已确认、但同一条幂等 id 的消息已经在列表里（POST 响应先到 / 回声重放 /
+    //    历史页回填过一次）：只能就地更新，绝不能再 push 一条 —— 这是「同一条消息
+    //    显示成两个气泡」的最后一道拦截。
+    if (i < 0) i = list.findIndex(m => m.clientMsgId === incoming.clientMsgId)
     const target = at(list, i)
     if (target) {
-      replaceAt(list, i, { ...incoming, localKey: target.localKey })
+      replaceAt(list, i, { ...incoming, localKey: target.localKey ?? incoming.clientMsgId })
       return true
     }
   }
@@ -408,7 +413,11 @@ export const useConversationsStore = defineStore('conversations', {
         const live = this.messagesByConv[conv.id] ?? list
         const i = live.findIndex(m => m.localKey === localKey)
         const cur = at(live, i)
-        if (cur) {
+        // 只有「还挂着转圈」的气泡才标记失败。
+        // POST 超时但服务端其实已建消息（回声/历史页已把它 settle 成真实消息）时，
+        // 这里若无条件回标 failed，用户会看到"已发出去的消息带红色感叹号"，
+        // 点重试就真的发出第二条 —— 这是「一条消息变两条」的主要来源之一。
+        if (cur && cur.pending) {
           replaceAt(live, i, { ...cur, pending: false, failed: true })
         }
         throw error

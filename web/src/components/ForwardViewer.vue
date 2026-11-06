@@ -50,7 +50,7 @@
               <span class="text-body-small text-truncate">{{ m.f || t('chat.preview.file', { name: '' }) }}</span>
             </div>
 
-            <div v-else class="text-body-medium wx-fv-text mt-1">{{ m.c }}</div>
+            <div v-else class="text-body-medium wx-fv-text mt-1">{{ unescape(m.c) }}</div>
           </div>
         </div>
       </div>
@@ -61,7 +61,7 @@
 <script setup lang="ts">
   import { computed, ref, watch } from 'vue'
   import { fileUrl } from '@/lib/files'
-  import { avatarColor, timeLabel } from '@/lib/utils'
+  import { avatarColor, timeLabel, unescapeEntities as unescape } from '@/lib/utils'
   import { t } from '@/lib/i18n'
 
   /** 合并转发快照（服务端 Validate.ParseForwardJson 的输出结构） */
@@ -136,7 +136,7 @@
   }
 
   function nestedPreview (m: ForwardEntry) {
-    return m.c?.replace('[聊天记录]', '').trim() || t('chat.forward.title')
+    return unescape(m.c?.replace('[聊天记录]', '').trim()) || t('chat.forward.title')
   }
 
   function goBack () {

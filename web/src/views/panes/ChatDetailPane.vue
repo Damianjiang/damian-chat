@@ -303,6 +303,8 @@
             variant="text"
             @click="pollOptions.push('')"
           >{{ t('poll.addOption') }}</v-btn>
+          <!-- 重复选项提示：按钮同时置灰，避免"点确认→服务端报错"，也避免误以为是数量不够 -->
+          <div v-if="pollDuplicate" class="text-body-small text-error">{{ t('poll.duplicate') }}</div>
           <v-checkbox v-model="pollMulti" class="mt-0" color="primary" density="compact" hide-details :label="t('poll.multi')" />
         </v-card-text>
         <v-card-actions>
@@ -399,7 +401,7 @@
   import { mediaKindOf } from '@/lib/media'
   import { t } from '@/lib/i18n'
   import { sendTyping } from '@/lib/signalr'
-  import { avatarColor, messageSummary, timeLabel } from '@/lib/utils'
+  import { avatarColor, messageSummary, timeLabel, unescapeEntities } from '@/lib/utils'
   import { useAuthStore } from '@/stores/auth'
   import { useContactsStore } from '@/stores/contacts'
   import { useConversationsStore } from '@/stores/conversations'
@@ -483,29 +485,61 @@
   const avatarMap = ref<Record<string, string>>({})
 
   // 窗口化渲染：默认显示最近 60 条，「显示更早的消息」按 60 条增量向上拉取。
-  // 渲染上限 RENDER_CAP（300）：此前无上限，长会话一路翻下去 DOM 里会堆两三千个
+  // 渲染上限 RENDER_CAP：此前无上限，长会话一路翻下去 DOM 里会堆两三千个
   // 气泡子树（每条带头像 img/菜单/时间判断），低端机一帧 diff 就卡死。
-  // 到上限后继续向上翻 → 窗口整体上滑（顶部进更早 60 条、底部让出 60 条，DOM 恒 ≤ 上限）；
-  // 滚回窗口底部附近再逐步下滑补回最新消息；收到新消息时直接回贴尾模式。
-  const RENDER_CAP = 300
+  //
+  // ★ 曾经的「滑动窗口（winStart）」设计已移除：窗口尾一旦离开最新消息，
+  //   用户就会「明明没动，却看不到刚发/刚收的消息」，只能刷新 —— 这是用户反复
+  //   反馈的「有时候不显示最新消息」。现在只保留一个始终贴尾的渲染窗口，
+  //   上翻 = 扩大 displayLimit（最多 RENDER_CAP 条，与 store 内存上限一致），
+  //   任何时刻渲染的末尾都是最新一条消息。代价是翻到上限后按钮提示「已到底」。
+  const RENDER_CAP = 500
   const displayLimit = ref(60) // 窗口化：首屏 60 条，「更早」按 60 增量
-  /** 渲染窗口起点下标；-1 = 贴尾模式（始终渲染最新一段，未翻到上限前不走滑动） */
-  const winStart = ref(-1)
   const allMessages = computed<Message[]>(() => store.messagesByConv[convId.value] ?? [])
+  /**
+   * 渲染层最后一道去重防线。
+   * 数据层（store.applyIncoming）已经按 id / clientMsgId 对账，但异常时序
+   * （POST 超时重试、回声比响应先到、历史页与实时流交叉）仍可能让同一条消息
+   * 在数组里出现两次。这里在真正 v-for 之前再压一遍，保证用户绝不看到两个一样的气泡。
+   */
+  function dedupeMessages (list: Message[]): Message[] {
+    if (list.length < 2) return list
+    // 先收集「已确认」消息的幂等 id：同 id 的 pending 气泡是它的残影，直接丢弃
+    const confirmed = new Set<string>()
+    for (const m of list) {
+      if (!m.pending && m.clientMsgId) confirmed.add(m.clientMsgId)
+    }
+    const seenId = new Set<string>()
+    const seenCid = new Set<string>()
+    const out: Message[] = []
+    for (const m of list) {
+      if (seenId.has(m.id)) continue
+      if (m.clientMsgId) {
+        if (m.pending && confirmed.has(m.clientMsgId)) continue
+        if (!m.pending) {
+          if (seenCid.has(m.clientMsgId)) continue
+          seenCid.add(m.clientMsgId)
+        }
+      }
+      seenId.add(m.id)
+      out.push(m)
+    }
+    return out
+  }
+
   const visibleMessages = computed(() => {
     const all = allMessages.value
-    if (winStart.value < 0)
-      return all.length > displayLimit.value
-        ? all.slice(all.length - displayLimit.value)
-        : all
-    // 滑动窗口：[winStart, winStart + displayLimit)
-    const start = Math.max(0, winStart.value)
-    return all.slice(start, Math.min(all.length, start + displayLimit.value))
+    // 永远渲染「最后 displayLimit 条」：末尾必定是最新消息，
+    // 不存在「窗口停在中间看不到新消息」的状态。
+    return dedupeMessages(all.length > displayLimit.value ? all.slice(all.length - displayLimit.value) : all)
   })
 
   const hasMoreHistory = computed(() => {
-    if (winStart.value > 0) return true   // 滑动窗口上方还有未渲染的存量
-    return allMessages.value.length > displayLimit.value || !!store.historyHasMore[convId.value]
+    // 已到渲染上限：不再提示「加载更早」。否则点下去只会往 store 里多拉 30 条，
+    // 但渲染窗口固定 500 条，界面上什么都不会变 —— 用户视角就是「按钮坏了」。
+    if (displayLimit.value >= RENDER_CAP) return false
+    if (allMessages.value.length > displayLimit.value) return true
+    return !!store.historyHasMore[convId.value]
   })
 
   /**
@@ -531,27 +565,18 @@
     const conv = convId.value
     try {
       const lenBefore = allMessages.value.length
-      const winBefore = winStart.value
-      // 窗口顶已到 store 开头（或贴尾存量不够一屏）、服务端还有更早的 → 先翻服务端页（前插进 store）
-      if (store.historyHasMore[conv]
-        && (winBefore <= 0 || allMessages.value.length <= displayLimit.value)) {
+      // 服务端还有更早的、且本地已经全部渲染出来 → 先翻服务端页（前插进 store）
+      if (store.historyHasMore[conv] && lenBefore <= displayLimit.value) {
         const oldestVisible = visibleMessages.value[0]
         // cap 放大到「可见窗口 + 本页余量」：否则内存 500 条封顶时，
         // 刚拉回来的更早消息会被 keep-newest 淘汰掉，翻页永远不刷新
         await store.loadHistory(conv, oldestVisible?.id, { cap: displayLimit.value + 90 })
       }
       if (convId.value !== conv) return
-      const shifted = allMessages.value.length - lenBefore   // 服务端前插导致的下标位移量
-      if (winBefore < 0) {
-        // 贴尾窗口：先扩容（最多 RENDER_CAP）；到上限后切滑动窗口整体上移
-        if (allMessages.value.length > displayLimit.value && displayLimit.value < RENDER_CAP) {
-          displayLimit.value = Math.min(RENDER_CAP, displayLimit.value + 60)
-        } else {
-          winStart.value = Math.max(0, allMessages.value.length - displayLimit.value - 60)
-        }
-      } else {
-        // 滑动窗口：起点上移 60 条（若服务端刚前插过，先补位移再上移）
-        winStart.value = Math.max(0, winBefore + shifted - 60)
+      // 只扩大渲染窗口（末尾始终是最新消息），不再移动窗口。
+      // loadHistory 前插后窗口自动多显示 offset 条更早内容，无需换算下标。
+      if (displayLimit.value < RENDER_CAP && allMessages.value.length > displayLimit.value) {
+        displayLimit.value = Math.min(RENDER_CAP, displayLimit.value + 60)
       }
       await nextTick(() => {
         const el = listRef.value
@@ -566,29 +591,6 @@
       suppressScroll = false
       loadingEarlier.value = false
     }
-  }
-
-  /**
-   * 滑动窗口下滑一页：顶部丢 60 条、底部补 60 条，DOM 数量不涨。
-   * 窗口尾已触及最新消息 → 回贴尾模式。视口锚定：顶部变矮多少，scrollTop 补回多少。
-   */
-  async function slideWindowDown () {
-    const el = listRef.value
-    if (!el) {
-      winStart.value = -1
-      return
-    }
-    const beforeH = el.scrollHeight
-    const beforeTop = el.scrollTop
-    const all = allMessages.value
-    suppressScroll = true
-    const next = winStart.value + 60
-    winStart.value = next + displayLimit.value >= all.length ? -1 : next
-    await nextTick(() => {
-      const shrunk = beforeH - el.scrollHeight
-      el.scrollTop = Math.max(0, beforeTop - shrunk)
-    })
-    suppressScroll = false
   }
 
   /** 距离上一条消息超过 5 分钟才显示时间戳，避免每条都带时间很吵 */
@@ -653,7 +655,6 @@
       // 否则本地 IDB 里还留着旧消息，重开会话会被 idbGetMessages 回填 → "清空后又刷回来"。
       store.clearConversationLocal(convId.value)
       displayLimit.value = 60
-      winStart.value = -1
       clearDialog.value = false
       snackMsg.value = t('chat.clear.ok')
     } catch {
@@ -729,6 +730,8 @@
 
   /** 自己敲字 → 通过实时通道广播「我正在输入」（组件内部已按 3s 节流） */
   function onSelfTyping () {
+    // 群聊不显示「正在输入」（微信同款）：上行也不必发，省一次广播/唤醒
+    if (isGroup.value) return
     if (convId.value) void sendTyping(convId.value)
   }
 
@@ -738,9 +741,17 @@
   const pollOptions = ref<string[]>(['', ''])
   const pollMulti = ref(false)
   const pollCreating = ref(false)
+  /** 归一化后的选项（去空 + trim）：校验和提交共用，避免两处口径不一致 */
+  const pollCleanOptions = computed(() => pollOptions.value.map(o => o.trim()).filter(o => o.length > 0))
+  /** 有重复选项：按钮置灰 + 红字提示（服务端也会拒，但不该让用户白点一次） */
+  const pollDuplicate = computed(() => {
+    const opts = pollCleanOptions.value
+    return opts.length >= 2 && new Set(opts).size < opts.length
+  })
   const pollValid = computed(() =>
     pollTitle.value.trim().length > 0
-    && pollOptions.value.filter(o => o.trim()).length >= 2)
+    && pollCleanOptions.value.length >= 2
+    && !pollDuplicate.value)
 
   function openPollDialog () {
     pollTitle.value = ''
@@ -951,7 +962,8 @@
   async function onDelete (m: Message) {
     const ok = await confirm({
       title: t('chat.delete.title'),
-      text: t('chat.delete.text', { s: (m.content ?? m.fileName ?? '').slice(0, 40) || t('chat.msg.placeholder') }),
+      // 确认框里展示的是用户看到的文字：历史数据先解码，否则弹窗里出现 &amp;
+      text: t('chat.delete.text', { s: unescapeEntities(m.content ?? m.fileName ?? '').slice(0, 40) || t('chat.msg.placeholder') }),
       confirmText: t('common.delete'),
     })
     if (!ok) return
@@ -992,7 +1004,7 @@
       return
     }
     // 引用摘要：图片/文件/语音/表情用类型化摘要（避免图片被引成"消息"），文本用内容
-    const text = m.type === 'text' ? (m.content || t('chat.msg.placeholder')) : messageSummary(m)
+    const text = m.type === 'text' ? (unescapeEntities(m.content) || t('chat.msg.placeholder')) : messageSummary(m)
     quoteDraft.value = {
       senderName: displayName(m.senderId),
       text,
@@ -1285,11 +1297,20 @@
   const reduceMotion = typeof window !== 'undefined'
     && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
 
+  /** 进会话「持续贴底」的 rAF 句柄（0 = 未运行）。声明提前，供 scrollBottom 取消。 */
+  let settleRaf = 0
+
   /**
    * 滚到底部：离底不远时走 smooth，新消息是"推上来"的，比瞬移跟手；
    * 离得很远（刚从几千条历史的顶部切回来）则直接跳 —— 否则会看一段漫长的滚动动画。
    */
   function scrollBottom (smooth = true) {
+    // 主动滚到底 = 用户要停在最新位置，停掉进会话时的高度跟随，
+    // 否则它的 rAF 会紧接着把 scrollTop 硬设一遍，和平滑滚动打架（表现为抖动）。
+    if (settleRaf) {
+      cancelAnimationFrame(settleRaf)
+      settleRaf = 0
+    }
     nextTick(() => {
       const el = listRef.value
       if (!el) return
@@ -1311,6 +1332,11 @@
   const atBottom = ref(true)
   const newCount = ref(0)
 
+  /** 上一次滚动位置：用来判断「是否真的在向上滑」，避免锚定回填的 scroll 反过来再触发翻页 */
+  let lastScrollTop = 0
+  /** 自动翻页冷却截止时间戳：一次翻页 + 锚定要几百毫秒，期间绝不能再触发 */
+  let earlierCooldownUntil = 0
+
   function onMsgScroll () {
     // rAF 合帧：scroll 事件每秒可触发上百次，逐次读 scrollHeight 会强制同步布局，
     // 低端机上图片陆续加载高度抖动时尤其致命；合到一帧只量一次
@@ -1319,22 +1345,30 @@
       scrollRaf = 0
       const el = listRef.value
       if (!el || suppressScroll) return
-      const distance = el.scrollHeight - el.scrollTop - el.clientHeight
+      const top = el.scrollTop
+      // 位移 > 2px 才算「用户在滑」，纯抖动 / 锚定补偿不算
+      const goingUp = top < lastScrollTop - 2
+      lastScrollTop = top
+      const distance = el.scrollHeight - top - el.clientHeight
       atBottom.value = distance < 60
       if (atBottom.value) newCount.value = 0
-      // 滑动窗口回补：滚到窗口底部附近 → 下滑一页补回更新的消息（DOM 不涨），
-      // 补到窗口尾触及最新消息后自动回贴尾模式，行为与普通聊天一致
-      if (distance < 60 && winStart.value > 0) void slideWindowDown()
-      // 滚到顶部附近（< 140px）自动翻上一页历史：不再要求用户手动点「显示更早的消息」
-      if (el.scrollTop < 140 && hasMoreHistory.value && !firstLoading.value) {
+      // 「加载更早」只在 ① 真的向上滑 ② 已到接近顶部（80px，原来 140px 在 424px 高的
+      // 视口里占三分之一屏，轻轻往回带一点就反复触发）③ 过了冷却期 时才触发。
+      // 三条缺一不可：否则翻页后的锚定补偿会把 scrollTop 拉回顶部附近，
+      // 立刻又触发下一页 —— 用户看到的就是「划到最上面后鬼畜」。
+      if (goingUp
+        && top < 80
+        && hasMoreHistory.value
+        && !firstLoading.value
+        && !loadingEarlier.value
+        && Date.now() >= earlierCooldownUntil) {
+        earlierCooldownUntil = Date.now() + 800
         void loadEarlier()
       }
     })
   }
 
   function jumpToNew () {
-    // 滑动窗口里「窗口底」之下可能还有未渲染的最新消息：先回贴尾模式再滚
-    if (winStart.value !== -1) winStart.value = -1
     scrollBottom()
     // 点浮标 = 已经回到最新位置看到新消息了：清红点并标记已读（微信同款）
     const cid = convId.value
@@ -1342,6 +1376,35 @@
       store.markRead(cid)
       void api.put(`/conversations/${cid}`, { read: true }).catch(() => {})
     }
+  }
+
+  /**
+   * 进会话后「坚决贴底」。
+   *
+   * 气泡里的图片/头像/表情是异步解码加载的，容器高度会在之后几百毫秒里持续长高；
+   * 之前只在 0 / 300 / 700ms 补滚三次，图片多的会话 700ms 后还在长 ——
+   * 用户于是「进聊天停在最上面，得往下翻或发条消息才回到底部」。
+   * 这里改成有时限的高度跟随：只要用户没主动往上滑（atBottom 仍为真），
+   * 一旦检测到 scrollHeight 变化（内容长高）就立刻贴到最底，最多跟随 duration 毫秒。
+   * 只在高度变化时写 scrollTop，避免每帧强制重排。
+   */
+  function settleToBottom (duration = 2500) {
+    const start = Date.now()
+    let lastH = -1
+    const tick = () => {
+      settleRaf = 0
+      const el = listRef.value
+      if (!el || !atBottom.value) return   // 用户已手动上滑 → 立刻让位，不抢滚动
+      if (el.scrollHeight !== lastH) {
+        lastH = el.scrollHeight
+        el.scrollTop = el.scrollHeight
+      }
+      if (Date.now() - start < duration) settleRaf = requestAnimationFrame(tick)
+    }
+    if (settleRaf) cancelAnimationFrame(settleRaf)
+    atBottom.value = true
+    newCount.value = 0
+    tick()
   }
 
   /** 图片等媒体加载完成后容器高度变化：贴底状态补一次滚动，避免"看起来没到底"的错位 */
@@ -1383,9 +1446,6 @@
       const el = listRef.value
       if (!el) return
       if (atBottom.value) {
-        // 滑动窗口里「窗口底」不是真底：新消息直接回贴尾模式再跟随，
-        // 否则新消息落在窗口外，用户看着"已到底"却收不到
-        if (winStart.value !== -1) winStart.value = -1
         scrollBottom() // 贴着底部：跟随新消息（平滑推上来）
       } else {
         newCount.value += delta // 正在看历史：只提示，不抢滚动
@@ -1414,7 +1474,10 @@
     noticeConfirmedMe.value = false
     noticeDialog.value = false
     displayLimit.value = 60
-    winStart.value = -1
+    // 切会话：滚动方向基准与翻页冷却一并复位，否则上一个会话的
+    // lastScrollTop 会让新会话第一次上滑被判成「向下」，自动翻页失效
+    lastScrollTop = 0
+    earlierCooldownUntil = 0
     // 新消息浮标随会话切换重置：lastSignature 是「上个会话」的长度签名，不重置的话
     // 下一条新消息的 delta = 新会话长度 - 旧会话长度，从少切到多会假报「40条新消息」、
     // 从多切到少永远走 delta<=0 分支不显示（用户视角就是这个功能时有时无）。
@@ -1441,12 +1504,8 @@
       if (seq === convSwitchSeq) initializing.value = false // 失败也要收掉骨架，否则永远转圈
     }
     if (seq === convSwitchSeq) {
-      // 移动端进会话先停在顶部/中间的修复：气泡是异步渲染（图片加载后高度还会涨），
-      // 单次 nextTick 滚动会被随后的内容撑高顶回去。三段式：立即无动画贴底 +
-      // 300ms / 700ms 各补滚一次，保证任何时序下都落在最底部。
-      scrollBottom(false)
-      setTimeout(() => { if (seq === convSwitchSeq) scrollBottom(false) }, 300)
-      setTimeout(() => { if (seq === convSwitchSeq) scrollBottom(false) }, 700)
+      // 进会话贴底：持续跟随异步内容高度（图片/头像加载），不再靠固定三次补滚
+      settleToBottom(3000)
     }
   })
 
@@ -1474,7 +1533,9 @@
     } finally {
       initializing.value = false
     }
-    scrollBottom()
+    // 首次挂载（从会话列表点进来，组件刚创建）同样要走「持续贴底」，
+    // 否则只在渲染后滚一次，后续图片撑高就停在中间/顶部。
+    settleToBottom(3000)
   })
 
   /** 标签页变回可见：距上次补拉超过 3s 才重新拉（避免频繁切换抖动）。 */
@@ -1507,6 +1568,10 @@
     if (scrollRaf) {
       cancelAnimationFrame(scrollRaf)
       scrollRaf = 0
+    }
+    if (settleRaf) {
+      cancelAnimationFrame(settleRaf)
+      settleRaf = 0
     }
     listRef.value?.removeEventListener('load', onMediaLoad, true)
     document.removeEventListener('visibilitychange', onTabVisible)
@@ -1609,6 +1674,11 @@
   padding: 12px 0 16px;
   display: flex;
   flex-direction: column;
+  /* overflow-y:auto 会把 overflow-x 计算成 auto —— 只要有一个子元素宽 1px，
+     整块消息区就能左右滑动（群聊里「右边多出一点空白，可以往右划」就是这个）。
+     这里显式钉死横向不可滚，并禁止横向 overscroll 传给外层。 */
+  overflow-x: hidden;
+  overscroll-behavior-x: contain;
 }
 
 /* 首屏加载骨架：宽窄交替、左右错落，暗示"正在载入一批对话" */

@@ -85,23 +85,38 @@ function onKeydown (e: KeyboardEvent) {
 
 function onScrollResize () { close() }
 
-watch(() => props.modelValue, (open) => {
-  if (open) {
-    window.addEventListener('keydown', onKeydown)
-    window.addEventListener('scroll', onScrollResize, true)
-    window.addEventListener('resize', onScrollResize)
-  } else {
-    window.removeEventListener('keydown', onKeydown)
-    window.removeEventListener('scroll', onScrollResize, true)
-    window.removeEventListener('resize', onScrollResize)
-  }
-})
+/**
+ * 打开后延迟再挂 scroll 监听。
+ * 移动端长按弹菜单时，手指抬起/惯性滚动还会补发几帧 scroll 事件 ——
+ * 立刻监听会让菜单刚出现就被自己关掉（用户感知就是「长按有时没反应」）。
+ */
+let scrollHookTimer: ReturnType<typeof setTimeout> | null = null
 
-onBeforeUnmount(() => {
+function unhook () {
+  if (scrollHookTimer) {
+    clearTimeout(scrollHookTimer)
+    scrollHookTimer = null
+  }
   window.removeEventListener('keydown', onKeydown)
   window.removeEventListener('scroll', onScrollResize, true)
   window.removeEventListener('resize', onScrollResize)
+}
+
+watch(() => props.modelValue, (open) => {
+  if (open) {
+    window.addEventListener('keydown', onKeydown)
+    window.addEventListener('resize', onScrollResize)
+    if (scrollHookTimer) clearTimeout(scrollHookTimer)
+    scrollHookTimer = setTimeout(() => {
+      scrollHookTimer = null
+      window.addEventListener('scroll', onScrollResize, true)
+    }, 160)
+  } else {
+    unhook()
+  }
 })
+
+onBeforeUnmount(unhook)
 
 /**
  * 核心：adjLeft/adjTop = -1（"尚未计算"）→ 直接用 props.x/props.y（指针位置）。
