@@ -12,8 +12,13 @@ namespace WeChatWeb.Controllers;
 public class MomentsController : ControllerBase
 {
     private readonly DataStore _store;
+    private readonly ActionRateLimiter _actionLimiter;
 
-    public MomentsController (DataStore store) => _store = store;
+    public MomentsController (DataStore store, ActionRateLimiter actionLimiter)
+    {
+        _store = store;
+        _actionLimiter = actionLimiter;
+    }
 
     /// <summary>动态可见性：自己 / 公开 / 好友可见；private 仅自己。
     /// 公开动态额外受作者「允许陌生人查看十条朋友圈」约束（统一走 MomentVisibility）。</summary>
@@ -115,6 +120,15 @@ public class MomentsController : ControllerBase
     public IActionResult Create([FromBody] CreateMoment req)
     {
         var me = HttpContext.GetUserId();
+
+        // 频控：发动态会持久化正文 + 多张图片引用，并能推送给全部好友（骚扰面）。
+        // 按发起人限制，避免单账号把全站额度吃光。
+        if (_actionLimiter.IsOverLimit("moment-create", me, 20, TimeSpan.FromHours(1), out var moRetry))
+        {
+            HttpContext.Response.Headers["Retry-After"] = moRetry.ToString();
+            return StatusCode(StatusCodes.Status429TooManyRequests,
+                new { error = $"发布过于频繁，{moRetry} 秒后再试", retryAfter = moRetry });
+        }
 
         // 服务端校验：正文长度、图片数量、图片必须引用本服务上传的 fileId、可见范围白名单
         if (req.Text is { Length: > Validate.MaxMomentText })

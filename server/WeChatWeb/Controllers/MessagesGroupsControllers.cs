@@ -23,8 +23,12 @@ public class MessagesController : ControllerBase
     // ASP.NET Core 默认控制器是 transient（每请求新建实例），若把计数做成控制器实例字段，
     // 每次请求都是全新空字典、计数积累不起来、检查形同虚设。放单例里跨请求共享才有效。
     private readonly MessageFloodLimiter _floodLimiter;
+    // ★ 拍一拍 / 其它写动作的「身份 + 动作」限流（单例，与 MessageFloodLimiter 同因由）：
+    // 拍一拍是纯骚扰通道 —— 双击头像就能反复触发，只受 60 条/分的消息洪泛约束，
+    // 一分钟能拍同一个人 60 次。这里按「发送者对同一目标 30 秒一次」+「每人每分钟 6 次」双闸限速。
+    private readonly ActionRateLimiter _actionLimiter;
 
-    public MessagesController(DataStore store, IHubContext<ChatHub> hub, SensitiveWordService sw, SecuritySettings sec, LogService log, MessageFloodLimiter floodLimiter)
+    public MessagesController(DataStore store, IHubContext<ChatHub> hub, SensitiveWordService sw, SecuritySettings sec, LogService log, MessageFloodLimiter floodLimiter, ActionRateLimiter actionLimiter)
     {
         _store = store;
         _hub = hub;
@@ -32,6 +36,7 @@ public class MessagesController : ControllerBase
         _sec = sec;
         _log = log;
         _floodLimiter = floodLimiter;
+        _actionLimiter = actionLimiter;
     }
 
     public record SendMessage(string ConversationId, string Type = "text", string Content = "", string? ImageId = null, int? VoiceSeconds = null, string? FileName = null, long? FileSize = null, string? StickerEmoji = null, string? QuoteJson = null, string? ForwardJson = null, string? PatTarget = null, string? ClientMsgId = null);
@@ -136,6 +141,24 @@ public class MessagesController : ControllerBase
         if (type == "system")
             return BadRequest(new { error = "不支持的消息类型" });
 
+        // ---- 拍一拍限速（第一闸：按发送者计数，锁外判定，不占全局锁）----
+        // 拍一拍没有任何正文，成本极低、骚扰极强：只受「消息洪泛 60 条/分」约束时，
+        // 脚本可以一分钟对同一个人拍 60 次。这里限到每人每分钟 6 次。
+        if (type == "pat" && _actionLimiter.IsOverLimit("pat-user", me, 6, TimeSpan.FromMinutes(1), out var patRetry))
+        {
+            _log.Write("auth", new
+            {
+                ts = DateTime.UtcNow,
+                result = "pat-flood-denied",
+                user = me,
+                ip = HttpContext.Connection.RemoteIpAddress?.ToString(),
+                conv = req.ConversationId,
+            });
+            HttpContext.Response.Headers["Retry-After"] = patRetry.ToString();
+            return StatusCode(StatusCodes.Status429TooManyRequests,
+                new { error = $"拍得太频繁了，{patRetry} 秒后再试", retryAfter = patRetry });
+        }
+
         if (req.Content is { Length: > Validate.MaxMessageText })
             return BadRequest(new { error = $"消息过长（上限 {Validate.MaxMessageText} 字）" });
         if (req.QuoteJson is { Length: > Validate.MaxSignatureField })
@@ -143,11 +166,18 @@ public class MessagesController : ControllerBase
         if (req.StickerEmoji is { Length: > Validate.MaxSticker })
             return BadRequest(new { error = "表情内容不合法" });
 
-        // 带附件的消息必须引用服务端已存的 fileId（不接受用户传路径）
+        // 带附件的消息必须引用服务端已存的 fileId（不接受用户传路径）。
+        // ★ 附件 id 只对「带附件」的类型生效：此前无论什么 type 都原样写进 Message.ImageId，
+        //   而 DataStore.MsgIndexAdd 会把 ImageId 无条件登记进 _fileRefs[fileId] = {本会话}。
+        //   于是 POST {"type":"text","imageId":"<他人文件id>"} 就能跳过下面锁内的
+        //   「存在性 + CanReadFile」两道校验，把任意 fileId 授权给本会话全员下载（严重越权）。
+        //   现在非附件类型直接丢弃 imageId，附件类型统一走局部变量、由锁内三重校验后再落库。
+        string? imageId = null;
         if (type is "image" or "voice" or "file")
         {
             if (!Validate.IsFileId(req.ImageId))
                 return BadRequest(new { error = "附件无效，请先上传" });
+            imageId = req.ImageId;
         }
         if (type == "voice" && req.VoiceSeconds is < 0 or > Validate.MaxVoiceSeconds)
             return BadRequest(new { error = "语音时长不合法" });
@@ -205,11 +235,27 @@ public class MessagesController : ControllerBase
             // 拿到他人私聊文件的 id 发进自己的会话即可越权下载。
             if (type is "image" or "voice" or "file")
             {
-                if (!_store.Files.TryGetValue(req.ImageId!, out var fmeta))
+                if (!_store.Files.TryGetValue(imageId!, out var fmeta))
                     return BadRequest(new { error = "附件不存在，请重新上传" });
-                if (!_store.CanReadFile(req.ImageId!, fmeta.UploaderId, me))
+                if (!_store.CanReadFile(imageId!, fmeta.UploaderId, me))
                     return StatusCode(StatusCodes.Status403Forbidden,
                         new { error = "无权使用该附件" });
+            }
+
+            // 合并转发包内的每个 fileId 都必须「我可读」。
+            // 此前只校验 32 位 hex 格式，客户端可以自由构造 forwardJson.i，把最多 50 个
+            // 他人文件 id 一次性登记成「本会话已引用」→ 群成员全部获得下载权。
+            // 正常转发不受影响：我能转发的本来就是我已可读的文件。
+            if (forwardFileIds != null)
+            {
+                foreach (var fid in forwardFileIds.Split(',', StringSplitOptions.RemoveEmptyEntries))
+                {
+                    if (!_store.Files.TryGetValue(fid, out var ffm))
+                        return BadRequest(new { error = "转发内容包含无效附件，请重新选择" });
+                    if (!_store.CanReadFile(fid, ffm.UploaderId, me))
+                        return StatusCode(StatusCodes.Status403Forbidden,
+                            new { error = "转发内容包含你无权访问的附件" });
+                }
             }
 
             // 私聊业务拦截：好友关系 + 拉黑双向校验
@@ -272,6 +318,16 @@ public class MessagesController : ControllerBase
                     return BadRequest(new { error = "只能拍对方" });
                 }
                 patTarget = req.PatTarget;
+
+                // 第二闸：同一对「发送者 → 目标」30 秒冷却。
+                // 按双方关系计数而不是按发送者，群聊里连拍多个成员不会互相挤掉额度。
+                // 这里是「先占槽再放行」：占用后本请求一定会走到建消息，不存在白占。
+                if (_actionLimiter.IsInCooldown("pat-pair", me + ">" + patTarget, TimeSpan.FromSeconds(30), out var patPairRetry))
+                {
+                    HttpContext.Response.Headers["Retry-After"] = patPairRetry.ToString();
+                    return StatusCode(StatusCodes.Status429TooManyRequests,
+                        new { error = $"刚拍过 TA，{patPairRetry} 秒后再试", retryAfter = patPairRetry });
+                }
             }
 
             // 投票卡片（poll）：仅群聊；content 必须是本群真实存在的投票 id
@@ -318,7 +374,7 @@ public class MessagesController : ControllerBase
                 SenderId = me,
                 Type = type,
                 Content = content,
-                ImageId = req.ImageId,
+                ImageId = imageId,
                 VoiceSeconds = type == "voice" ? req.VoiceSeconds : null,
                 FileName = fileName,
                 FileSize = req.FileSize is >= 0 ? req.FileSize : null,
@@ -422,10 +478,12 @@ public class GroupsController : ControllerBase
 {
     private readonly DataStore _store;
     private readonly IHubContext<ChatHub> _hub;
-    public GroupsController(DataStore store, IHubContext<ChatHub> hub)
+    private readonly ActionRateLimiter _actionLimiter;
+    public GroupsController(DataStore store, IHubContext<ChatHub> hub, ActionRateLimiter actionLimiter)
     {
         _store = store;
         _hub = hub;
+        _actionLimiter = actionLimiter;
     }
 
     private string NicknameOf (string userId)
@@ -442,7 +500,50 @@ public class GroupsController : ControllerBase
         var me = HttpContext.GetUserId();
         lock (_store)
         {
-            return Ok(_store.Groups.Values.Where(g => g.Members.Any(m => m.UserId == me)));
+            // ★ 白名单投影（不能直接序列化 Group 实体）：
+            //   此前 `Ok(Group)` 会把 JoinAnswer（入群问题标准答案）、JoinRequests
+            //   （待审申请人的 id / 昵称 / 留言）、NoticeReadAt（全员确认时间）一并下发给
+            //   每一个普通成员 —— 成员 curl 一次就能拿到答案转给外部人员，绕过问题验证。
+            return Ok(_store.Groups.Values
+                .Where(g => g.Members.Any(m => m.UserId == me))
+                .Select(g =>
+                {
+                    var actor = g.Members.FirstOrDefault(m => m.UserId == me);
+                    var isAdmin = actor?.Role is "owner" or "admin";
+                    return new
+                    {
+                        g.Id,
+                        g.Name,
+                        g.Avatar,
+                        g.Notice,
+                        g.OwnerId,
+                        Members = g.Members.Select(m => new
+                        {
+                            m.UserId,
+                            m.Role,
+                            m.Muted,
+                            m.MutedUntil,
+                            m.Title,
+                            Nickname = !string.IsNullOrEmpty(m.Nickname)
+                                ? m.Nickname
+                                : _store.Users.TryGetValue(m.UserId, out var mu) ? mu.Nickname : "未知用户",
+                            GroupNick = m.Nickname,
+                            Avatar = _store.Users.TryGetValue(m.UserId, out var mau) ? mau.Avatar : "",
+                        }).ToList(),
+                        NoticeReadByMe = g.NoticeReadAt != null
+                            && g.NoticeReadAt.TryGetValue(me, out var rt) && rt >= g.NoticeUpdatedAt,
+                        NoticeReadCount = g.NoticeReadAt?.Values.Count(x => x >= g.NoticeUpdatedAt) ?? 0,
+                        NoticeTotal = g.Members.Count,
+                        JoinPolicy = string.IsNullOrEmpty(g.JoinPolicy) ? "approve" : g.JoinPolicy,
+                        // 问题本身公开（加群时要展示），答案与待审数只给群主/管理员
+                        JoinQuestion = isAdmin ? g.JoinQuestion : null,
+                        JoinAnswer = isAdmin ? g.JoinAnswer : null,
+                        JoinPending = isAdmin ? (g.JoinRequests?.Count ?? 0) : 0,
+                        g.MuteAll,
+                        CreatedFromMe = g.OwnerId == me,
+                    };
+                })
+                .ToList());
         }
     }
 
@@ -452,6 +553,15 @@ public class GroupsController : ControllerBase
     public async Task<IActionResult> Create([FromBody] CreateGroup req)
     {
         var me = HttpContext.GetUserId();
+
+        // 频控：建群会写 Group + Conversation + 系统消息（三处持久化）。
+        // 只靠全站 300 次/分的共享额度时，脚本建群能把正常用户的额度一起吃掉。
+        if (_actionLimiter.IsOverLimit("group-create", me, 10, TimeSpan.FromHours(1), out var gcRetry))
+        {
+            HttpContext.Response.Headers["Retry-After"] = gcRetry.ToString();
+            return StatusCode(StatusCodes.Status429TooManyRequests,
+                new { error = $"建群过于频繁，{gcRetry} 秒后再试", retryAfter = gcRetry });
+        }
 
         // 服务端校验：群名长度、成员数量上限、公告长度
         var name = Validate.Clean(req.Name, Validate.MaxGroupName);
@@ -487,6 +597,10 @@ public class GroupsController : ControllerBase
             foreach (var id in (req.MemberIds ?? new List<string>()).Distinct().Take(maxMembers)
                          .Where(id => id != me && _store.IsContact(me, id) && _store.Users.ContainsKey(id)))
                 created.Members.Add(new GroupMember { UserId = id });
+            // 以「实际能进群的人数」为准再校验一次：上面只按请求里的数量做了前置检查，
+            // 传 2 个陌生 / 不存在 / 非好友的 id 会全部被过滤掉，最终建出一个只有自己的「群」。
+            if (created.Members.Count < 3)
+                return BadRequest(new { error = "发起群聊至少要选择 2 位好友（对方需已与你互为好友）" });
             if (created.Members.Count > maxMembers)
                 created.Members.RemoveRange(maxMembers - 1, created.Members.Count - maxMembers);
             _store.Groups[created.Id] = created;
@@ -495,7 +609,25 @@ public class GroupsController : ControllerBase
         }
 
         await SystemMessages.Post(_hub, _store, created.Id, $"{NicknameOf(me)} 创建了「{created.Name}」");
-        return Ok(created);
+        // 白名单投影（不直接返回 Group 实体：实体里有 JoinRequests / NoticeReadAt 等内部字段）
+        return Ok(new
+        {
+            created.Id,
+            created.Name,
+            created.Avatar,
+            created.Notice,
+            created.OwnerId,
+            created.Members,
+            NoticeReadByMe = true,
+            NoticeReadCount = 0,
+            NoticeTotal = created.Members.Count,
+            JoinPolicy = created.JoinPolicy,
+            JoinQuestion = created.JoinQuestion,
+            JoinAnswer = created.JoinAnswer,
+            JoinPending = 0,
+            created.MuteAll,
+            CreatedFromMe = true,
+        });
     }
     [HttpGet("groups/{id}")]
     public IActionResult Detail(string id)
@@ -505,12 +637,15 @@ public class GroupsController : ControllerBase
         {
             if (!_store.Groups.TryGetValue(id, out var g)) return NotFound();
             // 非成员不得读取群详情与成员名单（用 NotFound 避免群 id 可枚举）
-            if (!g.Members.Any(m => m.UserId == me)) return NotFound();
+            var meMember = g.Members.FirstOrDefault(m => m.UserId == me);
+            if (meMember == null) return NotFound();
+            var isGroupAdmin = meMember.Role is "owner" or "admin";
             var members = g.Members.Select(m => new
             {
                 m.UserId,
                 m.Role,
                 m.Muted,
+                m.MutedUntil,
                 m.Title,
                 // 群内显示名：本群昵称优先，否则大面昵称
                 Nickname = !string.IsNullOrEmpty(m.Nickname)
@@ -540,7 +675,13 @@ public class GroupsController : ControllerBase
                 NoticeTotal = total,
                 // 加群策略 + 待审批数（前端群设置页据此显示「开放/需审批」与待审批入口）
                 JoinPolicy = string.IsNullOrEmpty(g.JoinPolicy) ? "approve" : g.JoinPolicy,
-                JoinPending = g.JoinRequests?.Count ?? 0,
+                // 入群问题/答案必须回显给群设置页：此前详情不返回这两个字段，
+                // 管理员打开设置改任意一项再保存，就会把已有的问题与答案写成空串（静默清空）。
+                // 答案只给群主/管理员 —— 普通成员拿到答案，问题验证就失去意义。
+                JoinQuestion = isGroupAdmin ? g.JoinQuestion : null,
+                JoinAnswer = isGroupAdmin ? g.JoinAnswer : null,
+                JoinPending = isGroupAdmin ? (g.JoinRequests?.Count ?? 0) : 0,
+                g.MuteAll,
                 IAmMember = true,
             });
         }
@@ -738,6 +879,11 @@ public class GroupsController : ControllerBase
             var actor = g.Members.FirstOrDefault(x => x.UserId == me);
             if (actor == null || (actor.Role != "owner" && actor.Role != "admin")) return Forbid();
             g.JoinRequests ??= new();
+            // 只能拒绝「真实提交过申请」的人：此前不校验存在性，任意人建一个群就能对
+            // 全站任意 userId 调用本接口 —— 服务端会给他开一个私聊会话并投递一条
+            // 署名「系统」的灰字消息（理由由攻击者填 64 字），是可信度极高的社工通道。
+            if (g.JoinRequests.All(r => r.UserId != userId))
+                return NotFound(new { error = "该用户没有待审批的入群申请" });
             g.JoinRequests.RemoveAll(r => r.UserId == userId);
             groupName = g.Name;
             _store.MarkDirty();
@@ -867,6 +1013,7 @@ public class GroupsController : ControllerBase
                     if (!Validate.IsFileId(req.Avatar))
                         return BadRequest(new { error = "群头像无效，请重新上传" });
                     if (!_store.Files.TryGetValue(req.Avatar, out var av)
+                        || av.Kind != "avatar"
                         || !_store.CanReadFile(av.Id, av.UploaderId, me))
                         return BadRequest(new { error = "群头像文件不可用，请重新上传" });
                 }
@@ -874,7 +1021,21 @@ public class GroupsController : ControllerBase
             }
 
             // 加群策略（QQ 式四选一）：仅群主/管理员可改；白名单防注入。
-            // question 模式必须同时设置问题和答案（答案不回显给非管理员）。
+            // question 模式必须同时有「问题」和「答案」：缺任一（尤其答案空串）时，
+            // 入群校验退化成 string.Equals(answer, "") —— 任何人提交空答案就能直接进群，
+            // 界面却仍显示「需回答问题」。这里按「本次修改生效后的值」在写入前校验，
+            // 避免「先改一半再报错、内存里留下半截状态」。
+            if (actor.Role is "owner" or "admin")
+            {
+                var effPolicy = req.JoinPolicy is "open" or "approve" or "question" or "none"
+                    ? req.JoinPolicy
+                    : g.JoinPolicy;
+                var effQuestion = req.JoinQuestion != null ? (Validate.Clean(req.JoinQuestion, 64) ?? "") : g.JoinQuestion;
+                var effAnswer = req.JoinAnswer != null ? (Validate.Clean(req.JoinAnswer, 64) ?? "") : g.JoinAnswer;
+                if (effPolicy == "question"
+                    && (string.IsNullOrWhiteSpace(effQuestion) || string.IsNullOrWhiteSpace(effAnswer)))
+                    return BadRequest(new { error = "问题验证需要同时填写入群问题和标准答案" });
+            }
             if (req.JoinPolicy != null)
             {
                 if (actor.Role == "member") return Forbid();
@@ -934,6 +1095,13 @@ public class GroupsController : ControllerBase
     public async Task<IActionResult> AddMemberAction(string id, [FromBody] AddMember req)
     {
         var me = HttpContext.GetUserId();
+        // 频控：拉人入群会产生系统消息 + 对方的会话变更，是骚扰与刷数据的常见入口
+        if (_actionLimiter.IsOverLimit("group-invite", me, 30, TimeSpan.FromHours(1), out var giRetry))
+        {
+            HttpContext.Response.Headers["Retry-After"] = giRetry.ToString();
+            return StatusCode(StatusCodes.Status429TooManyRequests,
+                new { error = $"邀请过于频繁，{giRetry} 秒后再试", retryAfter = giRetry });
+        }
         bool added;
         lock (_store)
         {
@@ -1026,6 +1194,9 @@ public class GroupsController : ControllerBase
             {
                 if (actor.Role is not ("owner" or "admin")) return Forbid();
                 if (m.Role == "owner") return BadRequest(new { error = "不能禁言群主" });
+                // 与永久禁言同一口径：管理员之间互不禁言，只有群主能管管理员。
+                // 此前这里只判了 owner，普通管理员可以给同级管理员下发限时禁言（权限反转）。
+                if (m.Role == "admin" && actor.Role != "owner") return Forbid();
                 if (req.MutedMinutes.Value > 0)
                 {
                     if (req.MutedMinutes.Value > 60 * 24 * 30)

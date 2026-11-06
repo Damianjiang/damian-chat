@@ -13,15 +13,17 @@ public class DiscoveryController : ControllerBase
     private readonly DataStore _store;
     private readonly LogService _log;
     private readonly FeedbackStore _feedback;
+    private readonly ActionRateLimiter _actionLimiter;
 
     /// <summary>朋友圈可见性：统一走 MomentVisibility（含「陌生人十条」开关强制）。</summary>
     private bool MomentVisibleTo (Models.Moment m, string me) => MomentVisibility.IsVisible(_store, m, me);
 
-    public DiscoveryController(DataStore store, LogService log, FeedbackStore feedback)
+    public DiscoveryController(DataStore store, LogService log, FeedbackStore feedback, ActionRateLimiter actionLimiter)
     {
         _store = store;
         _log = log;
         _feedback = feedback;
+        _actionLimiter = actionLimiter;
     }
 
     /// <summary>发现页入口（不含小程序/游戏/视频号）。
@@ -52,10 +54,21 @@ public class DiscoveryController : ControllerBase
         if (targetId.Length > 64) return BadRequest(new { error = "举报目标无效" });
         if (reason.Length > 500) return BadRequest(new { error = "举报原因过长" });
 
+        // 频控：每次举报都会往 reports.jsonl 追加一行。没有上限时，脚本用
+        // 300 次/分的全站额度持续写，几分钟就能把真实审计记录挤出轮转窗口（反取证），
+        // 同时造成持续磁盘写。按发起人限速，写满即拒。
+        var me = HttpContext.GetUserId();
+        if (_actionLimiter.IsOverLimit("report", me, 5, TimeSpan.FromHours(1), out var rpRetry))
+        {
+            HttpContext.Response.Headers["Retry-After"] = rpRetry.ToString();
+            return StatusCode(StatusCodes.Status429TooManyRequests,
+                new { error = $"举报过于频繁，{rpRetry} 秒后再试", retryAfter = rpRetry });
+        }
+
         _log.Write("reports", new
         {
             ts = DateTime.UtcNow,
-            user = HttpContext.GetUserId(),
+            user = me,
             targetType,
             targetId,
             reason,
@@ -78,6 +91,13 @@ public class DiscoveryController : ControllerBase
             return BadRequest(new { error = "客户端快照过长" });
 
         var user = HttpContext.GetUserId();
+        // 频控（同举报）：反馈同样逐条落盘，无上限时可被脚本灌满轮转窗口
+        if (_actionLimiter.IsOverLimit("feedback", user, 10, TimeSpan.FromHours(1), out var fbRetry))
+        {
+            HttpContext.Response.Headers["Retry-After"] = fbRetry.ToString();
+            return StatusCode(StatusCodes.Status429TooManyRequests,
+                new { error = $"反馈提交过于频繁，{fbRetry} 秒后再试", retryAfter = fbRetry });
+        }
         // 昵称读共享字典必须持全局锁（与全库加锁约定一致，防并发注册/删号时的 ConcurrentModification）
         string? nickname;
         lock (_store)
@@ -112,6 +132,7 @@ public class FilesController : ControllerBase
     private readonly DataStore _store;
     private readonly WeChatWeb.Services.FileStore _files;
     private readonly SensitiveWordService _sw;
+    private readonly ActionRateLimiter _actionLimiter;
 
     // 功能性类型约束：头像要渲染成头像、语音要能播放，故限定图片/音频。
     // 普通「文件」上传（kind=file/默认）不限扩展名 —— 云盘逻辑，什么都能传（含 .exe/.zip/脚本）。
@@ -119,11 +140,12 @@ public class FilesController : ControllerBase
     private static readonly string[] AllowedAudio = { ".mp3", ".m4a", ".ogg", ".wav", ".amr", ".webm" };
 
     public FilesController(DataStore store, WeChatWeb.Services.FileStore files,
-        SensitiveWordService sw)
+        SensitiveWordService sw, ActionRateLimiter actionLimiter)
     {
         _store = store;
         _files = files;
         _sw = sw;
+        _actionLimiter = actionLimiter;
         // 全查回调：记忆缓存未命中时按需遍布在库用户（一次会后回填缓存）
         _ipHashScan = hash =>
         {
@@ -148,6 +170,16 @@ public class FilesController : ControllerBase
     public async Task<IActionResult> Upload(IFormFile file, [FromForm] string kind = "image")
     {
         if (file == null || file.Length == 0) return BadRequest(new { error = "文件为空" });
+
+        // 上传频控（按用户）：每次上传都是磁盘写入 + 元数据落盘，
+        // 全站共享 300 次/分的额度挡不住单账号连续灌小文件（会把正常请求一起拖到 429）。
+        var me = HttpContext.GetUserId();
+        if (_actionLimiter.IsOverLimit("upload", me, 40, TimeSpan.FromMinutes(1), out var upRetry))
+        {
+            HttpContext.Response.Headers["Retry-After"] = upRetry.ToString();
+            return StatusCode(StatusCodes.Status429TooManyRequests,
+                new { error = $"上传过于频繁，{upRetry} 秒后再试", retryAfter = upRetry });
+        }
 
         var safeName = Validate.CleanFileName(file.FileName);
         if (safeName == null) return BadRequest(new { error = "文件名不合法" });
@@ -185,7 +217,7 @@ public class FilesController : ControllerBase
         // 只会人为拖慢响应（100MB @10MB/s ≈ 10s 纯等待，1GB ≈ 100s）→ 客户端"卡在 100%"。
         // 网络公平性由 Kestrel 请求体大小上限保障，本地磁盘 I/O 无需额外限速。
         using var uploadStream = file.OpenReadStream();
-        var uploaderId = HttpContext.GetUserId();
+        var uploaderId = me;
         string id;
         bool dedup;
         try
@@ -305,11 +337,16 @@ public class FilesController : ControllerBase
             // 引用豁免检查必须持全局锁（全库约定）：否则与注册/删号/发朋友圈并发时
             // 枚举 Users/Groups/Moments 会抛 "Collection was modified" → 500
             bool exempt;
+            // 引用豁免只对**图片**成立：头像/朋友圈配图本来就是图片场景。
+            // 不限定类型时，把私聊里收到的 PDF/压缩包设成自己的头像（或塞进朋友圈），
+            // 就能借这条豁免把任意文件变成「全站登录用户可下载」的公开资源。
+            bool isImage = IsImageMeta(meta);
             lock (_store)
             {
-                bool avatarRef = _store.Users.Values.Any(u => u.Avatar == id)
-                    || _store.Groups.Values.Any(g => g.Avatar == id);
-                bool momentRef = _store.Moments.Any(m =>
+                bool avatarRef = isImage
+                    && (_store.Users.Values.Any(u => u.Avatar == id)
+                        || _store.Groups.Values.Any(g => g.Avatar == id));
+                bool momentRef = isImage && _store.Moments.Any(m =>
                     (m.Images?.Contains(id) ?? false) && MomentVisibleTo(m, me));
                 exempt = avatarRef || momentRef;
             }
@@ -317,6 +354,18 @@ public class FilesController : ControllerBase
         }
 
         return StreamFile(meta);
+    }
+
+    /// <summary>
+    /// 该文件是否图片：按 ContentType + 扩展名白名单双重判定。
+    /// 用于「头像 / 朋友圈」引用豁免——只有图片才允许走站内公开读。
+    /// </summary>
+    private static bool IsImageMeta (Models.FileMeta m)
+    {
+        var ct = (m.ContentType ?? "").Trim().ToLowerInvariant();
+        if (ct.StartsWith("image/")) return true;
+        var ext = Path.GetExtension(m.FileName ?? "").ToLowerInvariant();
+        return AllowedImage.Contains(ext);
     }
 
     // ---------------- 签名票据 ----------------

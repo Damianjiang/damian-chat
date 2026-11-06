@@ -44,14 +44,20 @@ public class UsersController : ControllerBase
     private readonly EmailCodeService _emailCode;
     private readonly Microsoft.AspNetCore.SignalR.IHubContext<WeChatWeb.Hubs.ChatHub> _hub;
     private readonly LogService _log;
-    public UsersController(DataStore store, SecuritySettings sec, EmailCodeService emailCode, Microsoft.AspNetCore.SignalR.IHubContext<WeChatWeb.Hubs.ChatHub> hub, LogService log)
+    private readonly SliderCaptchaService _slider;
+    private readonly ActionRateLimiter _actionLimiter;
+    public UsersController(DataStore store, SecuritySettings sec, EmailCodeService emailCode, Microsoft.AspNetCore.SignalR.IHubContext<WeChatWeb.Hubs.ChatHub> hub, LogService log, SliderCaptchaService slider, ActionRateLimiter actionLimiter)
     {
         _store = store;
         _sec = sec;
         _emailCode = emailCode;
         _hub = hub;
         _log = log;
+        _slider = slider;
+        _actionLimiter = actionLimiter;
     }
+
+    private string Ip => HttpContext.Connection.RemoteIpAddress?.ToString() ?? "";
 
     [HttpGet("users/me")]
     public IActionResult Me()
@@ -82,17 +88,42 @@ public class UsersController : ControllerBase
         };
     }
 
-    public record ChangeWxIdRequest (string WxId);
+    public record ChangeWxIdRequest (string WxId, string? PassToken = null);
 
     /// <summary>
     /// 修改大面号（微信式）：唯一 + 格式校验 + 冷却（管理端可配天数，0=不限）。
     /// 改成自定义号后立即可被搜索（WxIdCustom=true）。
+    ///
+    /// 安全：改号是账号身份变更（改完就能被搜索、可被用于冒充），必须过滑块人机验证
+    /// （服务端强制，EnableSlider 关闭时跳过）—— 与改密、改资料同一把闸。
     /// </summary>
     [HttpPut("users/me/wxid")]
     public IActionResult ChangeWxId ([FromBody] ChangeWxIdRequest req)
     {
         var user = HttpContext.FindUser(_store);
         if (user is null) return NotFound();
+        var me = user.Id;
+
+        if (_actionLimiter.IsOverLimit("wxid-change", me, 5, TimeSpan.FromHours(1), out var wxRetry))
+        {
+            HttpContext.Response.Headers["Retry-After"] = wxRetry.ToString();
+            return StatusCode(StatusCodes.Status429TooManyRequests,
+                new { error = $"操作过于频繁，{wxRetry} 秒后再试", retryAfter = wxRetry });
+        }
+        if (_sec.EnableSlider)
+        {
+            var pass = _slider.ConsumePass(req.PassToken, Ip);
+            if (pass != SliderPassResult.Ok)
+            {
+                _log.Write("auth", new { ts = DateTime.UtcNow, result = "wxid-slider-missing", user = me, ip = Ip });
+                return BadRequest(new
+                {
+                    error = pass == SliderPassResult.NotReady ? "安全检测尚未完成，请稍候重试" : "修改大面号前请先完成安全验证",
+                    needCaptcha = true,
+                });
+            }
+        }
+
         var wxId = (req.WxId ?? "").Trim().ToLowerInvariant();
         if (!Validate.IsWxId(wxId))
             return BadRequest(new { error = "大面号需 6-20 位，小写字母开头，可含数字/下划线/连字符" });
@@ -109,8 +140,15 @@ public class UsersController : ControllerBase
             }
             // 大面号唯一性按大小写不敏感比较：此前「Damian」和「damian」可共存，
             // 搜索/登录按大小写匹配会出现同形号占位与行为分裂
-            if (_store.Users.Values.Any(u => string.Equals(u.WxId, wxId, StringComparison.OrdinalIgnoreCase)))
+            if (_store.Users.Values.Any(u => u.Id != me && string.Equals(u.WxId, wxId, StringComparison.OrdinalIgnoreCase)))
                 return Conflict(new { error = "该大面号已被使用" });
+            // 还要避开别人的「登录账号 / 邮箱」：登录按 Phone 或 WxId 匹配，
+            // 允许把大面号改成他人的手机号/邮箱会破坏注册时建立的三者互斥不变量，
+            // 搜人/加好友会按字典顺序命中不同的人（可被用于冒充）。
+            if (_store.Users.Values.Any(u => u.Id != me
+                    && (string.Equals(u.Phone, wxId, StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(u.Email ?? "", wxId, StringComparison.OrdinalIgnoreCase))))
+                return Conflict(new { error = "该大面号不可用" });
             user.WxId = wxId;
             user.WxIdCustom = true;
             user.WxIdChangedAt = DateTime.UtcNow;
@@ -151,6 +189,15 @@ public class UsersController : ControllerBase
     public async Task<IActionResult> KickSession (string sid)
     {
         var me = HttpContext.GetUserId();
+        // 踢设备是「反取证」动作：拿到一个 2 小时有效的 access token 就能把受害者
+        // 所有在线端踢下线、清空设备列表，让受害者再也看不到异常登录记录。
+        // 真正的二次验证在改密链路上，这里至少加上严格频控并留安全日志。
+        if (_actionLimiter.IsOverLimit("session-kick", me, 5, TimeSpan.FromHours(1), out var kickRetry))
+        {
+            HttpContext.Response.Headers["Retry-After"] = kickRetry.ToString();
+            return StatusCode(StatusCodes.Status429TooManyRequests,
+                new { error = $"操作过于频繁，{kickRetry} 秒后再试", retryAfter = kickRetry });
+        }
         if (sid == MySid) return BadRequest(new { error = "不能踢出当前设备（请用退出登录）" });
         bool kicked;
         lock (_store) { kicked = _store.EndSession(me, sid); }
@@ -178,6 +225,13 @@ public class UsersController : ControllerBase
     public async Task<IActionResult> KickAllOtherSessions ()
     {
         var me = HttpContext.GetUserId();
+        // 同 KickSession：全量踢下线的影响面更大，频控更严（每小时 3 次）。
+        if (_actionLimiter.IsOverLimit("session-kick-all", me, 3, TimeSpan.FromHours(1), out var kickAllRetry))
+        {
+            HttpContext.Response.Headers["Retry-After"] = kickAllRetry.ToString();
+            return StatusCode(StatusCodes.Status429TooManyRequests,
+                new { error = $"操作过于频繁，{kickAllRetry} 秒后再试", retryAfter = kickAllRetry });
+        }
         int n;
         lock (_store) { n = _store.EndAllSessionsExcept(me, MySid ?? ""); }
         if (n > 0)
@@ -321,11 +375,68 @@ public class UsersController : ControllerBase
         public string Gender { get; set; } = "unknown";
     }
 
-    public record UpdateProfile(string? Nickname, string? Signature, string? Region, string? Gender, string? Avatar, Dictionary<string, bool>? Privacy);
+    /// <summary>
+    /// 修改自己的资料。
+    ///
+    /// 安全口径（此前完全没有）：
+    ///  • 昵称/签名/地区/性别/头像 = 对外可见的身份字段，是冒充、骚扰、刷屏的入口。
+    ///    这些字段的写入必须消费一次**滑块 passToken**（与登录/注册/改密同一把闸，服务端强制），
+    ///    并叠加用户维度频控 —— 前端弹不弹滑块与安全无关，直接 POST 也过不去。
+    ///  • 隐私开关（privacy）是低风险的个人偏好，每次切换都要滑块会毁掉体验，只受频控约束。
+    /// </summary>
+    public record UpdateProfileRequest (string? Nickname, string? Signature, string? Region, string? Gender, string? Avatar, Dictionary<string, bool>? Privacy, string? PassToken = null);
 
     [HttpPut("users/me")]
-    public IActionResult UpdateMe([FromBody] UpdateProfile req)
+    public IActionResult UpdateMe([FromBody] UpdateProfileRequest req)
     {
+        var me = HttpContext.GetUserId();
+
+        var identityTouch = req.Nickname != null || req.Signature != null
+            || req.Region != null || req.Gender != null || req.Avatar != null;
+
+        // 频控：任何资料写入每 10 分钟最多 30 次。
+        // 阈值不能太紧 —— 设置页的隐私开关是「一次切换一个请求」，批量调整会连续打十几次。
+        if (_actionLimiter.IsOverLimit("profile-write", me, 30, TimeSpan.FromMinutes(10), out var profRetry))
+        {
+            HttpContext.Response.Headers["Retry-After"] = profRetry.ToString();
+            return StatusCode(StatusCodes.Status429TooManyRequests,
+                new { error = $"资料修改过于频繁，{profRetry} 秒后再试", retryAfter = profRetry });
+        }
+
+        if (identityTouch)
+        {
+            // 身份字段更严：每 10 分钟最多 5 次
+            if (_actionLimiter.IsOverLimit("profile-identity", me, 5, TimeSpan.FromMinutes(10), out var idRetry))
+            {
+                HttpContext.Response.Headers["Retry-After"] = idRetry.ToString();
+                return StatusCode(StatusCodes.Status429TooManyRequests,
+                    new { error = $"资料修改过于频繁，{idRetry} 秒后再试", retryAfter = idRetry });
+            }
+
+            // 人机验证（管理端可关，与登录同一开关）：一次性 passToken、绑 IP、90 秒有效
+            if (_sec.EnableSlider)
+            {
+                var pass = _slider.ConsumePass(req.PassToken, Ip);
+                if (pass != SliderPassResult.Ok)
+                {
+                    _log.Write("auth", new
+                    {
+                        ts = DateTime.UtcNow,
+                        result = pass == SliderPassResult.NotReady ? "profile-slider-not-ready" : "profile-slider-missing",
+                        user = me,
+                        ip = Ip,
+                    });
+                    return BadRequest(new
+                    {
+                        error = pass == SliderPassResult.NotReady
+                            ? "安全检测尚未完成，请稍候重试"
+                            : "修改资料前请先完成安全验证",
+                        needCaptcha = true,   // 前端据此弹滑块（不依赖它做安全）
+                    });
+                }
+            }
+        }
+
         var user = HttpContext.FindUser(_store);
         if (user is null) return NotFound();
         // 服务端校验：昵称/签名/地区长度、性别白名单；头像改为「上传模型」
@@ -345,7 +456,6 @@ public class UsersController : ControllerBase
         if (req.Privacy is { Count: > 50 })
             return BadRequest(new { error = "隐私项过多" });
 
-        var me = HttpContext.GetUserId();
         lock (_store)
         {
             // 头像 fileId 必须真实存在且我可访问（防越权引用他人文件 / 悬挂 id）
@@ -353,7 +463,12 @@ public class UsersController : ControllerBase
                 return BadRequest(new { error = "头像无效，请重新上传" });
             if (!string.IsNullOrWhiteSpace(req.Avatar))
             {
+                // 头像必须是**本人上传的、用途为 avatar 的图片**：
+                // 此前只判「我能读」，于是把私聊里收到的 PDF/压缩包设成头像，
+                // 就能借下载端的「头像站内公开」豁免，把它变成全站可下载的公开资源。
                 if (!_store.Files.TryGetValue(req.Avatar, out var av)
+                    || av.Kind != "avatar"
+                    || av.UploaderId != me
                     || !_store.CanReadFile(av.Id, av.UploaderId, me))
                     return BadRequest(new { error = "头像文件不可用，请重新上传" });
             }
@@ -389,10 +504,12 @@ public class ContactsController : ControllerBase
 {
     private readonly DataStore _store;
     private readonly Microsoft.AspNetCore.SignalR.IHubContext<WeChatWeb.Hubs.ChatHub> _hub;
-    public ContactsController(DataStore store, Microsoft.AspNetCore.SignalR.IHubContext<WeChatWeb.Hubs.ChatHub> hub)
+    private readonly ActionRateLimiter _actionLimiter;
+    public ContactsController(DataStore store, Microsoft.AspNetCore.SignalR.IHubContext<WeChatWeb.Hubs.ChatHub> hub, ActionRateLimiter actionLimiter)
     {
         _store = store;
         _hub = hub;
+        _actionLimiter = actionLimiter;
     }
 
     [HttpGet("contacts")]
@@ -439,8 +556,10 @@ public class ContactsController : ControllerBase
         lock (_store)
         {
             var me = HttpContext.GetUserId();
+            // 只返回「发给我的」申请。此前附带 r.ReceiverId 为空的历史脏数据，
+            // 会把申请人 id / 留言下发给每一个登录用户（且谁都处理不了，纯泄露）。
             var pending = _store.FriendRequests
-                .Where(r => r.Status == "pending" && (r.ReceiverId == me || string.IsNullOrEmpty(r.ReceiverId)))
+                .Where(r => r.Status == "pending" && r.ReceiverId == me)
                 .ToList();
             return Ok(pending.Select(r => new
             {
@@ -490,6 +609,19 @@ public class ContactsController : ControllerBase
     public async Task<IActionResult> Add ([FromBody] AddContact req)
     {
         var me = HttpContext.GetUserId();
+
+        // 加好友频控（按发起人，服务端强制）：这是最容易被脚本拿去批量骚扰的入口 ——
+        // 没有用户维度限制时，一分钟内可以给全站用户各投一条申请，并把对方的
+        // 「新的朋友」列表持续撑大（pending 不会被自动清理）。
+        // 双阈值：长周期防批量（10 条/小时），短周期防瞬时爆发（3 条/分钟）。
+        if (_actionLimiter.IsOverLimit("friend-req", me, 10, TimeSpan.FromHours(1), out var frRetry)
+            || _actionLimiter.IsOverLimit("friend-req-burst", me, 3, TimeSpan.FromMinutes(1), out frRetry))
+        {
+            HttpContext.Response.Headers["Retry-After"] = frRetry.ToString();
+            return StatusCode(StatusCodes.Status429TooManyRequests,
+                new { error = $"添加好友过于频繁，{frRetry} 秒后再试", retryAfter = frRetry });
+        }
+
         User? target;
         string myNickname = "";
         FriendRequest fr;

@@ -278,6 +278,9 @@ builder.Services.AddSingleton<JwtService>();
 builder.Services.AddSingleton<DataStore>();
 // 消息洪泛上限（按 JWT sub 身份计数，单例跨请求共享）：防偷 token / 绕过人机验证 / 轮换 IP 池重放
 builder.Services.AddSingleton<MessageFloodLimiter>();
+// 通用「身份 + 动作」限流（拍一拍 / 改资料 / 加好友 / 踢设备 / 举报反馈…），必须是单例：
+// 控制器是 transient，计数放实例字段等于每次请求都清零，限速形同虚设。
+builder.Services.AddSingleton<WeChatWeb.Data.ActionRateLimiter>();
 builder.Services.AddSingleton<WeChatWeb.Services.FileStore>();
 builder.Services.AddHostedService<WeChatWeb.Services.FileCleanupService>();
 // 日志定期清理（7 天过期）：防止 logs/ 长期挂机写满磁盘
