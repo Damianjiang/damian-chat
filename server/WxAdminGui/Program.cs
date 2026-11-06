@@ -63,12 +63,13 @@ internal sealed class WxConfig
     public bool AutoRun { get; set; }
     /// <summary>
     /// HTTPS 证书路径（PKCS#12 .pfx/.p12）。空 = 默认 Data/certs/selfsigned.pfx；
-    /// 文件存在即启用 HTTPS（网站设置）：主端口对外全 TLS，GUI 管理 API 走本机环回明文口。
+    /// 文件存在即启用 HTTPS（网站设置）：主端口直接对外 TLS，明文跳转口=主端口+1，
+    /// GUI 管理 API 走本机环回明文口（主端口+2）。
     /// 默认不开 HTTPS —— 不放证书就是纯 HTTP，行为与历史版本完全一致。
     /// </summary>
     public string CertPath { get; set; } = "";
-    /// <summary>HTTPS 端口（0=自动）：TLS 模式下 HTTPS 的监听端口 —— 自动时 443 空闲用 443，否则主端口+1。
-    /// 主端口保留明文仅做 307 跳转（用户习惯的 http://ip:主端口 依然可达并自动升级）。</summary>
+    /// <summary>额外 HTTPS 端口（0=自动）：主端口本身已直接 TLS，此端口只是再加绑一个 TLS 口 ——
+    /// 自动时 443 空闲则绑 443（内网裸域名 https-first 直达），被占（Steam++/IIS 等）就不绑。</summary>
     public int HttpsPort { get; set; } = 0;
 
     public static WxConfig Load()
@@ -506,10 +507,10 @@ internal sealed class MainForm : Form
         var certRow = new FlowLayoutPanel { AutoSize = true, WrapContents = true };
         certRow.Controls.AddRange(new Control[] { new Label { Text = "证书文件(PFX)：", AutoSize = true, Padding = new Padding(0, 6, 0, 0) }, _txtCertPath, _btnCertBrowse });
         var passRow = new FlowLayoutPanel { AutoSize = true, WrapContents = true };
-        passRow.Controls.AddRange(new Control[] { new Label { Text = "证书密码：", AutoSize = true, Padding = new Padding(0, 6, 0, 0) }, _txtCertPass, new Label { Text = "HTTPS 端口(0=自动)：", AutoSize = true, Padding = new Padding(14, 6, 0, 0) }, _nudHttpsPort, _btnSiteSave });
+        passRow.Controls.AddRange(new Control[] { new Label { Text = "证书密码：", AutoSize = true, Padding = new Padding(0, 6, 0, 0) }, _txtCertPass, new Label { Text = "额外HTTPS端口(0=自动)：", AutoSize = true, Padding = new Padding(14, 6, 0, 0) }, _nudHttpsPort, _btnSiteSave });
         var siteHint = new Label
         {
-            Text = "证书文件存在 = 主端口对外 HTTPS（管理 API 自动改走本机环回明文口）。「HTTP 跳转端口」绑一个明文口，\r\n收到的请求 307 跳到 https 主端口（0=关闭）。证书密码写入证书同目录 cert.pass（不进 git）。改动后点「保存并重启服务」。",
+            Text = "证书文件存在 = 主端口直接对外 HTTPS（https://域名:主端口 直达）。「额外 HTTPS 端口」再加绑一个 TLS 口\r\n（0=自动：443 空闲则绑 443，内网裸域名可直接 https 访问）；主端口+1 是明文口，收到的 http 请求 307 跳到 https 主端口；\r\n管理 API=主端口+2 环回明文。证书密码写入证书同目录 cert.pass（不进 git）。改动后点「保存并重启服务」。",
             AutoSize = true,
             ForeColor = Color.DimGray,
         };
@@ -1024,17 +1025,17 @@ internal sealed class MainForm : Form
             _msg.Text = $"端口 {_cfg.Port} 被占用。";
             return;
         }
-        // 网站设置：证书存在 = TLS 模式 —— 主端口保留「明文 HTTP」，仅做 307 跳转到
-        // HTTPS 端口（用户习惯的 http://ip:主端口 依然可达并自动升级到 https）；
-        // HTTPS 走独立端口（默认自动：443 空闲用 443，否则主端口+1）；GUI 管理 API
-        // 走本机环回主端口+2（明文、仅本机，豁免跳转）。443 被占（Steam++ 等）自动让位。
+        // 网站设置：证书存在 = TLS 模式 —— 主端口直接对外 HTTPS（用户输入 https://域名:主端口
+        // 直达；路由器只转发一个端口时也能用 https）；主端口+1 是明文口，收到的 http 请求
+        // 307 跳回 https 主端口（显式输 http://ip:主端口+1 的兼容路）；GUI 管理 API 走本机环回
+        // 主端口+2（明文、仅本机，豁免跳转）。「额外 HTTPS 端口」自动时 443 空闲则加绑 443。
         var tls = File.Exists(ResolveCertPath());
-        var httpsPort = EffectiveHttpsPort();
+        var bonusTls = BonusTlsPort();
         if (tls)
         {
-            if (PortInUse(httpsPort))
+            if (PortInUse(_cfg.Port + 1))
             {
-                _msg.Text = $"HTTPS 端口 {httpsPort} 被占用，无法启动（可在「网站设置」里改 HTTPS 端口或释放 443）。";
+                _msg.Text = $"明文跳转端口 {_cfg.Port + 1} 被占用，无法启动（TLS 模式下该端口收 http 请求并 307 跳到 https 主端口）。";
                 return;
             }
             if (PortInUse(_cfg.Port + 2))
@@ -1042,14 +1043,19 @@ internal sealed class MainForm : Form
                 _msg.Text = $"管理端口 {_cfg.Port + 2} 被占用，无法启动（TLS 模式下该端口为 GUI 管理专用环回口）。";
                 return;
             }
+            if (bonusTls > 0 && PortInUse(bonusTls))
+            {
+                _msg.Text = $"HTTPS 端口 {bonusTls} 被占用，无法启动（可在「网站设置」里改额外端口或释放 443；设为 0 = 自动让位）。";
+                return;
+            }
         }
 
         var urlsArg = tls
-            ? $"http://0.0.0.0:{_cfg.Port},http://127.0.0.1:{_cfg.Port + 2}"
+            ? $"http://0.0.0.0:{_cfg.Port + 1},http://127.0.0.1:{_cfg.Port + 2}"
             : $"http://0.0.0.0:{_cfg.Port}";
         AppendConsole($"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] ===== 启动服务 " +
                       (tls
-                          ? $"https://0.0.0.0:{httpsPort}（主端口 http://0.0.0.0:{_cfg.Port} 仅做 307 跳转；管理环回 http://127.0.0.1:{_cfg.Port + 2}）"
+                          ? $"https://0.0.0.0:{_cfg.Port}（明文 http://0.0.0.0:{_cfg.Port + 1} 仅做 307 跳转；管理环回 http://127.0.0.1:{_cfg.Port + 2}）"
                           : $"http://0.0.0.0:{_cfg.Port}（监听所有网卡，局域网用本机 IP 访问）") +
                       " =====");
 
@@ -1065,7 +1071,7 @@ internal sealed class MainForm : Form
         psi.ArgumentList.Add(G.WebDll);
         psi.ArgumentList.Add("--urls");
         psi.ArgumentList.Add(urlsArg);
-        ApplyHttpsEnv(psi, httpsPort);
+        ApplyHttpsEnv(psi, bonusTls);
         var proc = Spawn(psi)!;
 
         // 控制台输出（等价 dotnet 控制台）→ logs/console.log，GUI 日志页直读
@@ -1081,29 +1087,34 @@ internal sealed class MainForm : Form
             _msg.Text = "服务启动失败，请查看「日志/控制台」页。";
             return;
         }
-        _msg.Text = $"服务已启动：{(tls ? $"https://0.0.0.0:{httpsPort}（http://{_cfg.Port} 仅跳转）" : $"http://0.0.0.0:{_cfg.Port}")}（PID {proc.Id}）";
+        _msg.Text = $"服务已启动：{(tls ? $"https://0.0.0.0:{_cfg.Port}（http:{_cfg.Port + 1} 仅跳转）" : $"http://0.0.0.0:{_cfg.Port}")}（PID {proc.Id}）";
     }
 
-    /// <summary>TLS 模式的 HTTPS 端口：网站设置 >0 用设置；否则自动 —— 443 空闲用 443，被占（Steam++/IIS 等）退主端口+1。</summary>
-    private int EffectiveHttpsPort ()
+    /// <summary>TLS 模式的额外 HTTPS 端口（主端口本身已直接 HTTPS）：网站设置 >0 用设置；
+    /// 否则 443 空闲时加绑 443，被占（Steam++/IIS 等）就不绑（返回 0）。</summary>
+    private int BonusTlsPort ()
     {
         if (_cfg.HttpsPort > 0) return _cfg.HttpsPort;
-        return PortInUse(443) ? _cfg.Port + 1 : 443;
+        return PortInUse(443) ? 0 : 443;
     }
 
     /// <summary>
-    /// DEP-SEC HTTPS：证书存在即注入 WX_HTTPS_* 环境变量（单 TLS 端口）。
+    /// DEP-SEC HTTPS：证书存在即注入 WX_HTTPS_* 环境变量（主端口 TLS + 可选额外端口）。
     /// 端口被占（如 IIS）由服务端逐端口跳过并告警，绝不因绑定失败整站起不来。
     /// </summary>
-    private void ApplyHttpsEnv(ProcessStartInfo psi, int httpsPort)
+    private void ApplyHttpsEnv(ProcessStartInfo psi, int bonusTls)
     {
         var cert = ResolveCertPath();
         if (!File.Exists(cert)) return;
         psi.EnvironmentVariables["WX_HTTPS_CERT"] = cert;
         psi.EnvironmentVariables["WX_HTTPS_CERT_PASSWORD"] = ReadCertPassword(cert);
-        psi.EnvironmentVariables["WX_HTTPS_PORT"] = httpsPort.ToString();
-        AppendConsole($"[HTTPS] 证书已加载（{cert}）→ https://0.0.0.0:{httpsPort}"
-                      + $"（主端口 http://0.0.0.0:{_cfg.Port} 仅 307 跳转；管理 API 走本机环回 http://127.0.0.1:{_cfg.Port + 2}）");
+        // 主端口直接 HTTPS；WX_HTTPS_REDIRECT_PORT 告诉服务端明文 307 的目标 = 主端口
+        // （不能跳 443 —— 公网 443 可能被路由器/其它服务转发走，跳过去会落到别人家）
+        psi.EnvironmentVariables["WX_HTTPS_PORT"] = bonusTls > 0 ? $"{_cfg.Port},{bonusTls}" : _cfg.Port.ToString();
+        psi.EnvironmentVariables["WX_HTTPS_REDIRECT_PORT"] = _cfg.Port.ToString();
+        AppendConsole($"[HTTPS] 证书已加载（{cert}）→ https://0.0.0.0:{_cfg.Port}"
+                      + (bonusTls > 0 ? $" + https://0.0.0.0:{bonusTls}" : "")
+                      + $"（明文 http://0.0.0.0:{_cfg.Port + 1} 仅 307 跳转；管理 API 走本机环回 http://127.0.0.1:{_cfg.Port + 2}）");
     }
 
     /// <summary>证书路径：GUI「网站设置」配置的路径优先，空则回退默认 Data/certs/selfsigned.pfx。</summary>
@@ -1246,7 +1257,7 @@ internal sealed class MainForm : Form
     {
         var path = string.IsNullOrWhiteSpace(_txtCertPath.Text) ? DefaultCertHint : _txtCertPath.Text.Trim();
         _lblSiteHint.Text = File.Exists(path)
-            ? $"HTTPS 已就绪：{path}（重启服务后按 TLS 模式启动）"
+            ? $"HTTPS 已就绪：{path}（重启服务后主端口 {_cfg.Port} 直接 https）"
             : "未找到证书文件 —— 当前将按纯 HTTP 启动（把 .pfx/.p12 放进上面路径即启用 HTTPS）。";
     }
 
@@ -1265,7 +1276,7 @@ internal sealed class MainForm : Form
     }
 
     /// <summary>
-    /// 保存网站设置：证书路径 / 口令（写 cert.pass 到证书同目录）/ HTTP 跳转端口，
+    /// 保存网站设置：证书路径 / 口令（写 cert.pass 到证书同目录）/ 额外 HTTPS 端口，
     /// 并重启服务立即生效。口令只在磁盘 cert.pass 与界面之间流转，不写进 wxadmin.json。
     /// </summary>
     private void SaveSite ()
@@ -1328,7 +1339,7 @@ internal sealed class MainForm : Form
     private void OpenWeb()
     {
         // 前端已编译进后端 wwwroot，直接打开后端地址即可，无需另起前端
-        Spawn(new ProcessStartInfo { FileName = $"{(TlsMode ? "https" : "http")}://localhost:{(TlsMode ? EffectiveHttpsPort() : _cfg.Port)}", UseShellExecute = true });
+        Spawn(new ProcessStartInfo { FileName = $"{(TlsMode ? "https" : "http")}://localhost:{_cfg.Port}", UseShellExecute = true });
     }
 
     /// <summary>
@@ -1417,7 +1428,7 @@ internal sealed class MainForm : Form
 
         _lblStatus.Text = listening ? "状态：运行中" : "状态：未运行";
         _lblStatus.ForeColor = listening ? Color.FromArgb(7, 193, 96) : Color.Gray;
-        _lblDetail.Text = $"端口 {_cfg.Port}（{(listening ? "已监听" : "空闲")}） · PID {(_pid > 0 ? _pid.ToString() : (listening ? "未知（外部启动）" : "-"))} · {(TlsMode ? $"https://0.0.0.0:{EffectiveHttpsPort()}（http:{_cfg.Port} 仅跳转）" : $"http://0.0.0.0:{_cfg.Port}")}（前端已内置）";
+        _lblDetail.Text = $"端口 {_cfg.Port}（{(listening ? "已监听" : "空闲")}） · PID {(_pid > 0 ? _pid.ToString() : (listening ? "未知（外部启动）" : "-"))} · {(TlsMode ? $"https://0.0.0.0:{_cfg.Port}（http:{_cfg.Port + 1} 仅跳转）" : $"http://0.0.0.0:{_cfg.Port}")}（前端已内置）";
         _btnStart.Enabled = !listening;
         // 停止/重启：服务在跑就能尝试（pid 文件缺失时按端口兜底 kill），不再因 pid 未知而灰掉
         _btnStop.Enabled = listening;

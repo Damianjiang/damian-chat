@@ -27,13 +27,14 @@ builder.Services.AddSwaggerGen();
 /*
  * DEP-SEC HTTPS（opt-in）：设置 WX_HTTPS_CERT（PFX 证书路径）即启用加密传输。
  * 明文 HTTP 下登录凭据 / JWT / 聊天全文在局域网内可被任一端抓包，是 Windows
- * 服务器"容易被攻击"的第一入口。启用后额外监听 https://{WX_HTTPS_BIND}:{WX_HTTPS_PORT}
- * （默认 0.0.0.0:5001），并对明文请求做 HTTPS 重定向 + HSTS。
+ * 服务器"容易被攻击"的第一入口。启用后按 WX_HTTPS_PORT（逗号分隔，可多个）直接以 TLS
+ * 监听 —— GUI 模式 = 主端口本身（用户输入 https://域名:主端口 直达）+ 可选 443；
+ * 明文请求 307 到 WX_HTTPS_REDIRECT_PORT（即主 TLS 端口）+ HSTS。
  * 未设置 WX_HTTPS_CERT 时完全维持现状（不 brick 现有内网双击启动用法）。
  */
 var httpsCert = Environment.GetEnvironmentVariable("WX_HTTPS_CERT");
 var httpsCertPass = Environment.GetEnvironmentVariable("WX_HTTPS_CERT_PASSWORD");
-// WX_HTTPS_PORT 支持逗号分隔的多个 TLS 端口（如 "30010,443"），默认 443
+// WX_HTTPS_PORT 支持逗号分隔的多个 TLS 端口（如 "30011,443"），默认 443
 var httpsPorts = (Environment.GetEnvironmentVariable("WX_HTTPS_PORT") ?? "443")
     .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
     .Select(s => int.TryParse(s, out var p) ? p : -1)
@@ -42,6 +43,11 @@ var httpsPorts = (Environment.GetEnvironmentVariable("WX_HTTPS_PORT") ?? "443")
     .ToArray();
 if (httpsPorts.Length == 0) httpsPorts = new[] { 443 };
 var httpsEnabled = !string.IsNullOrWhiteSpace(httpsCert) && File.Exists(httpsCert);
+// 明文 307 跳转的目标端口：GUI 模式 = 主 TLS 端口（对外地址就是 https://域名:主端口，
+// 不能跳到 443 —— 443 可能被路由器/其它服务占走，跳过去会落到别人家）。
+// 未设置（手动裸跑服务端）时回退：实际绑定成功的第一个 TLS 端口，再退 443。
+int? httpsRedirectPort = int.TryParse(Environment.GetEnvironmentVariable("WX_HTTPS_REDIRECT_PORT"), out var redirectPort) && redirectPort > 0
+    ? redirectPort : null;
 
 var httpsBound = false; // ConfigureKestrel 回调里置位；跳转中间件按请求时读取（回调在 host 构建时已执行）
 // 实际绑定成功的 TLS 端口（配置的端口可能被占用而跳过）—— 跳转中间件只跳到这里
@@ -349,9 +355,11 @@ if (httpsEnabled)
         // httpsBound=false（HTTPS 端口被占降级为纯 HTTP）时不能跳转，否则外部请求会被 307 到不属于我们的 443 上
         if (!loopback && ctx.Request.Scheme == "http" && httpsBound)
         {
-            // 跳转目标 = 实际绑定成功的 TLS 端口（configured 端口可能被外部进程占用而跳过）；
+            // 跳转目标 = 主 TLS 端口（WX_HTTPS_REDIRECT_PORT，GUI 传入）；手动裸跑时退回
+            // 实际绑定成功的第一个 TLS 端口（配置的端口可能被外部进程占用而跳过）；
             // 443 是标准 https 端口时省略 :port
-            var portSuffix = boundHttpsPorts.Contains(443) || boundHttpsPorts.Count == 0 ? "" : $":{boundHttpsPorts[0]}";
+            var redirectTarget = httpsRedirectPort ?? (boundHttpsPorts.Count > 0 ? boundHttpsPorts[0] : 443);
+            var portSuffix = redirectTarget == 443 ? "" : $":{redirectTarget}";
             ctx.Response.StatusCode = StatusCodes.Status307TemporaryRedirect;
             ctx.Response.Headers.Location =
                 $"https://{ctx.Request.Host.Host}{portSuffix}{ctx.Request.PathBase}{ctx.Request.Path}{ctx.Request.QueryString}";
