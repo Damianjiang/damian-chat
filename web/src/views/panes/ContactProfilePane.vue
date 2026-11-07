@@ -131,7 +131,7 @@
 
 <script setup lang="ts">
   import type { User } from '@/types'
-  import { computed, onMounted, ref } from 'vue'
+  import { computed, onMounted, ref, watch } from 'vue'
   import { useRoute, useRouter } from 'vue-router'
   import { api } from '@/lib/api'
   import { isPageMode } from '@/lib/device'
@@ -346,6 +346,20 @@
   }
 
   onMounted(load)
+
+  /**
+   * 桌面三栏（iPad/电脑）：右列详情面板按 detail 类型挂 key（同类型复用实例，不重新挂载），
+   * 所以 `/contacts/A` → `/contacts/B` 组件不重挂、onMounted 不会第二次执行 ——
+   * 不 watch 就"通讯录只能点一个人，换人得绕一圈"。手机端整页重挂没这问题。
+   * 与 ChatDetailPane 的 watch(route.params.id) 同一套路：id 变了就地重新拉数据。
+   */
+  watch(contactId, (id, old) => {
+    if (!id || id === old) return
+    user.value = null
+    remarkDraft.value = ''
+    remarkOrigin.value = ''
+    void load()
+  })
 </script>
 
 <style scoped>
