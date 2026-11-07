@@ -448,7 +448,7 @@ internal sealed class MainForm : Form
         _cmbLogType.SelectedIndexChanged += (_, _) => { if (!_logBusy) _logBusy = true; RunAsync(async () => { try { await LoadLogsAsync(); } finally { _logBusy = false; } }); };
         _btnLogRefresh.Click += (_, _) => { if (!_logBusy) _logBusy = true; RunAsync(async () => { try { await LoadLogsAsync(); } finally { _logBusy = false; } }); };
         _btnOnlineRefresh.Click += (_, _) => RunAsync(LoadOnlineAsync);
-        _btnFbRefresh.Click += (_, _) => RunAsync(LoadFeedbackAsync);
+        _btnFbRefresh.Click += (_, _) => RunAsync(() => LoadFeedbackAsync());
         _btnFbCopy.Click += (_, _) => Run(CopySelectedFeedback);
         _btnFbCopyAll.Click += (_, _) => Run(CopyAllFeedback);
         _btnFbDelete.Click += (_, _) => RunAsync(DeleteSelectedFeedbackAsync);
@@ -2837,7 +2837,12 @@ internal sealed class MainForm : Form
         public string? client { get; set; }
     }
 
-    private async Task LoadFeedbackAsync()
+    /// <summary>
+    /// 刷新反馈列表。quietOnFailure=true 时，刷新失败（网络/鉴权等）**不覆盖**
+    /// 已展示的删除结果文案 —— 删完刚把真实结果写进 _msg，若刷新因「密钥不一致/瞬时抖动」
+    /// 失败，旧逻辑会把 _msg 盖成误导性的「请先启动服务」（用户明明服务在跑、读取也正常）。
+    /// </summary>
+    private async Task LoadFeedbackAsync(bool quietOnFailure = false)
     {
         if (!_running)
         {
@@ -2851,7 +2856,7 @@ internal sealed class MainForm : Form
             _feedback.Items.Clear();
             if (dto == null || dto.items == null || dto.items.Count == 0)
             {
-                _msg.Text = "暂无用户反馈";
+                if (!quietOnFailure) _msg.Text = "暂无用户反馈";
                 return;
             }
             foreach (var it in dto.items)
@@ -2865,11 +2870,25 @@ internal sealed class MainForm : Form
                 row.SubItems.Add(it.body.Length > 60 ? it.body.Substring(0, 60) + "…" : it.body);
                 _feedback.Items.Add(row);
             }
-            _msg.Text = $"用户反馈 {dto.count} 条已加载";
+            if (!quietOnFailure) _msg.Text = $"用户反馈 {dto.count} 条已加载";
         }
-        catch
+        catch (Exception ex)
         {
-            _msg.Text = "用户反馈加载失败，请先启动服务";
+            if (quietOnFailure) return;   // 保留调用方刚写好的真实结果文案
+            // 用真实原因替代一刀切的「请先启动服务」：
+            //   401 = 管理密钥不一致 / 非本机环回；404 = 接口不存在（服务版本旧）；
+            //   HttpRequestException = 网络不可达（服务确实没起 / 端口错）。
+            var msg = ex.Message ?? "";
+            string hint;
+            if (msg.Contains("401"))
+                hint = "用户反馈加载失败：管理密钥不一致或非本机环回（请重启服务 / 检查 data/admin.key 是否丢失）";
+            else if (msg.Contains("404"))
+                hint = "用户反馈加载失败：接口不存在（本服务版本较旧，请重启后端）";
+            else if (ex is HttpRequestException || msg.Contains("refused") || msg.Contains("unreachable") || msg.Contains("连接"))
+                hint = "用户反馈加载失败：服务不可达，请确认后端已启动";
+            else
+                hint = "用户反馈加载失败：" + msg;
+            _msg.Text = hint;
         }
     }
 
@@ -2960,29 +2979,57 @@ internal sealed class MainForm : Form
             "确认删除用户反馈", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2);
         if (confirm != DialogResult.Yes) return;
 
-        var ok = 0;
+        // 服务端删除接口恒返回 HTTP 200，是否真删掉要看响应体里的 ok 字段
+        // （{ ok, error }）——只看状态码会把「未找到」误报成「已删除」。
+        var deleted = 0;
+        var notFound = 0;
         var failed = 0;
+        var lastErr = "";
         foreach (ListViewItem item in selected)
         {
             var id = item.Tag is FbItemDto dto ? dto.id : "";
-            if (string.IsNullOrEmpty(id)) { failed++; continue; }
+            if (string.IsNullOrEmpty(id)) { notFound++; lastErr = "选中行缺少反馈 id（请刷新后重试）"; continue; }
             try
             {
                 using var req = ApiRequest(HttpMethod.Delete, "feedback/" + Uri.EscapeDataString(id));
                 using var resp = await G.Http.SendAsync(req);
                 var body = await resp.Content.ReadAsStringAsync();
-                if (resp.IsSuccessStatusCode) { ok++; continue; }
+                if (resp.IsSuccessStatusCode)
+                {
+                    // 解析 ok / error（服务端 200 也可能是 ok=false 的软失败）
+                    var isOk = true;
+                    try
+                    {
+                        using var doc = JsonDocument.Parse(body);
+                        if (doc.RootElement.TryGetProperty("ok", out var o) && o.ValueKind == JsonValueKind.False)
+                            isOk = false;
+                        if (!isOk && doc.RootElement.TryGetProperty("error", out var er) && er.ValueKind == JsonValueKind.String)
+                            lastErr = er.GetString() ?? "";
+                    }
+                    catch { /* 非 JSON：按 HTTP 成功处理 */ }
+                    if (isOk) deleted++;
+                    else { notFound++; if (lastErr.Length == 0) lastErr = "未找到该条反馈"; }
+                    continue;
+                }
                 failed++;
-                _msg.Text = "部分删除失败：" + (ExtractApiError(body) ?? ((int)resp.StatusCode).ToString());
+                lastErr = ExtractApiError(body) ?? ((int)resp.StatusCode).ToString();
             }
             catch
             {
                 failed++;
-                _msg.Text = "删除失败（网络/服务不可用），请重试";
+                lastErr = "网络/服务不可用";
             }
         }
-        if (failed == 0) _msg.Text = $"已删除 {ok} 条用户反馈";
-        await LoadFeedbackAsync();
+
+        // 汇总真实结果（不再把「未找到」当成功、也不再被后续刷新覆盖）
+        var parts = new List<string>();
+        if (deleted > 0) parts.Add($"已删除 {deleted} 条");
+        if (notFound > 0) parts.Add($"{notFound} 条未找到（可能已被删除或更早归档）");
+        if (failed > 0) parts.Add($"{failed} 条失败（{lastErr}）");
+        _msg.Text = parts.Count > 0 ? string.Join("；", parts) : "没有可删除的用户反馈";
+
+        // 刷新列表：删除结果文案已含真实原因，刷新失败绝不能用误导性的「请先启动服务」覆盖它
+        await LoadFeedbackAsync(quietOnFailure: deleted > 0 || notFound > 0 || failed > 0);
     }
 
     /** 全选/全不选：以当前勾选数量过半与否为准，一键批量勾选后配合「删除选中」清理 */

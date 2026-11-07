@@ -224,11 +224,6 @@
         <div class="text-body-small mt-1">{{ t('chat.empty.hint') }}</div>
       </div>
 
-      <div v-if="quoteDraft" class="wx-quote-preview pa-2 d-flex align-center justify-space-between text-body-small text-medium-emphasis">
-        <span>{{ t('chat.replying', { who: quoteDraft.senderName, text: quoteDraft.text }) }}</span>
-        <v-btn icon="mdi-close" size="x-small" @click="quoteDraft = null" />
-      </div>
-
       <div v-if="searchOn && searchKw && groupedByDate.every(g => g.messages.length === 0)" class="text-center text-body-small text-medium-emphasis pa-6">
         {{ t('chat.search.none') }}
       </div>
