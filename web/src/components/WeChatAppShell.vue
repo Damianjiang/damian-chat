@@ -78,7 +78,7 @@
 
         <template v-else-if="detailPane">
           <transition appear name="wx-slide">
-            <component :is="detailPane" :key="detail" class="wx-panes" />
+            <component :is="detailPane" :key="detailKey" class="wx-panes" />
           </transition>
         </template>
 
@@ -241,6 +241,17 @@
   const detailPane = computed(() => (detail.value ? detailPanes[detail.value] : undefined))
   /** 手机整页切换的过渡 key：section + detail 任一变化即重放过渡 */
   const phoneKey = computed(() => `${section.value}:${detail.value ?? ''}`)
+
+  /**
+   * 多栏（iPad/电脑）右列详情面板的 key：
+   *   - 联系人详情（detail=contact）：detail + 目标 id 一起做 key，换联系人必然重挂
+   *     （/contacts/A → /contacts/B 之前 key 都是 'contact' 不重挂、onMounted 不重跑 →
+   *      右栏停在第一个人，表现为「电脑端通讯录只能点一个人」；重挂后行为与手机端一致）。
+   *   - 其它详情（chat/group/moments/settings…）：仍只按 detail 类型，保持 ChatDetailPane
+   *     等"同类型复用 + watch 切会话"的秒开体验不变，避免把聊天切会话也变成整体重挂。
+   */
+  const detailKey = computed(() =>
+    detail.value === 'contact' ? `${detail.value}:${route.params.id ?? ''}` : (detail.value ?? ''))
 
   /**
    * 手机端过渡方向（iOS 式）：
