@@ -98,6 +98,9 @@ public static class Validate
                 var sticker = Str("e", MaxSticker);
                 var imageId = Str("i", 64);
                 if (imageId.Length > 0 && !IsFileId(imageId)) return null;
+                // a = 发送者头像 fileId（聊天记录阅读器渲染对方头像用；必须 32 位 hex fileId，否则拒绝）
+                var avatarId = Str("a", 64);
+                if (avatarId.Length > 0 && !IsFileId(avatarId)) return null;
                 long fileSize = 0;
                 if (m.TryGetProperty("fs", out var fsEl) && fsEl.ValueKind == JsonValueKind.Number && fsEl.TryGetInt64(out var fsv) && fsv > 0)
                     fileSize = Math.Min(fsv, 1L << 30);
@@ -116,6 +119,7 @@ public static class Validate
                 if ((kind == "image" || kind == "file" || kind == "voice") && imageId.Length > 0) entry["i"] = imageId;
                 if (kind == "voice") entry["fs"] = Math.Clamp(fileSize, 1, 600);
                 if (kind == "sticker" && sticker.Length > 0) entry["e"] = sticker;
+                if (avatarId.Length > 0) entry["a"] = avatarId;
                 if (kind == "forward") entry["c"] = "[聊天记录]";
                 list.Add(entry);
             }

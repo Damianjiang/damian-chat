@@ -19,9 +19,12 @@
       <!-- QQ 式聊天记录阅读器：按时间顺序逐条展开，嵌套合并卡片可继续下钻 -->
       <div class="wx-fv-body">
         <div v-for="(m, i) in current?.msgs ?? []" :key="i" class="wx-fv-row">
-          <v-avatar :color="avatarColor(m.s || '?')" size="36">
-            <span class="text-body-medium">{{ (m.s || '?').slice(0, 1) }}</span>
-          </v-avatar>
+          <user-avatar
+            class="wx-fv-avatar"
+            :nickname="m.s || '?'"
+            :size="36"
+            :src="m.a"
+          />
           <div class="flex-grow-1" style="min-width: 0">
             <div class="d-flex align-center gap-2">
               <span class="text-body-small font-weight-medium">{{ m.s || t('msg.pat.group') }}</span>
@@ -61,10 +64,11 @@
 <script setup lang="ts">
   import { computed, ref, watch } from 'vue'
   import { fileUrl } from '@/lib/files'
-  import { avatarColor, timeLabel, unescapeEntities as unescape } from '@/lib/utils'
+  import { timeLabel, unescapeEntities as unescape } from '@/lib/utils'
   import { t } from '@/lib/i18n'
+  import UserAvatar from '@/components/UserAvatar.vue'
 
-  /** 合并转发快照（服务端 Validate.ParseForwardJson 的输出结构） */
+  /** 合并转发快照（服务端 Validate.ParseForwardJson 的输出结构；a = 发送者头像 fileId） */
   interface ForwardEntry {
     s?: string
     t?: number
@@ -74,6 +78,7 @@
     fs?: number
     i?: string
     e?: string
+    a?: string
   }
   interface ForwardBundle {
     v?: number

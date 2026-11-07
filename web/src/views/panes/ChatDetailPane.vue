@@ -387,8 +387,8 @@
   import MessageBubble from '@/components/MessageBubble.vue'
   import UserAvatar from '@/components/UserAvatar.vue'
 
-  /** 合并转发快照（与服务端 Validate.ParseForwardJson 输出一致） */
-  type ForwardBundle = { v?: number, msgs: Array<{ s?: string, t?: number, k: string, c?: string, f?: string, fs?: number, i?: string, e?: string }> }
+  /** 合并转发快照（与服务端 Validate.ParseForwardJson 输出一致；a = 发送者头像 fileId） */
+  type ForwardBundle = { v?: number, msgs: Array<{ s?: string, t?: number, k: string, c?: string, f?: string, fs?: number, i?: string, e?: string, a?: string }> }
   import { api } from '@/lib/api'
   import { confirm } from '@/lib/confirm'
   import { isPageMode } from '@/lib/device'
@@ -1094,7 +1094,8 @@
     return payload
   }
 
-  /** 打包快照：发送人昵称/时间/类型/内容；quote 降级文本；媒体带 fileId */
+  /** 打包快照：发送人昵称/头像/时间/类型/内容；quote 降级文本；媒体带 fileId。
+   *  a = 发送者头像 fileId（阅读聊天记录时对方头像是从快照里取的，不带 a 就只能显示首字母占位） */
   function buildBundle (msgs: Message[]): ForwardBundle {
     return {
       v: 1,
@@ -1107,6 +1108,7 @@
         fs: m.fileSize,
         i: m.imageId,
         e: m.stickerEmoji,
+        a: avatarOf(m.senderId) || undefined,
       })),
     }
   }
