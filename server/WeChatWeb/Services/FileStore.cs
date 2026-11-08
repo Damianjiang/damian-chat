@@ -21,6 +21,15 @@ public sealed class FileStorageConfig
     /// 默认 0 不伤现有体验（服务端本地实测 42~87 MB/s，慢的是公网上行带宽）。</summary>
     public long MaxDownloadBytesPerSecond { get; set; } = 0L;
 
+    /// <summary>
+    /// 下载限速下限（DDoS 加固）：ThrottleStream 用同步 Thread.Sleep 限速，
+    /// 下载速率若落在 (0, 此下限) 的极低区间，下载 1GB 大文件会同步占住一个线程池
+    /// 线程几十分钟（如 500KB/s → 34 分钟），多个并发大文件下载即逐个占死线程池
+    /// （CPU 不涨但请求全卡死、内存积压），与「应用层 DDoS 打瘫服务」同症状。
+    /// 因此配置值落在 (0, 下限) 一律视为误设，归 0（恢复不限速最快路径，无 Sleep）。
+    /// </summary>
+    public const long MinDownloadBytesPerSec = 1L * 1024 * 1024;
+
     /// <summary>头像单文件上限（默认 10MB，管理端可调，热生效）。
     /// 前端本地压缩到 ~512px/0.85 后通常几 KB，此上限是给「压缩失败/大图」的兜底硬墙。</summary>
     public long MaxAvatarBytes { get; set; } = 10L * 1024 * 1024;
@@ -44,6 +53,14 @@ public sealed class FileStorageConfig
     private static string LegacyFilePath => Path.Combine(Directory.GetCurrentDirectory(), "data", "files-config.json");
 
     private readonly object _gate = new();
+
+    /// <summary>下载限速归一化：负数/0 = 不限速；落在 (0, 下限) 的极低值视为误设归 0；正常值夹到 1GB/s 上限。</summary>
+    private static long NormalizeDownloadRate (long rate)
+    {
+        if (rate < 0) return 0;
+        if (rate < MinDownloadBytesPerSec) return 0;
+        return Math.Min(rate, 1L * 1024 * 1024 * 1024);
+    }
 
     public FileStorageConfig Clone ()
     {
@@ -69,8 +86,7 @@ public sealed class FileStorageConfig
             if (bytesPerSecond is > 0) MaxUploadBytesPerSecond = Math.Clamp(bytesPerSecond.Value, 64 * 1024, 200L * 1024 * 1024);
             // 下载限速：0 = 不限速（显式允许设回不限）；正数限到 1GB/s
             if (downloadBytesPerSecond is not null)
-                MaxDownloadBytesPerSecond = downloadBytesPerSecond.Value < 0
-                    ? 0L : Math.Min(downloadBytesPerSecond.Value, 1L * 1024 * 1024 * 1024);
+                MaxDownloadBytesPerSecond = NormalizeDownloadRate(downloadBytesPerSecond.Value);
             // 头像上限：默认 10MB；管理端可设 1~100MB（头像不该比登录背景还大，夹到 100MB 防误设）
             if (maxAvatarBytes is > 0) MaxAvatarBytes = Math.Clamp(maxAvatarBytes.Value, 1L * 1024 * 1024, 100L * 1024 * 1024);
             if (keepDays is >= 1) KeepDays = Math.Clamp(keepDays.Value, 1, 365);
@@ -144,9 +160,8 @@ public sealed class FileStorageConfig
     {
         MaxFileBytes = Math.Clamp(MaxFileBytes, 1L * 1024 * 1024, 1L * 1024 * 1024 * 1024);
         MaxUploadBytesPerSecond = Math.Clamp(MaxUploadBytesPerSecond, 64L * 1024, 200L * 1024 * 1024);
-        // 0 = 不限速（默认）；正数限到 1GB/s 上限；负数归 0
-        MaxDownloadBytesPerSecond = MaxDownloadBytesPerSecond < 0
-            ? 0L : Math.Min(MaxDownloadBytesPerSecond, 1L * 1024 * 1024 * 1024);
+        // 0 = 不限速（默认）；正数限到 1GB/s 上限；负数归 0；(0, 下限) 归 0（防极低限速拖死线程池）
+        MaxDownloadBytesPerSecond = NormalizeDownloadRate(MaxDownloadBytesPerSecond);
         // 头像上限：默认 10MB；未配置/异常值时夹到 1~100MB
         MaxAvatarBytes = Math.Clamp(MaxAvatarBytes, 1L * 1024 * 1024, 100L * 1024 * 1024);
         KeepDays = Math.Clamp(KeepDays, 1, 365);
