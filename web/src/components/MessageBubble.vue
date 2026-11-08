@@ -128,7 +128,7 @@
         <div class="d-flex flex-column" :class="{ 'flex-grow-1': true }">
           <span class="text-body-medium text-truncate" style="max-width: 200px">{{ message.fileName }}</span>
           <span class="text-body-small text-medium-emphasis">
-            {{ dlProgress ? `${dlSpeedText} · ${dlPercentText}` : fmt(message.fileSize) }}
+            {{ dlProgress ? (dlProgress.done && dlProgress.speed == null ? t('msg.dl.cached') : `${dlSpeedText} · ${dlPercentText}`) : fmt(message.fileSize) }}
           </span>
         </div>
 

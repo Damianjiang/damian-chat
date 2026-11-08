@@ -192,25 +192,35 @@ export interface DownloadProgress {
   done: boolean
 }
 
-export async function downloadFile (
-  id: string,
-  fileName?: string,
-  onProgress?: (p: DownloadProgress) => void,
-): Promise<void> {
-  let blob: Blob | null = null
-  const rec = await idbGetMedia(id).catch(() => null)
-  blob = rec?.blob ?? null
-  if (!blob) {
-    // blob 下载：axois onDownloadProgress 逐块回报已收字节 → 实时算速度 / 百分比。
-    // 总长未知（服务端未回 Content-Length）时 percent=null，UI 走 indeterminate。
-    let lastLoaded = 0
-    let lastTime = 0
-    let total: number | null = null
-    let speed: number | null = null
+/**
+ * 同文件「在途下载」去重表：一个 fileId 同一时刻**只发一次**网络流。
+ * 卡片按钮 / 右键菜单 / 预览等多入口并发点同一个文件时，只有第一个真正发起
+ * api.get，其余全部挂到同一任务上共享进度 —— 杜绝「连点 N 次 = N 份完整流」
+ * 把上行带宽打爆。任务结束即从表里摘除（此时 blob 已写进热层，后续走本地）。
+ */
+const inFlight = new Map<string, { task: Promise<Blob | null>, listeners: Set<(p: DownloadProgress) => void> }>()
+
+/** 把已下完的 blob 提升进内存热层：之后无论再点多少次下载/渲染，都直接取本地（零网络）。 */
+function cacheFileBlob (id: string, blob: Blob) {
+  if (!blob || blob.size <= 0) return
+  if (blobCache.has(id)) return
+  const url = URL.createObjectURL(blob)
+  blobCache.set(id, url)
+  evictHotIfNeeded()
+}
+
+/** 真正发一次网络下载（逐块回报进度、成功后写热层）。失败返回 null。 */
+async function startDownload (id: string, onProgress?: (p: DownloadProgress) => void): Promise<Blob | null> {
+  let lastLoaded = 0
+  let lastTime = 0
+  let total: number | null = null
+  let speed: number | null = null
+  const myEpoch = cacheEpoch
+  try {
     const res = await api.get(`/files/${id}`, {
       responseType: 'blob',
       timeout: 0,
-      onDownloadProgress: (e) => {
+      onDownloadProgress: (e: any) => {
         const loaded = e.loaded ?? 0
         if (e.total != null) total = e.total
         const now = Date.now()
@@ -229,12 +239,80 @@ export async function downloadFile (
         onProgress?.({ loaded, total, percent, speed, done: false })
       },
     })
-    blob = res.data as Blob
-    onProgress?.({ loaded: blob.size, total: total ?? blob.size, percent: 100, speed, done: true })
+    const blob = res.data as Blob | null
+    if (blob && blob.size > 0 && myEpoch === cacheEpoch) {
+      cacheFileBlob(id, blob)  // 写热层：本次会话内下次点击直接零网络
+    }
+    onProgress?.({ loaded: blob?.size ?? 0, total: total ?? blob?.size ?? 0, percent: 100, speed, done: true })
+    return blob
+  } catch {
+    onProgress?.({ loaded: 0, total: null, percent: null, speed: null, done: true })
+    return null
+  }
+}
+
+export async function downloadFile (
+  id: string,
+  fileName?: string,
+  onProgress?: (p: DownloadProgress) => void,
+): Promise<void> {
+  /*
+   * 重复点击/多入口并发下载的带宽保护（此前连点 N 次 = N 份完整网络流，
+   * 大文件几次就能把上行带宽打爆）：
+   * ① 热层命中（fileUrl 已解析过的 objectURL）→ 本地取 blob，零网络；
+   * ② IDB 命中（媒体类缓存）→ 本地 blob，零网络，并提升进内存热层；
+   * ③ 未命中：同文件**在途下载去重**——已有下载在跑就挂到同一任务上
+   *    共享进度（只发一次网络流），否则新开一次；下完的 blob 留在内存热层，
+   *    下一次点击直接走 ①（= 用户说的"浏览器缓存内就不重复下载"）。
+   */
+
+  // ① 热层命中：objectURL 本地取 blob（fetch blob: URL 不走网络）
+  let blob: Blob | null = null
+  const hotUrl = blobCache.get(id)
+  if (hotUrl) {
+    try {
+      blob = await (await fetch(hotUrl)).blob()
+    } catch { blob = null }
+  }
+
+  // ② IDB 命中
+  if (!blob) {
+    const rec = await idbGetMedia(id).catch(() => null)
+    blob = rec?.blob ?? null
+    if (blob && blob.size > 0) cacheFileBlob(id, blob)
+  }
+
+  if (!blob) {
+    // ③ 网络下载 + 在途去重：一个 fileId 同一时刻只发一次网络流。
+    //    已有在途下载 → 把自己的进度回调挂到共享监听集合上（绝不发第二份流）；
+    //    没有 → 新建任务并登记进 inFlight。用 existing/task 两个局部变量，
+    //    规避 let 被闭包捕获后块外收窄失效的类型问题。
+    const existing = inFlight.get(id)
+    let task: Promise<Blob | null>
+    if (existing) {
+      if (onProgress) existing.listeners.add(onProgress)
+      task = existing.task
+    } else {
+      const listeners = new Set<(p: DownloadProgress) => void>()
+      if (onProgress) listeners.add(onProgress)
+      const entry = { task: null as unknown as Promise<Blob | null>, listeners }
+      inFlight.set(id, entry)
+      entry.task = startDownload(id, (p) => {
+        for (const l of entry.listeners) {
+          try { l(p) } catch { /* 单个监听器异常不影响其它 */ }
+        }
+      })
+      // 任务结束（成功/失败）即从去重表摘除；此时 blob 已写进热层，后续走 ①
+      entry.task.finally(() => inFlight.delete(id)).catch(() => {})
+      task = entry.task
+    }
+    blob = await task
+    if (!blob) return // 下载失败：不进保存流程（done 已由 startDownload 广播）
   } else {
-    // 本地 IDB 命中：瞬时完成，直接报 100%
+    // 本地命中：瞬时报 100%（调用方立刻看到完成，进度条不闪"0%"）
     onProgress?.({ loaded: blob.size, total: blob.size, percent: 100, speed: null, done: true })
   }
+
   const blobUrl = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = blobUrl
