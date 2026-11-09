@@ -2554,7 +2554,21 @@ internal sealed class MainForm : Form
         }
         using var req = ApiRequest(HttpMethod.Get, "users");
         using var resp = await G.Http.SendAsync(req);
-        resp.EnsureSuccessStatusCode();
+        if (!resp.IsSuccessStatusCode)
+        {
+            // 401 = 管理密钥不一致：最常见是「服务是从别的目录手动起的」——服务端 CWD 变了，
+            // AdminKeyProvider 在别处生成/读了另一份 data/admin.key，与本 GUI 手里这份对不上。
+            // 正常用「启动」按钮起服务（工作目录 = server\WeChatWeb）时两边读同一份，能访问。
+            if ((int)resp.StatusCode == 401)
+            {
+                _msg.Text = "用户列表加载失败：管理密钥不一致（401）。"
+                    + "多半是服务从别的目录手动启动、读到不同的 admin.key；"
+                    + "请停掉它，用本机的「启动」按钮启动服务（或让两个服务都读 server\\WeChatWeb\\data\\admin.key）后重试。";
+                return;
+            }
+            _msg.Text = $"用户列表加载失败：{(int)resp.StatusCode}";
+            return;
+        }
         var json = await resp.Content.ReadAsStringAsync();
         var doc = JsonDocument.Parse(json);
         _users.Items.Clear();
@@ -2626,7 +2640,7 @@ internal sealed class MainForm : Form
         var hint = new Label
         {
             Text = "账号：11 位手机号、3-32 位字母/数字/下划线或 2-16 位中文" + Environment.NewLine
-                + "密码：8-32 位；留空则随机生成并显示一次",
+                + "密码：8-32 位，且需含字母与数字（如 Aa123456）；留空则随机生成并显示一次",
             Left = 14, Top = 134, Width = 380, Height = 44, ForeColor = Color.DimGray,
         };
         var ok = new Button { Text = "创建", Left = 240, Top = 186, Width = 78, DialogResult = DialogResult.OK };
@@ -2647,7 +2661,8 @@ internal sealed class MainForm : Form
         var body = await resp.Content.ReadAsStringAsync();
         if (!resp.IsSuccessStatusCode)
         {
-            _msg.Text = "创建失败：" + body;
+            var err = ExtractApiError(body);
+            _msg.Text = "创建失败：" + (err ?? ((int)resp.StatusCode).ToString());
             return;
         }
         using var doc = JsonDocument.Parse(body);
@@ -2664,13 +2679,20 @@ internal sealed class MainForm : Form
     {
         var item = SelectedUser();
         if (item == null) return;
-        var pwd = PromptPassword($"为 {item.Text} 设置新密码", "新密码（至少 6 位）：");
+        var pwd = PromptPassword($"为 {item.Text} 设置新密码", "新密码（8-32 位，需含字母和数字）：");
         if (string.IsNullOrEmpty(pwd)) return;
         using var req = ApiRequest(HttpMethod.Put, $"users/{item.Tag}/password", JsonSerializer.Serialize(new { password = pwd }));
         using var resp = await G.Http.SendAsync(req);
-        _msg.Text = resp.IsSuccessStatusCode
-            ? $"已重置 {item.Text} 的密码，并吊销其全部登录令牌。"
-            : $"重置失败：{(int)resp.StatusCode}";
+        if (resp.IsSuccessStatusCode)
+        {
+            _msg.Text = $"已重置 {item.Text} 的密码，并吊销其全部登录令牌。";
+        }
+        else
+        {
+            var b = await resp.Content.ReadAsStringAsync();
+            var err = ExtractApiError(b);
+            _msg.Text = $"重置失败：{err ?? ((int)resp.StatusCode).ToString()}";
+        }
     }
 
     /// <summary>删除用户（级联清理联系人/会话/群/朋友圈/文件/令牌，不可恢复）。需先选中 + 二次确认。</summary>
